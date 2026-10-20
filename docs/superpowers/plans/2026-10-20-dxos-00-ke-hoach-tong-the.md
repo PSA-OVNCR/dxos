@@ -357,8 +357,8 @@ gantt
 
 | Plan | Phạm vi | Thời điểm viết | Trạng thái |
 |---|---|---|---|
-| **01** | M0–M1: E0, E1, E2, E3, E4 (đến v0.1.0) | 20/10 | **Đã viết**, chờ duyệt |
-| 02 | M2: E5, E6, E7 (đến v0.2.0) | Viết ≈ 02/11, khi giao diện PDP và Records đã chốt | Chưa viết |
+| **01** | M0–M1: E0, E1, E2, E3, E4 (đến v0.1.0) | 20/10 | **Đã viết**; mã xong 17/17 task, còn Task 7 và E2E/tag của Task 17 chờ VPS |
+| 02 | M2: E5, E6, E7 (đến v0.2.0) | Viết ≈ 02/11, khi giao diện PDP và Records đã chốt | **Đã viết 21/10** (`2026-10-21-dxos-02-tier0-m2.md`): sớm hơn dự kiến vì mã Plan 01 đã xong, giao diện lấy theo mã thật; chờ duyệt |
 | 03 | M3: E8, E9 (đến v0.3.0) | Viết ≈ 12/11 | Chưa viết |
 | 04 | M4–M5: E10, gia cố, v0.9.0 → v1.0.0, demo | Viết ≈ 23/11, sau cổng năng suất | Chưa viết |
 

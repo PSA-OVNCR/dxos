@@ -121,7 +121,7 @@ Test ở cloud tại `56bac6e`: `make check` 258 passed; integration 178 passed 
   `release.yml` chạy khi đẩy tag `v*.*.*`; `nightly.yml` chạy integration với ClamAV thật (chưa có lượt nào).
 
 ## 4. Việc tiếp theo (theo thứ tự)
-1. **Viết Plan 02 (M2, hạn 16/11)**: workflow bridge + BPMN, danh mục guard, niêm phong, installer + CLI `dxos`, App A và B cài bằng manifest. Làm được ở cloud.
+1. **Plan 02 (M2, hạn 16/11) đã viết 21/10**: `docs/superpowers/plans/2026-10-21-dxos-02-tier0-m2.md` (15 task). Chờ trưởng nhóm duyệt rồi thực thi từ Task 1. Task 1–14 làm được ở cloud; Task 15 cần VPS.
 2. **Khi có VPS** (người dùng sẽ chạy Claude Code trên VPS và báo): Task 7; E2E Task 17 trên hồ sơ p16 với ClamAV thật; `pytest -m infra tests/infra`; rồi hỏi trưởng nhóm gắn tag `v0.1.0`.
 3. Việc của trưởng nhóm: duyệt giấy phép pypdfium2; tạo repo neo + ruleset + khóa deploy + ảnh AT-18 (`docs/runbook-anchor.md`); tìm witness độc lập trước 16/11; đăng ký qua trường (G5).
 
