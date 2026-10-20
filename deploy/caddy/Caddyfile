@@ -23,7 +23,7 @@
 	handle @kc_admin {
 		respond "Not Found" 404
 	}
-	handle_path /auth/* {
+	handle /auth/* {
 		reverse_proxy keycloak:8080
 	}
 	import gateway_routes
@@ -37,7 +37,7 @@
 	@blocked not remote_ip {$DXOS_ADMIN_ALLOWED_IPS}
 	respond @blocked "Forbidden" 403
 
-	handle_path /auth/* {
+	handle /auth/* {
 		reverse_proxy keycloak:8080
 	}
 	import gateway_routes

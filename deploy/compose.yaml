@@ -24,7 +24,7 @@ services:
   # ---------- Lối vào ----------
   caddy:
     <<: *common
-    image: caddy:2.10
+    image: caddy:2.10@sha256:c3d7ee5d2b11f9dc54f947f68a734c84e9c9666c92c88a7f30b9cba5da182adb
     ports:
       - "80:80"
       - "443:443"
@@ -46,7 +46,7 @@ services:
 
   apisix:
     <<: *common
-    image: apache/apisix:3.12.0-debian
+    image: apache/apisix:3.12.0-debian@sha256:83e70a2a1aff751c17cbf7f876e53fd37fbfcd4f0bc13748effc2cd8c86802ab
     environment:
       DXOS_ADMIN_HOST: ${DXOS_ADMIN_HOST:?đặt DXOS_ADMIN_HOST trong .env}
       APISIX_OIDC_CLIENT_SECRET: ${APISIX_OIDC_CLIENT_SECRET:?đặt APISIX_OIDC_CLIENT_SECRET trong .env}
@@ -55,8 +55,8 @@ services:
       - ./apisix/apisix.yaml:/usr/local/apisix/conf/apisix.yaml:ro
     networks: [net-front, net-app]
     healthcheck:
-      # Bất kỳ phản hồi HTTP nào (kể cả 404) đều nghĩa là APISIX đang nghe.
-      test: ["CMD", "curl", "-s", "-o", "/dev/null", "http://127.0.0.1:9080/"]
+      # Image APISIX (Debian) không có curl/wget: dùng /dev/tcp của bash.
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/9080"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -64,14 +64,16 @@ services:
   # ---------- Danh tính ----------
   keycloak:
     <<: *common
-    image: quay.io/keycloak/keycloak:26.3
+    image: quay.io/keycloak/keycloak:26.3@sha256:357829ec7c4693397533035092ad13b0644bcc95ded311f33a3738c4d9e9bdba
     command: ["start"]
     environment:
       KC_DB: postgres
       KC_DB_URL: jdbc:postgresql://kc-db:5432/keycloak
       KC_DB_USERNAME: keycloak
       KC_DB_PASSWORD: ${KC_DB_PASSWORD:?đặt KC_DB_PASSWORD trong .env}
-      # Caddy phục vụ Keycloak dưới /auth (bỏ tiền tố); URL công khai mang tiền tố.
+      # Keycloak chạy dưới /auth cả bên trong lẫn bên ngoài (Caddy KHÔNG cắt tiền tố),
+      # để URL backchannel (token_endpoint...) luôn đúng.
+      KC_HTTP_RELATIVE_PATH: /auth
       KC_HOSTNAME: https://${DXOS_DOMAIN}/auth
       KC_HOSTNAME_ADMIN: https://${DXOS_ADMIN_HOST}/auth
       KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
@@ -85,7 +87,7 @@ services:
     networks: [net-front, net-idp, net-kcdb]
     healthcheck:
       # Image Keycloak không có curl/wget: dùng /dev/tcp của bash tới cổng quản trị 9000.
-      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q '\"UP\"' <&3"]
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /auth/health/ready HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q '\"UP\"' <&3"]
       interval: 15s
       timeout: 5s
       retries: 20
@@ -93,7 +95,7 @@ services:
 
   kc-db:
     <<: *common
-    image: postgres:17-alpine
+    image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
     environment:
       POSTGRES_DB: keycloak
       POSTGRES_USER: keycloak
@@ -105,7 +107,7 @@ services:
   # ---------- Lõi Tầng 1 (image stub, Task 8 thay bằng image thật) ----------
   trust-core-api:
     <<: *common
-    image: python:3.12-slim
+    image: python:3.12-slim@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1
     command: ["python", "-m", "http.server", "8000"]
     networks: [net-app, net-idp, net-wf, net-data]
     healthcheck: &py-health
@@ -116,7 +118,7 @@ services:
 
   trust-core-worker:
     <<: *common
-    image: python:3.12-slim
+    image: python:3.12-slim@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1
     command: ["python", "-m", "http.server", "8000"]
     networks: [net-data, net-egress]
     healthcheck: *py-health
@@ -124,7 +126,7 @@ services:
   # Đứng thay viewer / backend Tầng 2 trong vùng API, để AT-01 có điểm xuất phát thật.
   net-probe-app:
     <<: *common
-    image: busybox:1.37
+    image: busybox:1.37@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e
     command: ["sleep", "infinity"]
     networks: [net-app]
     healthcheck:
@@ -134,7 +136,7 @@ services:
   # ---------- Workflow ----------
   flowable:
     <<: *common
-    image: flowable/flowable-rest:7.1.0
+    image: flowable/flowable-rest:7.1.0@sha256:b7ae287502cd5c243b577a0ca2894172e1c18cd75aea4fd67dc7d58f1b40db44
     environment:
       SPRING_DATASOURCE_DRIVER-CLASS-NAME: org.postgresql.Driver
       SPRING_DATASOURCE_URL: jdbc:postgresql://flowable-db:5432/flowable
@@ -146,8 +148,8 @@ services:
       flowable-db: {condition: service_healthy}
     networks: [net-wf, net-fldb]
     healthcheck:
-      # Xác nhận lại trong spike Task 6 (image có thể không có curl).
-      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080"]
+      # Image Flowable (Alpine) không có bash/curl; có nc. Actuator đòi xác thực nên chỉ kiểm cổng.
+      test: ["CMD", "nc", "-z", "127.0.0.1", "8080"]
       interval: 15s
       timeout: 5s
       retries: 20
@@ -155,7 +157,7 @@ services:
 
   flowable-db:
     <<: *common
-    image: postgres:17-alpine
+    image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
     environment:
       POSTGRES_DB: flowable
       POSTGRES_USER: flowable
@@ -167,7 +169,7 @@ services:
   # ---------- Vùng dữ liệu (chỉ trust-core thấy) ----------
   core-db:
     <<: *common
-    image: postgres:17-alpine
+    image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
     environment:
       POSTGRES_DB: dxos
       POSTGRES_USER: dxos_owner
@@ -178,7 +180,7 @@ services:
 
   seaweedfs:
     <<: *common
-    image: chrislusf/seaweedfs:3.80
+    image: chrislusf/seaweedfs:3.80@sha256:1055999e08eed1789b0ae45d235126e4495e23d3fb9d6396293fd42539b1ae6a
     command: ["server", "-dir=/data", "-s3", "-s3.port=8333", "-volume.max=0"]
     volumes: [seaweedfs-data:/data]
     networks: [net-data]
@@ -190,7 +192,7 @@ services:
 
   clamav:
     <<: *common
-    image: clamav/clamav:1.4
+    image: clamav/clamav:1.4@sha256:3bba6dd5ac6663d55b80f86a3126e146612d93b593cc2617188d13f637d91260
     volumes: [clamav-db:/var/lib/clamav]
     networks: [net-data, net-egress]
     healthcheck:
@@ -202,7 +204,7 @@ services:
 
   openbao:
     <<: *common
-    image: openbao/openbao:2.2.0
+    image: openbao/openbao:2.2.0@sha256:19612d67a4a95d05a7b77c6ebc6c2ac5dac67a8712d8df2e4c31ad28bee7edaa
     command: ["server", "-config=/openbao/config/openbao.hcl"]
     volumes:
       - ./openbao/openbao.hcl:/openbao/config/openbao.hcl:ro

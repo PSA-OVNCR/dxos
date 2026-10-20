@@ -33,7 +33,7 @@ membership:
   openbao:           [net-data]
 
 # Image busybox dùng để thăm dò (ops/pin_images.py ghim digest).
-probe_image: busybox:1.37
+probe_image: busybox:1.37@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e
 
 # Mỗi probe: một container tạm gắn vào mạng `from`, thử `nc -z host port`.
 probes:

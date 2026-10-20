@@ -27,7 +27,7 @@ routes:
       openid-connect:
         client_id: apisix
         client_secret: ${{APISIX_OIDC_CLIENT_SECRET}}
-        discovery: http://keycloak:8080/realms/dxos/.well-known/openid-configuration
+        discovery: http://keycloak:8080/auth/realms/dxos/.well-known/openid-configuration
         realm: dxos
         bearer_only: true
         use_jwks: true
@@ -48,7 +48,7 @@ routes:
       openid-connect:
         client_id: apisix
         client_secret: ${{APISIX_OIDC_CLIENT_SECRET}}
-        discovery: http://keycloak:8080/realms/dxos/.well-known/openid-configuration
+        discovery: http://keycloak:8080/auth/realms/dxos/.well-known/openid-configuration
         realm: dxos
         bearer_only: true
         use_jwks: true
@@ -78,7 +78,7 @@ routes:
       openid-connect:
         client_id: apisix
         client_secret: ${{APISIX_OIDC_CLIENT_SECRET}}
-        discovery: http://keycloak:8080/realms/dxos/.well-known/openid-configuration
+        discovery: http://keycloak:8080/auth/realms/dxos/.well-known/openid-configuration
         realm: dxos
         bearer_only: true
         use_jwks: true

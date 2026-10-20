@@ -13,7 +13,7 @@ x-test: &test
 services:
   core-db:
     <<: *test
-    image: postgres:17-alpine
+    image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
     environment:
       POSTGRES_DB: dxos_test
       POSTGRES_USER: dxos_owner
@@ -27,7 +27,7 @@ services:
 
   openbao:
     <<: *test
-    image: openbao/openbao:2.2.0
+    image: openbao/openbao:2.2.0@sha256:19612d67a4a95d05a7b77c6ebc6c2ac5dac67a8712d8df2e4c31ad28bee7edaa
     command: ["server", "-dev", "-dev-root-token-id=changeme-test-root", "-dev-listen-address=0.0.0.0:8200"]
     ports: ["127.0.0.1:58200:8200"]
     healthcheck:
@@ -46,7 +46,7 @@ services:
 
   seaweedfs:
     <<: *test
-    image: chrislusf/seaweedfs:3.80
+    image: chrislusf/seaweedfs:3.80@sha256:1055999e08eed1789b0ae45d235126e4495e23d3fb9d6396293fd42539b1ae6a
     command: ["server", "-dir=/data", "-s3", "-s3.port=8333", "-volume.max=0"]
     ports: ["127.0.0.1:58333:8333"]
     tmpfs: [/data]

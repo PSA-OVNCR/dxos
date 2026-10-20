@@ -81,10 +81,6 @@ def test_every_service_restarts_and_has_healthcheck(compose_cfg):
         assert d.get("healthcheck", {}).get("test"), svc
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="digest chưa ghim: chạy `python ops/pin_images.py` trên máy có Docker rồi bỏ xfail",
-)
 def test_images_pinned_by_digest(compose_cfg):
     assert all("@sha256:" in d["image"] for d in compose_cfg["services"].values() if "image" in d)
 
@@ -122,3 +118,28 @@ def test_integration_compose_binds_only_loopback():
         assert (d.get("labels") or {}).get("dxos.dev-only") == "true", svc
         for p in d.get("ports", []):
             assert p.get("host_ip") == "127.0.0.1", (svc, p)
+
+
+def test_keycloak_served_under_same_path_inside_and_outside(compose_cfg):
+    """Không cắt tiền tố /auth ở Caddy: nếu cắt, Keycloak sinh token_endpoint thiếu /auth
+    (phát hiện khi chạy sống 20/10/2026)."""
+    env = compose_cfg["services"]["keycloak"]["environment"]
+    assert env["KC_HTTP_RELATIVE_PATH"] == "/auth"
+    assert env["KC_HOSTNAME"].endswith("/auth")
+    caddyfile = (DEPLOY / "caddy/Caddyfile").read_text(encoding="utf-8")
+    assert "handle_path /auth" not in caddyfile
+    routes = yaml.safe_load((DEPLOY / "apisix/apisix.yaml").read_text(encoding="utf-8"))["routes"]
+    for r in routes:
+        oidc = (r.get("plugins") or {}).get("openid-connect")
+        if oidc:
+            assert oidc["discovery"].startswith("http://keycloak:8080/auth/realms/dxos/"), r["id"]
+
+
+# Công cụ có sẵn trong từng image (đo trên image đã ghim, 20/10/2026).
+IMAGE_TOOLS = {"apisix": {"bash"}, "flowable": {"nc", "wget"}, "keycloak": {"bash"}}
+
+
+def test_healthcheck_uses_tool_present_in_image(compose_cfg):
+    for svc, tools in IMAGE_TOOLS.items():
+        test = compose_cfg["services"][svc]["healthcheck"]["test"]
+        assert test[0] == "CMD" and test[1] in tools, (svc, test)

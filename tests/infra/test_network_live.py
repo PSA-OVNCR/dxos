@@ -44,3 +44,10 @@ def test_verify_is_anonymous_but_rate_limited_route_exists():
 def test_keycloak_admin_console_not_on_public_host():
     r = httpx.get(f"{BASE}/auth/admin/", verify=False, follow_redirects=False)  # noqa: S501
     assert r.status_code == 404
+
+
+def test_keycloak_urls_keep_auth_prefix():
+    r = httpx.get(f"{BASE}/auth/realms/master/.well-known/openid-configuration", verify=False)  # noqa: S501
+    cfg = r.json()
+    assert cfg["issuer"] == f"{BASE}/auth/realms/master"
+    assert cfg["token_endpoint"].startswith(f"{BASE}/auth/realms/master/")

@@ -29,13 +29,13 @@ Digest được ghim trong `deploy/` bằng `make pin-images`; cột "Digest" c�
 
 | Thành phần | Image | Giấy phép | Cách dùng | Digest | Đã kiểm chứng |
 |---|---|---|---|---|---|
-| Caddy | `caddy:2.10` | Apache-2.0 | Dịch vụ độc lập | *(chưa ghim)* | Chưa |
-| Apache APISIX | `apache/apisix:3.12.0-debian` | Apache-2.0 | Dịch vụ độc lập | *(chưa ghim)* | Chưa |
-| Keycloak | `quay.io/keycloak/keycloak:26.3` | Apache-2.0 | Dịch vụ độc lập | *(chưa ghim)* | Chưa |
-| Flowable REST | `flowable/flowable-rest:7.1.0` | Apache-2.0 | Dịch vụ độc lập (spike Task 6 xác nhận image OSS) | *(chưa ghim)* | Chưa |
-| PostgreSQL | `postgres:17-alpine` | PostgreSQL | Dịch vụ độc lập (core-db, kc-db, flowable-db) | *(chưa ghim)* | Chưa |
-| SeaweedFS | `chrislusf/seaweedfs:3.80` | Apache-2.0 | Dịch vụ độc lập | *(chưa ghim)* | Chưa |
-| ClamAV | `clamav/clamav:1.4` | GPL-2.0-only | Dịch vụ độc lập, nói chuyện qua socket clamd (G2) | *(chưa ghim)* | Chưa |
-| OpenBao | `openbao/openbao:2.2.0` | MPL-2.0 | Dịch vụ độc lập | *(chưa ghim)* | Chưa |
-| BusyBox | `busybox:1.37` | GPL-2.0-only | Công cụ (probe mạng, AT-01) | *(chưa ghim)* | Chưa |
-| Python | `python:3.12-slim` | PSF-2.0 (+ Debian) | Image nền: stub trust-core, `fake-av` | *(chưa ghim)* | Chưa |
+| Caddy | `caddy:2.10` | Apache-2.0 | Dịch vụ độc lập | `sha256:c3d7ee5d2b11f9dc54f947f68a734c84e9c9666c92c88a7f30b9cba5da182adb` | Chưa |
+| Apache APISIX | `apache/apisix:3.12.0-debian` | Apache-2.0 | Dịch vụ độc lập | `sha256:83e70a2a1aff751c17cbf7f876e53fd37fbfcd4f0bc13748effc2cd8c86802ab` | Chưa |
+| Keycloak | `quay.io/keycloak/keycloak:26.3` | Apache-2.0 | Dịch vụ độc lập | `sha256:357829ec7c4693397533035092ad13b0644bcc95ded311f33a3738c4d9e9bdba` | Chưa |
+| Flowable REST | `flowable/flowable-rest:7.1.0` | Apache-2.0 | Dịch vụ độc lập (spike Task 6 xác nhận image OSS) | `sha256:b7ae287502cd5c243b577a0ca2894172e1c18cd75aea4fd67dc7d58f1b40db44` | Chưa |
+| PostgreSQL | `postgres:17-alpine` | PostgreSQL | Dịch vụ độc lập (core-db, kc-db, flowable-db) | `sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24` | Chưa |
+| SeaweedFS | `chrislusf/seaweedfs:3.80` | Apache-2.0 | Dịch vụ độc lập | `sha256:1055999e08eed1789b0ae45d235126e4495e23d3fb9d6396293fd42539b1ae6a` | Chưa |
+| ClamAV | `clamav/clamav:1.4` | GPL-2.0-only | Dịch vụ độc lập, nói chuyện qua socket clamd (G2) | `sha256:3bba6dd5ac6663d55b80f86a3126e146612d93b593cc2617188d13f637d91260` | Chưa |
+| OpenBao | `openbao/openbao:2.2.0` | MPL-2.0 | Dịch vụ độc lập | `sha256:19612d67a4a95d05a7b77c6ebc6c2ac5dac67a8712d8df2e4c31ad28bee7edaa` | Chưa |
+| BusyBox | `busybox:1.37` | GPL-2.0-only | Công cụ (probe mạng, AT-01) | `sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e` | Chưa |
+| Python | `python:3.12-slim` | PSF-2.0 (+ Debian) | Image nền: stub trust-core, `fake-av` | `sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1` | Chưa |
