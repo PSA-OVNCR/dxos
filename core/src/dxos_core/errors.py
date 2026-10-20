@@ -73,6 +73,17 @@ def problem(
     return JSONResponse(body, status_code=status, media_type=PROBLEM_MEDIA_TYPE, headers=dict(headers or {}))
 
 
+class ProblemError(Exception):
+    """Ném ra ở bất kỳ đâu trong request để trả ``application/problem+json``."""
+
+    def __init__(self, status: int, type_: str, title: str, detail: str | None = None, *,
+                 headers: Mapping[str, str] | None = None, **extensions: Any) -> None:
+        super().__init__(f"{status} {type_}: {detail or title}")
+        problem_type(type_)  # kiểm slug ngay khi tạo
+        self.status, self.type_, self.title, self.detail = status, type_, title, detail
+        self.headers, self.extensions = headers, extensions
+
+
 def _phrase(status: int) -> str:
     try:
         return HTTPStatus(status).phrase
@@ -93,6 +104,10 @@ async def _validation_error(_: Request, exc: RequestValidationError) -> JSONResp
     return problem(422, "invalid-request", "Request validation failed", errors=errors)
 
 
+async def _problem_error(_: Request, exc: ProblemError) -> JSONResponse:
+    return problem(exc.status, exc.type_, exc.title, exc.detail, headers=exc.headers, **exc.extensions)
+
+
 async def _unhandled(_: Request, exc: Exception) -> JSONResponse:
     log.exception("lỗi không xử lý", exc_info=exc)
     return problem(500, "internal", "Internal Server Error")
@@ -101,4 +116,5 @@ async def _unhandled(_: Request, exc: Exception) -> JSONResponse:
 def install_error_handlers(app: FastAPI) -> None:
     app.add_exception_handler(StarletteHTTPException, _http_exception)
     app.add_exception_handler(RequestValidationError, _validation_error)
+    app.add_exception_handler(ProblemError, _problem_error)
     app.add_exception_handler(Exception, _unhandled)

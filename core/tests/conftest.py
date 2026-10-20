@@ -5,9 +5,11 @@
 from pathlib import Path
 
 import pytest
+import respx
 from dxos_core.app import create_app
 from dxos_core.settings import Settings
 from fastapi.testclient import TestClient
+from helpers.tokens import JWKS_URL, jwks
 
 CORE_DIR = Path(__file__).resolve().parents[1]
 MIGRATIONS = CORE_DIR / "migrations"
@@ -52,3 +54,12 @@ def settings(make_settings) -> Settings:
 def client(settings: Settings):
     with TestClient(create_app(settings)) as c:
         yield c
+
+
+@pytest.fixture
+def test_jwks():
+    """Giả lập JWKS của Keycloak; các request httpx khác (OpenBao...) đi thẳng."""
+    with respx.mock(assert_all_called=False, assert_all_mocked=False) as m:
+        route = m.get(JWKS_URL).respond(json=jwks())
+        m.route().pass_through()
+        yield route
