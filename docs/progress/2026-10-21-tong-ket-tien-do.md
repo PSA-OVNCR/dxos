@@ -103,7 +103,16 @@ SPDX-License-Identifier: Apache-2.0
 2. Khi có VPS: Task 7 (đo RAM), E2E Task 17 trên p16, rồi gắn tag `v0.1.0`.
 3. Cổng năng suất M1 (Plan 00 mục 8) ghi vào `docs/progress/2026-11-09.md`.
 
-## 9. Bắt đầu nhanh
+## 9. Thành viên
+| GitHub | Vai trò trong tổ chức |
+|---|---|
+| UI-UX-USHP | Owner, trưởng nhóm |
+| Levminh | Owner (mời 20/10) |
+| kirito99152 (Cao Thanh Phong) | Owner (mời 20/10) |
+
+Không chia vai TV-A/B/C: cả đội làm chung (người dùng quyết 20/10).
+
+## 10. Bắt đầu nhanh
 ```bash
 git clone https://github.com/PSA-OVNCR/dxos && cd dxos
 python -m venv .venv && . .venv/bin/activate      # Windows: .venv\Scripts\activate
