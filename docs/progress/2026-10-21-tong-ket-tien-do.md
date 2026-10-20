@@ -73,7 +73,6 @@ SPDX-License-Identifier: Apache-2.0
 ## 5. Việc chỉ trưởng nhóm làm được
 | Việc | Hạn đề xuất | Ghi chú |
 |---|---|---|
-| Duyệt giấy phép **pypdfium2** (wheel nhúng PDFium, ICU, FreeType FTL/GPL-2.0, libjpeg-turbo…) | trước v0.1.0 | Cài lúc build, không nằm trong repo (G4). Phương án thay: pypdf (BSD-3) |
 | Tạo repo neo, ruleset, khóa deploy, chụp ảnh AT-18 | trước 09/11 | `docs/runbook-anchor.md` |
 | Tìm **witness độc lập** (người/tổ chức ngoài đội chạy `dxos-witness`) | trước 16/11 | `witness/template/` |
 | Dựng VPS 16 GB; chạy Claude Code trên VPS | sớm nhất có thể | Rồi chạy Task 7 + E2E Task 17 |

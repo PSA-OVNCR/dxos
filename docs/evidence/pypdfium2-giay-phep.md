@@ -33,6 +33,9 @@ sha256 `11f281613fa22313d9c7ab89947665e84eccf8ebe40e1198a84a88352305648d` (tải
 
 **Không có** thành phần GPL, AGPL, LGPL hay giấy phép "nguồn mở có điều kiện" (G3) trong wheel.
 
+## Quyết định
+**Trưởng nhóm duyệt giữ pypdfium2 ngày 21/10/2026.** Ba việc dưới đây đã làm.
+
 ## Kết luận đề xuất [ĐX]
 Dùng được. Đội chỉ cần: (1) giữ dòng pypdfium2 trong `LICENSES-THIRD-PARTY.md`; (2) ghi công FreeType và IJG trong mục giấy
 phép của README khi phân phối image; (3) ghim phiên bản `pypdfium2>=5.14,<6` để bản build lại dùng đúng bộ thành phần đã kiểm

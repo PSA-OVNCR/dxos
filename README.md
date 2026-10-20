@@ -39,6 +39,10 @@ Mỗi tệp mã đều có header `SPDX-License-Identifier`; kiểm tra bằng `
 
 Các thành phần bên ngoài (Keycloak, APISIX, Flowable, PostgreSQL, SeaweedFS, ClamAV, OpenBao, Caddy…) chạy như dịch vụ độc lập, **không** được phân phối kèm trong kho mã này, và tuân theo giấy phép riêng của từng dự án. Danh sách: [LICENSES-THIRD-PARTY.md](LICENSES-THIRD-PARTY.md).
 
+Image `trust-core` cài thư viện pypdfium2 lúc build; thư viện này nhúng PDFium và các thành phần bên thứ ba, trong đó có
+phần mềm của **The FreeType Project** (www.freetype.org) và phần mềm dựa một phần trên công trình của
+**Independent JPEG Group**. Chi tiết: [docs/evidence/pypdfium2-giay-phep.md](docs/evidence/pypdfium2-giay-phep.md).
+
 ## Đóng góp và báo lỗi
 - Báo lỗi và đề xuất tính năng: mục **Issues** của kho mã.
 - Cách đóng góp: [CONTRIBUTING.md](CONTRIBUTING.md).
