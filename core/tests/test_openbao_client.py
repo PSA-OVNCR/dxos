@@ -68,3 +68,16 @@ async def test_rejects_non_ed25519_key(bao, respx_mock):
     respx_mock.get(f"{ADDR}/v1/transit/keys/sth-key").respond(json={"data": {"type": "ed25519", "keys": {}}})
     with pytest.raises(KmsUnavailable):
         await bao.public_keys()
+
+
+async def test_renew_self(bao, respx_mock):                                        # rà soát #5
+    route = respx_mock.post(f"{ADDR}/v1/auth/token/renew-self").respond(
+        json={"auth": {"lease_duration": 2764800}})
+    assert await bao.renew_self() == 2764800
+    assert route.calls.last.request.headers["x-vault-token"] == "changeme-token"
+
+
+async def test_renew_self_failure(bao, respx_mock):
+    respx_mock.post(f"{ADDR}/v1/auth/token/renew-self").respond(status_code=403)
+    with pytest.raises(KmsUnavailable):
+        await bao.renew_self()

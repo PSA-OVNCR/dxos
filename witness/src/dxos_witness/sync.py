@@ -3,20 +3,25 @@
 """Đồng bộ một lần với máy chủ DX-OS (spec 11.4; Plan 01 Task 16).
 
 1. Lấy STH mới nhất và khóa công khai; kiểm chữ ký → sai: ``BAD_SIGNATURE``.
-   Khóa của cùng một phiên bản mà đổi so với lần trước (key pinning) cũng là ``BAD_SIGNATURE``.
-2. Có tệp neo cùng ``tree_size`` mà khác nội dung → ``ANCHOR_MISMATCH``.
-3. Chưa có STH đã lưu → lưu, ``FIRST_RUN``.
-4. Cùng ``tree_size`` khác root, hoặc cây nhỏ đi → ``REWRITE_DETECTED``.
-5. Cây lớn hơn → kiểm consistency proof; sai → ``INCONSISTENT``; đúng → lưu, ``OK``.
+   Khóa của một phiên bản đã ghim mà đổi (key pinning) cũng là ``BAD_SIGNATURE``.
+2. Đọc **mọi** STH trong repo neo; tệp sai chữ ký/sai tên, hoặc cùng ``tree_size`` mà khác STH máy chủ
+   → ``ANCHOR_MISMATCH``; có STH neo lớn hơn STH máy chủ (máy chủ quay lui) → ``REWRITE_DETECTED``.
+3. **Chuỗi neo**: từng cặp STH neo liên tiếp (từ mốc đã kiểm lần trước) và STH neo mới nhất → STH hiện tại
+   phải có consistency proof hợp lệ → sai: ``INCONSISTENT``. Nhờ vậy lịch sử **đã neo** không viết lại được,
+   kể cả khi witness mất trạng thái hay chạy lần đầu (spec 11.3, mô hình X3).
+4. So với STH witness đã kiểm lần trước: cây nhỏ đi hoặc cùng cỡ khác root → ``REWRITE_DETECTED``;
+   consistency sai → ``INCONSISTENT``.
+5. Đạt hết: lưu trạng thái, trả ``FIRST_RUN`` (lần đầu) hoặc ``OK``.
 
 Chỉ lưu trạng thái mới khi kết quả là ``OK``/``FIRST_RUN``: bằng chứng cũ không bao giờ bị ghi đè
-bởi STH đáng ngờ.
-Witness không import dxos-core; chỉ dùng thư viện chung dxos-proof.
+bởi STH đáng ngờ. Witness không import dxos-core; chỉ dùng thư viện chung dxos-proof.
 """
 
 import base64
 import binascii
 import json
+import re
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -62,12 +67,22 @@ def signature_ok(th: dict, pubkey: bytes) -> bool:
 
 
 def _get(client: httpx.Client, path: str, **params) -> dict:
-    try:
-        r = client.get(path, params=params or None)
-        r.raise_for_status()
-        return r.json()
-    except (httpx.HTTPError, ValueError) as exc:
-        raise WitnessError(f"GET {path}: {type(exc).__name__}: {exc}") from exc
+    """GET JSON object; 429 (API công khai có rate-limit) thì chờ rồi thử lại tối đa 5 lần."""
+    for attempt in range(1, 6):
+        try:
+            r = client.get(path, params=params or None)
+            if r.status_code == 429 and attempt < 5:
+                retry_after = r.headers.get("retry-after", "")
+                time.sleep(float(retry_after) if retry_after.isdigit() else 1.5 * attempt)
+                continue
+            r.raise_for_status()
+            body = r.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            raise WitnessError(f"GET {path}: {type(exc).__name__}: {exc}") from exc
+        if not isinstance(body, dict):
+            raise WitnessError(f"GET {path}: phản hồi không phải JSON object")
+        return body
+    raise WitnessError(f"GET {path}: vẫn bị giới hạn tốc độ sau 5 lần")
 
 
 def _load(path: Path) -> dict | None:
@@ -92,63 +107,107 @@ def _parse_sth(obj: dict) -> dict:
         raise WitnessError(f"STH sai dạng: {exc}") from exc
 
 
+_ANCHOR_NAME = re.compile(r"^(\d{12})\.json$")
+
+
+def _consistent(client: httpx.Client, a: dict, b: dict) -> bool:
+    """STH ``a`` (cỡ nhỏ hơn hoặc bằng) có phải tiền tố của STH ``b`` không."""
+    if a["tree_size"] == b["tree_size"]:
+        return a["root_hash"] == b["root_hash"]
+    resp = _get(client, "/verify/v1/sth/consistency", first=a["tree_size"], second=b["tree_size"])
+    proof = resp.get("proof")
+    if not isinstance(proof, list) or not all(isinstance(x, str) for x in proof):
+        return False
+    try:
+        return verify_consistency(a["tree_size"], b["tree_size"], bytes.fromhex(a["root_hash"]),
+                                  bytes.fromhex(b["root_hash"]), [bytes.fromhex(x) for x in proof])
+    except ValueError:
+        return False
+
+
+def _pubkey(keys: dict, version: int) -> bytes | None:
+    try:
+        return base64.b64decode(keys[str(version)], validate=True)
+    except (KeyError, ValueError, binascii.Error, TypeError):
+        return None
+
+
+def _read_anchors(anchor_dir: Path, keys: dict) -> tuple[list[dict], str | None]:
+    """Mọi STH trong repo neo, sắp theo tree_size; lỗi thì trả (…, mô tả lỗi)."""
+    out = []
+    for f in sorted((anchor_dir / "sth").glob("*.json")) if (anchor_dir / "sth").is_dir() else []:
+        m = _ANCHOR_NAME.match(f.name)
+        try:
+            th = _parse_sth(json.loads(f.read_text(encoding="utf-8")))
+        except (ValueError, WitnessError) as exc:
+            return out, f"{f.name}: không đọc được ({exc})"
+        if not m or int(m.group(1)) != th["tree_size"]:
+            return out, f"{f.name}: tên tệp không khớp tree_size {th['tree_size']}"
+        pk = _pubkey(keys, th["key_version"])
+        if pk is None or not signature_ok(th, pk):
+            return out, f"{f.name}: chữ ký STH neo không hợp lệ"
+        out.append(th)
+    return sorted(out, key=lambda x: x["tree_size"]), None
+
+
 def sync(server_url: str, anchor_dir: Path, state_dir: Path, *, timeout_s: float = 15.0) -> SyncResult:
     anchor_dir, state_dir = Path(anchor_dir), Path(state_dir)
     with httpx.Client(base_url=server_url.rstrip("/"), timeout=timeout_s) as client:
         th = _parse_sth(_get(client, "/verify/v1/sth/latest"))
-        keys = _get(client, "/verify/v1/keys").get("sth-key", {})
+        served = _get(client, "/verify/v1/keys").get("sth-key", {})
+        if not isinstance(served, dict):
+            raise WitnessError("keys: sth-key không phải object")
         size = th["tree_size"]
 
-        # 1. chữ ký + key pinning
-        try:
-            pubkey = base64.b64decode(keys[str(th["key_version"])], validate=True)
-        except (KeyError, ValueError, binascii.Error):
-            return SyncResult("BAD_SIGNATURE", size, f"không có khóa sth-key phiên bản {th['key_version']}")
+        # 1. chữ ký + key pinning: khóa đã ghim luôn thắng khóa máy chủ đưa
         known = _load(state_dir / KEYS_FILE) or {}
-        pinned = known.get(str(th["key_version"]))
-        if pinned is not None and pinned != keys[str(th["key_version"])]:
-            return SyncResult("BAD_SIGNATURE", size,
-                              f"khóa sth-key v{th['key_version']} bị thay so với lần trước")
-        if not signature_ok(th, pubkey):
+        for v, k in served.items():
+            if v in known and known[v] != k:
+                return SyncResult("BAD_SIGNATURE", size, f"khóa sth-key v{v} bị thay so với lần trước")
+        keys = {**served, **known}
+        pk = _pubkey(keys, th["key_version"])
+        if pk is None:
+            return SyncResult("BAD_SIGNATURE", size, f"không có khóa sth-key phiên bản {th['key_version']}")
+        if not signature_ok(th, pk):
             return SyncResult("BAD_SIGNATURE", size, "chữ ký STH không hợp lệ")
 
-        # 2. đối chiếu repo neo
-        anchored = anchor_dir / sth_path(size)
-        if anchored.exists():
-            try:
-                anchored_th = json.loads(anchored.read_text(encoding="utf-8"))
-            except ValueError:
-                return SyncResult("ANCHOR_MISMATCH", size, f"{sth_path(size)} không phải JSON")
-            if {k: anchored_th.get(k) for k in _STH_FIELDS} != th:
+        # 2. repo neo
+        anchors, err = _read_anchors(anchor_dir, keys)
+        if err:
+            return SyncResult("ANCHOR_MISMATCH", size, err)
+        for a in anchors:
+            if a["tree_size"] > size:
+                return SyncResult("REWRITE_DETECTED", size,
+                                  f"máy chủ trả cây {size} nhỏ hơn STH đã neo {a['tree_size']}")
+            if a["tree_size"] == size and a != th:
                 return SyncResult("ANCHOR_MISMATCH", size,
                                   f"STH máy chủ khác {sth_path(size)} trong repo neo")
 
-        # 3. lần đầu
-        prev = _load(state_dir / STATE_FILE)
-        if prev is None:
-            _save(state_dir / STATE_FILE, th)
-            _save(state_dir / KEYS_FILE, {**known, **keys})
-            return SyncResult("FIRST_RUN", size, "đã lưu STH đầu tiên")
+        # 3. chuỗi neo: từ mốc đã kiểm lần trước tới STH hiện tại
+        state = _load(state_dir / STATE_FILE)
+        verified = int((state or {}).get("anchor_verified_size", 0))
+        chain = [a for a in anchors if a["tree_size"] >= verified] + [th]
+        for a, b in zip(chain, chain[1:], strict=False):
+            if not _consistent(client, a, b):
+                return SyncResult("INCONSISTENT", size,
+                                  f"chuỗi neo: {a['tree_size']} → {b['tree_size']} không nhất quán")
 
-        # 4. viết lại
-        if size < prev["tree_size"]:
-            return SyncResult("REWRITE_DETECTED", size, f"cây nhỏ đi: {prev['tree_size']} → {size}")
-        if size == prev["tree_size"]:
-            if th["root_hash"] != prev["root_hash"]:
+        # 4. so với lần kiểm trước của chính witness
+        prev = None if state is None else {k: state[k] for k in _STH_FIELDS}
+        if prev is not None:
+            if size < prev["tree_size"]:
+                return SyncResult("REWRITE_DETECTED", size, f"cây nhỏ đi: {prev['tree_size']} → {size}")
+            if size == prev["tree_size"] and th["root_hash"] != prev["root_hash"]:
                 return SyncResult("REWRITE_DETECTED", size, "cùng kích thước nhưng root khác")
-            return SyncResult("OK", size, "không đổi")
+            if not _consistent(client, prev, th):
+                return SyncResult("INCONSISTENT", size,
+                                  f"consistency proof {prev['tree_size']} → {size} không hợp lệ")
 
-        # 5. consistency
-        resp = _get(client, "/verify/v1/sth/consistency", first=prev["tree_size"], second=size)
-        proof = resp.get("proof", [])
-        try:
-            ok = verify_consistency(prev["tree_size"], size, bytes.fromhex(prev["root_hash"]),
-                                    bytes.fromhex(th["root_hash"]), [bytes.fromhex(p) for p in proof])
-        except ValueError:
-            ok = False
-        if not ok:
-            return SyncResult("INCONSISTENT", size,
-                              f"consistency proof {prev['tree_size']} → {size} không hợp lệ")
-        _save(state_dir / STATE_FILE, th)
-        _save(state_dir / KEYS_FILE, {**known, **keys})
-        return SyncResult("OK", size, f"{prev['tree_size']} → {size} nhất quán")
+        # 5. lưu
+        new_verified = max([a["tree_size"] for a in anchors] + [verified])
+        _save(state_dir / STATE_FILE, {**th, "anchor_verified_size": new_verified})
+        _save(state_dir / KEYS_FILE, keys)
+        detail = f"{len(anchors)} STH neo nhất quán"
+        if prev is None:
+            return SyncResult("FIRST_RUN", size, f"đã lưu STH đầu tiên; {detail}")
+        return SyncResult("OK", size, f"{prev['tree_size']} → {size}; {detail}")

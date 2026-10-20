@@ -223,3 +223,29 @@ async def test_file_remote_bare_repo_created_when_missing(tmp_path, th):
     await ensure_clone(f"file://{remote}", clone, GIT_SSH)
     sha = await publish_sth(th, clone, GIT_SSH)
     assert git(remote, "rev-parse", "main") == sha
+
+
+# ---------- Sửa sau rà soát độc lập ----------
+
+async def test_failed_pushes_reuse_the_same_sth(wctx, core_conn, tmp_path):        # rà soát #6
+    broken = dataclasses.replace(wctx, settings=wctx.settings.model_copy(
+        update={"anchor_remote": "ssh://git@127.0.0.1:1/khong-co.git", "anchor_repo_dir": tmp_path / "x"}))
+    await enqueue(core_conn, "anchor_sth", {})
+    for _ in range(3):
+        assert await worker.run_once(broken)
+        await core_conn.execute("UPDATE jobs SET run_after=now()")
+    assert await core_conn.fetchval("SELECT count(*) FROM tree_heads") == 1
+
+
+async def test_hanging_git_times_out(tmp_path, th, monkeypatch):                  # rà soát #7
+    from dxos_core.ledger import anchor
+
+    monkeypatch.setattr(anchor, "GIT_TIMEOUT_S", 1.0)
+    repo = tmp_path / "r"
+    subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+    git(repo, "remote", "add", "origin", "ssh://git@127.0.0.1:1/x.git")
+    import time
+    t0 = time.monotonic()
+    with pytest.raises(AnchorError) as e:
+        await publish_sth(th, repo, "sh -c 'sleep 30' --")
+    assert e.value.code == "PUSH_FAILED" and time.monotonic() - t0 < 10

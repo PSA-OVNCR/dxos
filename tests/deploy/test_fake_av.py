@@ -15,10 +15,10 @@ _spec = importlib.util.spec_from_file_location("fake_av", ROOT / "deploy/fake-av
 fake_av = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(fake_av)
 
-# Tệp thử EICAR lưu dạng base64 (không commit nguyên văn, Plan 01 Global Constraints).
-EICAR = base64.b64decode(
-    "WDVPIVAlQEFQWzRcUFpYNTQoUF4pN0NDKTd9JEVJQ0FSLVNUQU5EQVJELUFOVElWSVJVUy1URVNULUZJTEUhJEgrSCo="
-)
+# Tệp thử EICAR lưu dạng XOR 0x5A + base64 (không commit nguyên văn; base64 thường bị Defender xóa).
+EICAR = bytes(b ^ 0x5A for b in base64.b64decode(
+    "Am8Vewp/GhsKAW4GCgACb25yCgRzbRkZc20nfh8TGRsIdwkOGxQeGwgedxsUDhMMEwgPCXcOHwkOdxwTFh97fhJxEnA="
+))
 
 
 def _chunks(data: bytes, size: int) -> bytes:

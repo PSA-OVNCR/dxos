@@ -273,3 +273,58 @@ async def test_promote_never_overwrites(ctx):
 
 async def test_no_job_returns_false(ctx):
     assert await worker.run_once(ctx) is False
+
+
+# ---------- Sửa sau rà soát độc lập ----------
+
+@pytest.mark.parametrize("name,final", [("clean-text.pdf", "CLEAN"), ("eicar", "INFECTED")])
+async def test_crash_before_commit_then_retry_finishes(api, tok_cv, ctx, core_conn, monkeypatch, name, final):
+    """Rà soát #2: lỗi giữa lúc chép tệp và commit DB không được làm upload kẹt STAGING mãi mãi."""
+    from dxos_core.objects import ingest
+
+    data = eicar() if name == "eicar" else fixture(name)
+    up = await upload(api, tok_cv, data, "a.pdf")
+    real_append = ingest.append
+    calls = {"n": 0}
+
+    async def flaky(conn, **kw):
+        if kw["type"] in ("object.clean", "object.infected") and calls["n"] == 0:
+            calls["n"] += 1
+            raise RuntimeError("DB rớt giữa chừng (giả lập)")
+        return await real_append(conn, **kw)
+    monkeypatch.setattr(ingest, "append", flaky)
+    assert await worker.run_once(ctx)                                   # lần 1 lỗi trước commit
+    assert (await status(api, tok_cv, up))["status"] == "STAGING"
+    assert ctx.store.exists(ctx.settings.s3_bucket_staging, up)         # staging vẫn còn
+    await core_conn.execute("UPDATE jobs SET run_after=now()")
+    assert await worker.run_once(ctx)                                   # lần 2 thành công
+    assert (await status(api, tok_cv, up))["status"] == final
+    assert not ctx.store.exists(ctx.settings.s3_bucket_staging, up)     # dọn staging sau commit
+
+
+async def test_upload_without_content_length_411(api, tok_cv):                    # rà soát #8
+    rid = await new_record(api, tok_cv)
+
+    async def body():
+        yield b'--b\r\nContent-Disposition: form-data; name="file"; filename="a.pdf"\r\n\r\n'
+        yield b"%PDF-1.7\r\n--b--\r\n"
+    r = await api.post(f"{URL_A}/{rid}/attachments", content=body(),
+                       headers={**tok_cv, "Content-Type": "multipart/form-data; boundary=b"})
+    assert r.status_code == 411
+
+
+async def test_upload_does_not_hold_db_connection_while_reading(api, tok_cv, monkeypatch):  # rà soát #8
+    from starlette.requests import Request
+
+    rid = await new_record(api, tok_cv)
+    pool = api.app.state.pool
+    seen = {}
+    real_form = Request.form
+
+    def spy(self, *a, **k):
+        seen["in_use"] = pool.get_size() - pool.get_idle_size()
+        return real_form(self, *a, **k)
+    monkeypatch.setattr(Request, "form", spy)
+    r = await api.post(f"{URL_A}/{rid}/attachments", files={"file": ("a.pdf", fixture("clean-text.pdf"))},
+                       headers=tok_cv)
+    assert r.status_code == 202 and seen["in_use"] == 0

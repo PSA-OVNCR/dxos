@@ -23,6 +23,8 @@ class FakeLedger:
         self.key = Ed25519PrivateKey.generate()
         self.sths: list[dict] = []
         self.tamper = False
+        self.throttle = 0
+        self.extra_keys: dict = {}
         self._n = 0
 
     # --- thao tác của "máy chủ"
@@ -65,6 +67,9 @@ class FakeLedger:
 
     # --- HTTP
     def handle(self, path: str, query: dict) -> tuple[int, dict]:
+        if self.throttle > 0:
+            self.throttle -= 1
+            return 429, {"type": "rate-limited"}
         if path == "/verify/v1/sth/latest":
             if not self.sths:
                 return 404, {"type": "not-found"}
@@ -76,7 +81,7 @@ class FakeLedger:
             return 200, th
         if path == "/verify/v1/keys":
             pk = self.key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
-            return 200, {"seal-key": {}, "sth-key": {"1": base64.b64encode(pk).decode()}}
+            return 200, {"seal-key": {}, "sth-key": {"1": base64.b64encode(pk).decode(), **self.extra_keys}}
         if path == "/verify/v1/sth/consistency":
             first, second = int(query["first"][0]), int(query["second"][0])
             if not 1 <= first <= second <= len(self.entries):

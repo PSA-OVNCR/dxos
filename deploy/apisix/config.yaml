@@ -11,6 +11,9 @@ apisix:
   enable_ipv6: false
 
 nginx_config:
+  http:
+    # Chặn thân request quá lớn ngay ở gateway (tệp đính kèm tối đa 15 MB + overhead multipart).
+    client_max_body_size: 20m
   # Biến môi trường được tham chiếu trong apisix.yaml bằng ${{TEN}}.
   envs:
     - APISIX_OIDC_CLIENT_SECRET

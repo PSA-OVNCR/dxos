@@ -166,3 +166,10 @@ def test_core_never_names_tier2_apps():                                         
     offenders = [p for p in src.rglob("*.py") if any(n in p.read_text(encoding="utf-8")
                                                      for n in ("phong-ho-so", "chung-nhan", "phong_ho_so"))]
     assert offenders == []
+
+
+@pytest.mark.parametrize("ftype", ["integer", "date", "boolean", "sequence"])
+def test_pii_only_on_string_fields(ftype):                                         # rà soát #4
+    doc = load("test-app")
+    doc["collections"]["item"]["fields"]["so"] = {"type": ftype, "pii": "CCCD"}
+    assert raises_code(doc) == "SCHEMA_INVALID"

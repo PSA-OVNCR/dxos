@@ -20,7 +20,8 @@ URL_A = "/api/v1/apps/phong-ho-so/collections/van_ban/records"
 
 
 def eicar() -> bytes:
-    return base64.b64decode((FILES / "eicar.b64").read_text(encoding="ascii").strip())
+    raw = base64.b64decode((FILES / "eicar.xor5a.b64").read_text(encoding="ascii").strip())
+    return bytes(b ^ 0x5A for b in raw)   # XOR để Windows Defender không nhận ra tệp mẫu
 
 
 def fixture(name: str) -> bytes:

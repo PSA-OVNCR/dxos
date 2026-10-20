@@ -16,6 +16,8 @@ from fastapi.responses import JSONResponse, Response
 from starlette.datastructures import UploadFile
 
 from dxos_core.errors import ProblemError
+from dxos_core.identity.deps import require_principal
+from dxos_core.identity.jwt import Principal
 from dxos_core.ledger.log import append
 from dxos_core.objects.ingest import register_upload, upload_status
 from dxos_core.objects.storage import IntegrityError
@@ -45,23 +47,35 @@ def _put_staging(store, upload_id: uuid.UUID, data: bytes) -> None:
 
 @router.post("/api/v1/apps/{app}/collections/{col}/records/{rid}/attachments", status_code=202)
 async def upload_attachment(app: str, col: str, rid: str, request: Request,
-                            ctx: service.Ctx = Depends(ctx_dep)) -> JSONResponse:  # noqa: B008
-    m, spec = await service.load_target(ctx, app, col)
-    row = await service.fetch_record(ctx, m, col, rid)
-    await service.enforce_or_problem(ctx, "update", m, col, row["owner_sub"], str(row["id"]))
-    if row["seal_state"] != "NONE":
-        raise ProblemError(409, "record-sealed", "Record is sealed")
-    settings = request.app.state.settings
+                            p: Principal = Depends(require_principal)) -> JSONResponse:  # noqa: B008
+    """Kiểm quyền (giữ kết nối DB thật ngắn) → nhận thân request → ghi staging → ghi upload (kết nối mới).
+
+    Không giữ kết nối DB trong lúc client gửi tệp: 10 upload chậm không được làm cạn pool.
+    """
+    pool, hmac_key, settings = request.app.state.pool, request.app.state.hmac_key, request.app.state.settings
+    async with pool.acquire() as conn:
+        ctx = service.Ctx(conn=conn, principal=p, hmac_key=hmac_key)
+        m, spec = await service.load_target(ctx, app, col)
+        row = await service.fetch_record(ctx, m, col, rid)
+        await service.enforce_or_problem(ctx, "update", m, col, row["owner_sub"], str(row["id"]))
+        if row["seal_state"] != "NONE":
+            raise ProblemError(409, "record-sealed", "Record is sealed")
     limit = (spec.attachments.max_mb if spec.attachments else settings.max_upload_mb_default) * 2**20
     declared = request.headers.get("content-length")
-    if declared and declared.isdigit() and int(declared) > limit + _FORM_OVERHEAD:
+    if declared is None or not declared.isdigit():
+        raise ProblemError(411, "length-required", "Length Required",
+                           "Content-Length is required for uploads")
+    if int(declared) > limit + _FORM_OVERHEAD:
         raise _too_large(limit)
     form = await request.form(max_files=1, max_fields=4)
-    file = form.get("file")
-    if not isinstance(file, UploadFile):
-        raise ProblemError(400, "bad-request", "Bad Request", "multipart field 'file' is required")
-    data = await file.read(limit + 1)
-    await form.close()
+    try:
+        file = form.get("file")
+        if not isinstance(file, UploadFile):
+            raise ProblemError(400, "bad-request", "Bad Request", "multipart field 'file' is required")
+        data = await file.read(limit + 1)
+        filename, content_type = file.filename or "", file.content_type
+    finally:
+        await form.close()
     if len(data) > limit:
         raise _too_large(limit)
     upload_id = uuid.uuid4()
@@ -69,9 +83,10 @@ async def upload_attachment(app: str, col: str, rid: str, request: Request,
         await asyncio.to_thread(_put_staging, request.app.state.store, upload_id, data)
     except (ClientError, BotoCoreError) as exc:
         raise ProblemError(503, "storage-unavailable", "Object storage unavailable") from exc
-    await register_upload(ctx.conn, upload_id=upload_id, record_id=row["id"], app_id=m.app.id,
-                          filename=file.filename or "", size=len(data), declared_type=file.content_type,
-                          actor_sub=ctx.principal.sub, hmac_key=ctx.hmac_key)
+    async with pool.acquire() as conn:
+        await register_upload(conn, upload_id=upload_id, record_id=row["id"], app_id=m.app.id,
+                              filename=filename, size=len(data), declared_type=content_type,
+                              actor_sub=p.sub, hmac_key=hmac_key)
     return JSONResponse({"upload_id": str(upload_id), "status": "STAGING"}, status_code=202)
 
 

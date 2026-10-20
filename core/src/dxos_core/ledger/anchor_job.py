@@ -7,6 +7,7 @@
 - Lịch tự động: STH mới mỗi 10 phút nếu ledger có lá mới (``maybe_schedule``).
 """
 
+import json
 import logging
 from pathlib import Path
 
@@ -32,6 +33,9 @@ async def process_anchor_job(ctx: WorkerContext, job: Job) -> None:
                 raise ValueError(f"không có STH cỡ {job.payload['tree_size']}")
         else:
             th = await make_sth(conn, ctx.signer)
+            # Ghi lại cỡ cây vào việc: lần thử lại (khi đẩy lỗi) dùng đúng STH này, không ký STH mới.
+            await conn.execute("UPDATE jobs SET payload=$2::jsonb WHERE id=$1", job.id,
+                               json.dumps({"tree_size": th.tree_size}))
         if not s.anchor_remote:
             log.info("chưa cấu hình DXOS_ANCHOR_REMOTE: STH %s đã ký nhưng không neo", th.tree_size)
             await complete(conn, job.id)

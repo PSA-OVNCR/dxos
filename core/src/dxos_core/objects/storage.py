@@ -80,14 +80,16 @@ class ObjectStore:
                 return False
             raise
 
-    def _move(self, src_bucket: str, src_key: str, dst_bucket: str, dst_key: str, data: bytes | None) -> None:
-        """Chuyển object; có sẵn ``data`` thì ghi thẳng (nhanh hơn copy phía server)."""
+    def _copy(self, src_bucket: str, src_key: str, dst_bucket: str, dst_key: str, data: bytes | None) -> None:
+        """Chép object; có sẵn ``data`` thì ghi thẳng (nhanh hơn copy phía server)."""
         if data is None:
             self._s3.copy_object(Bucket=dst_bucket, Key=dst_key,
                                  CopySource={"Bucket": src_bucket, "Key": src_key})
         else:
             self._s3.put_object(Bucket=dst_bucket, Key=dst_key, Body=data)
-        self._s3.delete_object(Bucket=src_bucket, Key=src_key)
+
+    def delete_staging(self, upload_id: UUID) -> None:
+        self._s3.delete_object(Bucket=self.staging, Key=str(upload_id))
 
     # -------------------------------------------------------- theo Plan 01 Task 14
     def put_staging(self, upload_id: UUID, data: bytes) -> None:
@@ -96,18 +98,28 @@ class ObjectStore:
     def read_staging(self, upload_id: UUID) -> bytes:
         return self.get_raw(self.staging, str(upload_id))
 
-    def promote(self, upload_id: UUID, sha256: str, *, data: bytes | None = None) -> bool:
-        """Đưa tệp staging vào CAS. Đã có object cùng sha256 thì trả False và **không ghi đè**."""
-        if self.exists(self.objects, sha256):
-            self._s3.delete_object(Bucket=self.staging, Key=str(upload_id))
-            return False
-        if data is not None and hashlib.sha256(data).hexdigest() != sha256:
-            raise IntegrityError("data không khớp sha256")
-        self._move(self.staging, str(upload_id), self.objects, sha256, data)
-        return True
+    def promote(self, upload_id: UUID, sha256: str, *, data: bytes | None = None,
+                delete_staging: bool = True) -> bool:
+        """Đưa tệp staging vào CAS. Đã có object cùng sha256 thì trả False và **không ghi đè**.
 
-    def move_to_quarantine(self, upload_id: UUID, *, data: bytes | None = None) -> None:
-        self._move(self.staging, str(upload_id), self.quarantine, str(upload_id), data)
+        ``delete_staging=False``: giữ bản staging tới khi DB đã commit (worker gọi ``delete_staging`` sau),
+        để lỗi giữa chừng không làm mất tệp và việc thử lại vẫn đọc được staging.
+        """
+        created = False
+        if not self.exists(self.objects, sha256):
+            if data is not None and hashlib.sha256(data).hexdigest() != sha256:
+                raise IntegrityError("data không khớp sha256")
+            self._copy(self.staging, str(upload_id), self.objects, sha256, data)
+            created = True
+        if delete_staging:
+            self.delete_staging(upload_id)
+        return created
+
+    def move_to_quarantine(self, upload_id: UUID, *, data: bytes | None = None,
+                           delete_staging: bool = True) -> None:
+        self._copy(self.staging, str(upload_id), self.quarantine, str(upload_id), data)
+        if delete_staging:
+            self.delete_staging(upload_id)
 
     def read_object(self, sha256: str) -> bytes:
         data = self.get_raw(self.objects, sha256)

@@ -32,6 +32,7 @@ log = logging.getLogger("dxos_core.worker")
 DEFAULT_HEARTBEAT = Path(tempfile.gettempdir()) / "dxos-worker.heartbeat"
 HEARTBEAT_MAX_AGE = 60.0
 MAX_ATTEMPTS = 10
+RENEW_EVERY_S = 3600.0
 _DB_ERRORS = (OSError, TimeoutError, asyncpg.PostgresError, asyncpg.InterfaceError)
 
 Handler = Callable[[WorkerContext, Job], Awaitable[None]]
@@ -78,11 +79,23 @@ def _make_context(settings: Settings, pool: asyncpg.Pool) -> WorkerContext:
                                                read_secret(settings.openbao_token_file)))
 
 
+async def _renew_token(ctx: WorkerContext) -> None:
+    renew = getattr(ctx.signer, "renew_self", None)
+    if renew is None:
+        return
+    try:
+        ttl = await renew()
+        log.info("đã gia hạn token OpenBao, TTL %ss", ttl)
+    except Exception as exc:  # noqa: BLE001 (OpenBao khóa/không tới được: lần sau thử lại)
+        log.warning("không gia hạn được token OpenBao: %s", exc)
+
+
 async def run(settings: Settings, *, heartbeat: Path = DEFAULT_HEARTBEAT, interval: float = 5.0,
               once: bool = False) -> None:
     pool = await create_pool(settings.database_url, min_size=0, max_size=4)
     ctx: WorkerContext | None = None
     buckets_ready = False
+    last_renew = 0.0
     try:
         while True:
             try:
@@ -95,20 +108,26 @@ async def run(settings: Settings, *, heartbeat: Path = DEFAULT_HEARTBEAT, interv
                 touch_heartbeat(heartbeat)
                 db_ok = True
             if db_ok:
-                if ctx is None:
-                    ctx = _make_context(settings, pool)
-                if not buckets_ready:
-                    try:
-                        await asyncio.to_thread(ctx.store.ensure_buckets)
-                        buckets_ready = True
-                    except Exception as exc:  # noqa: BLE001 (S3 chưa lên thì lần sau thử lại)
-                        log.warning("S3 chưa sẵn sàng: %s", type(exc).__name__)
-                if buckets_ready and not once:
-                    if settings.anchor_remote:
-                        async with pool.acquire() as conn:
-                            await maybe_schedule(conn)
-                    while await run_once(ctx):
-                        touch_heartbeat(heartbeat)
+                try:
+                    if ctx is None:
+                        ctx = _make_context(settings, pool)
+                    if not buckets_ready:
+                        try:
+                            await asyncio.to_thread(ctx.store.ensure_buckets)
+                            buckets_ready = True
+                        except Exception as exc:  # noqa: BLE001 (S3 chưa lên thì lần sau thử lại)
+                            log.warning("S3 chưa sẵn sàng: %s", type(exc).__name__)
+                    if not once and time.monotonic() - last_renew > RENEW_EVERY_S:
+                        last_renew = time.monotonic()
+                        await _renew_token(ctx)
+                    if buckets_ready and not once:
+                        if settings.anchor_remote:
+                            async with pool.acquire() as conn:
+                                await maybe_schedule(conn)
+                        while await run_once(ctx):
+                            touch_heartbeat(heartbeat)
+                except Exception:  # noqa: BLE001 (DB rớt giữa vòng: ghi log, vòng sau làm tiếp)
+                    log.exception("vòng worker lỗi; thử lại sau %ss", interval)
             if once:
                 return
             await asyncio.sleep(interval)

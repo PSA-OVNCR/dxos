@@ -69,3 +69,7 @@ async def test_policy_allows_only_sign_and_read(core_token):
 async def test_bad_token_is_kms_unavailable():
     with pytest.raises(KmsUnavailable):
         await OpenBaoTransit(ADDR, "changeme-sai-token").sign("sth-key", b"x")
+
+
+async def test_core_token_can_renew_itself(core_token):                            # rà soát #5
+    assert await OpenBaoTransit(ADDR, core_token).renew_self() > 0

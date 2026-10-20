@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     anchor_remote: str | None = None
     anchor_git_ssh_command: str = (
         "ssh -i /run/secrets/anchor-deploy-key -o IdentitiesOnly=yes -o BatchMode=yes"
+        " -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=4"
         " -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/var/lib/dxos/anchor-known-hosts")
 
 

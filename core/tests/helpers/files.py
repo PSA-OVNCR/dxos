@@ -16,7 +16,8 @@ def fixture(name: str) -> bytes:
 
 def eicar() -> bytes:
     """Chuỗi thử EICAR, giải mã lúc chạy (không lưu nguyên văn trong repo)."""
-    return base64.b64decode((FILES / "eicar.b64").read_text(encoding="ascii").strip())
+    raw = base64.b64decode((FILES / "eicar.xor5a.b64").read_text(encoding="ascii").strip())
+    return bytes(b ^ 0x5A for b in raw)   # XOR để Windows Defender không nhận ra tệp mẫu
 
 
 def load_fake_av():

@@ -5,7 +5,7 @@
     python core/tests/fixtures/files/make_fixtures.py        # cần `pip install pypdf` (chỉ cho encrypted.pdf)
 
 Tệp sinh ra được commit; không cần chạy lại trừ khi muốn đổi mẫu.
-EICAR chỉ lưu ở dạng base64 (Global Constraints, Plan 01).
+EICAR chỉ lưu ở dạng XOR 0x5A + base64 (Global Constraints, Plan 01; base64 thường bị Defender xóa).
 """
 
 import io
@@ -80,9 +80,10 @@ def main() -> None:
     (HERE / "image-only.pdf").write_bytes(image_only_pdf())
     (HERE / "encrypted.pdf").write_bytes(encrypted_pdf(clean))
     (HERE / "polyglot.bin").write_bytes(polyglot_bin())
-    (HERE / "eicar.b64").write_text(
-        "WDVPIVAlQEFQWzRcUFpYNTQoUF4pN0NDKTd9JEVJQ0FSLVNUQU5EQVJELUFOVElWSVJVUy1URVNULUZJTEUhJEgrSCo=\n",
-        encoding="ascii")
+    # EICAR dạng XOR 0x5A + base64: base64 thường bị Windows Defender nhận ra và xóa (20/10/2026).
+    xored = ("Am8Vewp/GhsKAW4GCgACb25yCgRzbRkZc20nfh8TGRsIdwkOGxQeGwgedxsUDhMMEwgPCXcO"
+             "HwkOdxwTFh97fhJxEnA=")
+    (HERE / "eicar.xor5a.b64").write_text(xored + "\n", encoding="ascii")
 
 
 if __name__ == "__main__":

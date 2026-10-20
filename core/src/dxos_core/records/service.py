@@ -10,6 +10,7 @@ Quy tắc chung:
 
 import base64
 import json
+import re
 import unicodedata
 import uuid
 from dataclasses import dataclass
@@ -29,6 +30,7 @@ from dxos_core.registry.model import CollectionSpec, Manifest
 from dxos_core.registry.store import get_active
 
 MAX_STRING = 4000
+_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 MAX_BULK = 500
 _INT64 = 2**63
 
@@ -81,7 +83,7 @@ def _check_value(name: str, ftype: str, v: Any) -> str | None:
         if not isinstance(v, bool):
             return "phải là true/false"
     elif ftype == "date":
-        if not isinstance(v, str) or len(v) != 10:
+        if not isinstance(v, str) or not _DATE.fullmatch(v):
             return "phải là ngày dạng YYYY-MM-DD"
         try:
             date.fromisoformat(v)
@@ -197,8 +199,7 @@ async def create(ctx: Ctx, app_id: str, col: str, body: Any) -> dict:
     await enforce_or_problem(ctx, "create", m, col, None, f"{app_id}/{col}")
     data = validate_data(spec, nfc(body))
     row = await _insert(ctx, m, col, spec, dict(data))
-    can_reveal = decide(ctx.principal, "reveal_pii", m, col, None).allow
-    return record_out(row, ctx.principal, spec, can_reveal)
+    return record_out(row, ctx.principal, spec, can_reveal=False)   # phản hồi tạo mới luôn che PII
 
 
 async def bulk_create(ctx: Ctx, app_id: str, col: str, body: Any) -> dict:
@@ -312,5 +313,5 @@ async def patch(ctx: Ctx, app_id: str, col: str, rid: str, body: Any, if_match: 
         if "record_sealed" in str(exc):
             raise ProblemError(409, "record-sealed", "Record is sealed") from exc
         raise
-    can_reveal = decide(ctx.principal, "reveal_pii", m, col, None).allow
+    can_reveal = await _reveal(ctx, m, col, spec, [merged], str(row["id"]))   # bản rõ → field.revealed (F4)
     return record_out(new, ctx.principal, spec, can_reveal)

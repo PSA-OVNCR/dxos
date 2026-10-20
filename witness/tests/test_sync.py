@@ -95,3 +95,66 @@ def test_cli_exit_codes(server, tmp_path, capsys):
     assert "BAD_SIGNATURE" in capsys.readouterr().out
     assert main(["sync", "--server", "http://127.0.0.1:1", "--anchor-dir", str(tmp_path),
                  "--state-dir", str(tmp_path), "--no-pull"]) == 2
+
+
+# ---------- Sửa sau rà soát độc lập: lịch sử đã neo không viết lại được ----------
+
+def _rewrite_after(server, keep: int, total: int) -> None:
+    """Giữ ``keep`` lá đầu, viết lại phần sau, tổng ``total`` lá; ký STH nhưng không neo."""
+    server.entries = server.entries[:keep]
+    server.add_entries(total - keep, tag="forged")
+    server.make_sth_without_anchor()
+
+
+def test_rewrite_of_anchored_history_after_last_witness_run(server, tmp_path):     # rà soát #1, kịch bản A
+    assert sync(server.url, server.anchor_dir, tmp_path).status == "FIRST_RUN"      # witness thấy cây 3
+    server.add_entries(3)
+    server.make_and_anchor_sth()                         # neo cây 6, witness chưa chạy
+    _rewrite_after(server, keep=3, total=8)                                         # sửa lá 3..5
+    r = sync(server.url, server.anchor_dir, tmp_path)
+    assert r.status == "INCONSISTENT" and "6" in r.detail
+
+
+def test_fresh_witness_checks_anchor_chain(server, tmp_path):                       # rà soát #1, kịch bản B
+    server.add_entries(3)
+    server.make_and_anchor_sth()
+    _rewrite_after(server, keep=3, total=8)
+    assert sync(server.url, server.anchor_dir, tmp_path / "moi").status == "INCONSISTENT"
+
+
+def test_server_older_than_anchor_is_rewrite(server, tmp_path):
+    server.add_entries(3)
+    server.make_and_anchor_sth()                                                    # neo cây 6
+    server.sths.append(server.sths[0])                   # máy chủ trả lại STH cây 3
+    assert sync(server.url, server.anchor_dir, tmp_path).status == "REWRITE_DETECTED"
+
+
+def test_forged_anchor_file_name(server, tmp_path):
+    (server.anchor_dir / "sth/000000000003.json").rename(server.anchor_dir / "sth/000000000004.json")
+    assert sync(server.url, server.anchor_dir, tmp_path).status == "ANCHOR_MISMATCH"
+
+
+def test_honest_growth_with_many_anchors_ok(server, tmp_path):
+    for _ in range(4):
+        server.add_entries(2)
+        server.make_and_anchor_sth()
+    assert sync(server.url, server.anchor_dir, tmp_path).status == "FIRST_RUN"
+    server.add_entries(1)
+    server.make_sth_without_anchor()                                                # chưa kịp neo: vẫn OK
+    r = sync(server.url, server.anchor_dir, tmp_path)
+    state = json.loads((tmp_path / "latest-sth.json").read_text())
+    assert r.status == "OK" and state["anchor_verified_size"] == 11
+
+
+def test_rate_limited_then_ok(server, tmp_path):
+    server.throttle = 2
+    assert sync(server.url, server.anchor_dir, tmp_path).status == "FIRST_RUN"
+
+
+def test_pinned_key_kept_when_server_adds_version(server, tmp_path):
+    sync(server.url, server.anchor_dir, tmp_path)
+    pinned = json.loads((tmp_path / "known-keys.json").read_text())["1"]
+    server.extra_keys = {"2": "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE="}
+    assert sync(server.url, server.anchor_dir, tmp_path).status == "OK"
+    keys = json.loads((tmp_path / "known-keys.json").read_text())
+    assert keys["1"] == pinned and "2" in keys

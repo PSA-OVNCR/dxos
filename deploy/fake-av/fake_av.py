@@ -7,7 +7,8 @@ Lệnh hỗ trợ (tiền tố `z` kết thúc bằng NUL, hoặc `n` kết thú
 PING, VERSION, INSTREAM. Phản hồi giống clamd: `stream: OK` hoặc
 `stream: Eicar-Test-Signature FOUND`.
 
-Chuỗi EICAR được lưu ở dạng base64 để Windows Defender không cách ly mã nguồn.
+Chuỗi EICAR được lưu ở dạng XOR 0x5A rồi base64: Windows Defender giải được base64 thường
+(đã xóa tệp eicar.b64 trên máy thành viên ngày 20/10/2026) nhưng không nhận ra dạng này.
 """
 
 from __future__ import annotations
@@ -19,9 +20,9 @@ import socket
 import struct
 import sys
 
-EICAR = base64.b64decode(
-    "WDVPIVAlQEFQWzRcUFpYNTQoUF4pN0NDKTd9JEVJQ0FSLVNUQU5EQVJELUFOVElWSVJVUy1URVNULUZJTEUhJEgrSCo="
-)
+EICAR = bytes(b ^ 0x5A for b in base64.b64decode(
+    "Am8Vewp/GhsKAW4GCgACb25yCgRzbRkZc20nfh8TGRsIdwkOGxQeGwgedxsUDhMMEwgPCXcOHwkOdxwTFh97fhJxEnA="
+))
 SIGNATURE = "Eicar-Test-Signature"
 VERSION = "ClamAV 0.0.0-dxos-fake-av/0/Thu Jan  1 00:00:00 1970"
 MAX_STREAM = 50 * 1024 * 1024

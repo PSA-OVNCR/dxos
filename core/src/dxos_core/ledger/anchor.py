@@ -19,6 +19,7 @@ from dxos_proof.canonical import canonical_bytes
 from dxos_core.ledger.sth import TreeHead
 
 BRANCH = "main"
+GIT_TIMEOUT_S = 120.0     # một lệnh git (kể cả push qua SSH) không được treo worker
 _AUTHOR = ["-c", "user.name=dxos-anchor", "-c", "user.email=anchor@dxos.invalid"]
 
 
@@ -37,7 +38,12 @@ async def _git(repo: Path, git_ssh_command: str, *args: str, check: bool = True)
     proc = await asyncio.create_subprocess_exec(
         "git", "-C", str(repo), *args, env=env,
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
-    out, _ = await proc.communicate()
+    try:
+        out, _ = await asyncio.wait_for(proc.communicate(), GIT_TIMEOUT_S)
+    except TimeoutError as exc:
+        proc.kill()
+        await proc.wait()
+        raise AnchorError("PUSH_FAILED", f"git {args[0]} quá {GIT_TIMEOUT_S:.0f}s") from exc
     text = out.decode("utf-8", "replace").strip()
     if check and proc.returncode != 0:
         raise AnchorError("PUSH_FAILED", f"git {args[0]}: {text[-300:]}")

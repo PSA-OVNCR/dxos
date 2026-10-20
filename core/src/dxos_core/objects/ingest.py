@@ -77,6 +77,7 @@ async def process_scan_job(ctx: WorkerContext, job: Job) -> None:
             raise ValueError(f"upload {upload_id} không tồn tại")
         if up["status"] != "STAGING":                          # đã xử lý (việc chạy lại sau khi worker chết)
             await complete(conn, job.id)
+            await _drop_staging(ctx, upload_id)
             return
         data = await asyncio.to_thread(ctx.store.read_staging, upload_id)
         sha = hashlib.sha256(data).hexdigest()
@@ -87,18 +88,22 @@ async def process_scan_job(ctx: WorkerContext, job: Job) -> None:
             await retry_later(conn, job.id, CLAMD_RETRY_S, str(exc))
             return
         if not scan.clean:
-            await asyncio.to_thread(partial(ctx.store.move_to_quarantine, upload_id, data=data))
+            await asyncio.to_thread(partial(ctx.store.move_to_quarantine, upload_id, data=data,
+                                            delete_staging=False))
             await _finish(conn, ctx, job, up, status="INFECTED", event="object.infected", sha=sha,
                           reason=scan.signature)
+            await _drop_staging(ctx, upload_id)
             return
         max_bytes = await _max_bytes(conn, ctx, up["app_id"], up["collection"])
         chk = await asyncio.to_thread(check_pdf, data, max_bytes)
         if not chk.ok:
-            await asyncio.to_thread(partial(ctx.store.move_to_quarantine, upload_id, data=data))
+            await asyncio.to_thread(partial(ctx.store.move_to_quarantine, upload_id, data=data,
+                                            delete_staging=False))
             await _finish(conn, ctx, job, up, status="REJECTED", event="object.rejected", sha=sha,
                           reason=chk.reason)
+            await _drop_staging(ctx, upload_id)
             return
-        await asyncio.to_thread(partial(ctx.store.promote, upload_id, sha, data=data))
+        await asyncio.to_thread(partial(ctx.store.promote, upload_id, sha, data=data, delete_staging=False))
         try:
             version = await clamd_version(ctx.settings.clamd_host, ctx.settings.clamd_port)
         except ScannerUnavailable:
@@ -120,6 +125,15 @@ async def process_scan_job(ctx: WorkerContext, job: Job) -> None:
                                "record_id": str(up["record_id"])},
                          hmac_key=ctx.hmac_key, app_id=up["app_id"])
             await complete(conn, job.id)
+        await _drop_staging(ctx, upload_id)
+
+
+async def _drop_staging(ctx: WorkerContext, upload_id: uuid.UUID) -> None:
+    """Xóa bản staging **sau** khi DB đã commit; lỗi ở đây chỉ để lại rác, không mất dữ liệu."""
+    try:
+        await asyncio.to_thread(ctx.store.delete_staging, upload_id)
+    except Exception:  # noqa: BLE001
+        log.warning("không xóa được staging %s (sẽ còn rác trong bucket staging)", upload_id)
 
 
 def upload_status(row: asyncpg.Record) -> dict:
@@ -129,4 +143,3 @@ def upload_status(row: asyncpg.Record) -> dict:
     elif row["status"] in ("INFECTED", "REJECTED"):
         out["reason"] = row["reason"]
     return out
-

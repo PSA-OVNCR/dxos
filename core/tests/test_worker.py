@@ -37,3 +37,41 @@ async def test_run_once_without_db_does_not_touch_heartbeat(settings, tmp_path):
     hb = tmp_path / "hb"
     await worker.run(settings, heartbeat=hb, once=True)
     assert not hb.exists()
+
+
+async def test_run_loop_survives_errors_inside_iteration(settings, tmp_path, monkeypatch):   # rà soát #10
+    """Lỗi bất ngờ trong một vòng (DB rớt khi claim...) không được làm worker thoát."""
+    calls = {"n": 0}
+
+    class FakeConn:
+        async def fetchval(self, *_):
+            return 1
+
+    class FakeAcquire:
+        async def __aenter__(self):
+            return FakeConn()
+
+        async def __aexit__(self, *a):
+            return False
+
+    class FakePool:
+        def acquire(self, timeout=None):
+            return FakeAcquire()
+
+        async def close(self):
+            pass
+
+    async def fake_pool(*a, **k):
+        return FakePool()
+
+    def boom(*a, **k):
+        calls["n"] += 1
+        if calls["n"] >= 3:
+            raise KeyboardInterrupt  # dừng vòng lặp của test
+        raise RuntimeError("DB rớt")
+    monkeypatch.setattr(worker, "create_pool", fake_pool)
+    monkeypatch.setattr(worker, "_make_context", boom)
+    import pytest
+    with pytest.raises(KeyboardInterrupt):
+        await worker.run(settings, heartbeat=tmp_path / "hb", interval=0)
+    assert calls["n"] == 3

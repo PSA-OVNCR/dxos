@@ -40,6 +40,21 @@ class OpenBaoTransit:
             raise KmsUnavailable("chữ ký OpenBao sai định dạng")
         return SignResult(signature=base64.b64decode(m.group(2)), key_version=int(m.group(1)))
 
+    async def renew_self(self) -> int:
+        """Gia hạn token của lõi (token period do init.sh cấp); trả TTL mới (giây)."""
+        try:
+            async with httpx.AsyncClient(timeout=self._timeout) as client:
+                resp = await client.post(f"{self.addr}/v1/auth/token/renew-self", json={},
+                                         headers={"X-Vault-Token": self._token})
+        except httpx.HTTPError as exc:
+            raise KmsUnavailable(f"OpenBao {type(exc).__name__}") from exc
+        if resp.status_code != 200:
+            raise KmsUnavailable(f"OpenBao trả HTTP {resp.status_code} khi gia hạn token")
+        try:
+            return int(resp.json()["auth"]["lease_duration"])
+        except (ValueError, KeyError, TypeError) as exc:
+            raise KmsUnavailable("OpenBao trả dữ liệu gia hạn không hợp lệ") from exc
+
     async def public_keys(self) -> dict[KeyName, dict[int, bytes]]:
         result: dict[KeyName, dict[int, bytes]] = {}
         for name in KEY_NAMES:

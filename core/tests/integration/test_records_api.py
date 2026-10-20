@@ -272,3 +272,29 @@ async def test_bulk_error_row_shape_and_forbidden(api, tok_cb, tok_owner_a):
     res = (await api.post(URL_B + ":bulk", json=[{"ho_ten": "B"}], headers=tok_cb)).json()["results"]
     assert res[0]["ok"] is False and res[0]["row"] == 0 and res[0]["error"]["type"].endswith("/schema")
     assert (await api.post(URL_B + ":bulk", json=[{}], headers=tok_owner_a)).status_code == 403
+
+
+# ---------- Sửa sau rà soát độc lập ----------
+
+async def test_patch_response_reveal_is_logged(api, tok_owner_a, core_conn, owner_conn):   # rà soát #3 (F4)
+    rid = (await api.post(URL_T, json={"title": "t", "secret_code": "079203001234"},
+                          headers=tok_owner_a)).json()["id"]
+    # chủ bản ghi đồng thời là reviewer (được xem bản rõ)
+    both = tok("owner_a1", "app:test-app:member", "app:test-app:reviewer")
+    before = await core_conn.fetchval("SELECT count(*) FROM ledger_entries WHERE type='field.revealed'")
+    r = await api.patch(f"{URL_T}/{rid}", json={"title": "mới"}, headers={**both, "If-Match": '"1"'})
+    assert r.json()["data"]["secret_code"] == "079203001234"
+    after = await core_conn.fetchval("SELECT count(*) FROM ledger_entries WHERE type='field.revealed'")
+    assert after == before + 1
+
+
+async def test_create_response_always_masked(api):
+    both = tok("u", "app:test-app:member", "app:test-app:reviewer")
+    r = await api.post(URL_T, json={"title": "t", "secret_code": "079203001234"}, headers=both)
+    assert r.json()["data"]["secret_code"] == "07********34"
+
+
+@pytest.mark.parametrize("d", ["2026-W01-1", "20261120", "2026-13-01", "2026-02-30"])
+async def test_strict_dates(api, tok_cb, d):
+    r = await api.post(URL_B, json={"ho_ten": "A", "su_kien": "S", "ngay_cap": d}, headers=tok_cb)
+    assert r.status_code == 422

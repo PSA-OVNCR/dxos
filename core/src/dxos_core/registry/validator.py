@@ -101,6 +101,10 @@ def _check_guards(m: Manifest) -> None:
 def _check_references(m: Manifest) -> None:
     roles = set(m.roles)
     for cname, col in m.collections.items():
+        for fname, f in col.fields.items():
+            if f.pii and f.type != "string":       # lõi chỉ che được chuỗi (masking.py)
+                raise ManifestError("SCHEMA_INVALID", f"/collections/{cname}/fields/{fname}/pii",
+                                    "pii chỉ dùng cho trường type: string")
         for action in ("read", "create", "update"):
             for i, entry in enumerate(getattr(col.access, action)):
                 if entry.startswith("role:") and entry[5:] not in roles:
