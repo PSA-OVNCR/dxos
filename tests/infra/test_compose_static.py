@@ -143,3 +143,23 @@ def test_healthcheck_uses_tool_present_in_image(compose_cfg):
     for svc, tools in IMAGE_TOOLS.items():
         test = compose_cfg["services"][svc]["healthcheck"]["test"]
         assert test[0] == "CMD" and test[1] in tools, (svc, test)
+
+
+def _kc_import_sources(cfg: dict) -> set[str]:
+    return {
+        Path(v["source"]).name
+        for v in cfg["services"]["keycloak"].get("volumes", [])
+        if v.get("target", "").startswith("/opt/keycloak/data/import/")
+    }
+
+
+def test_production_imports_only_production_realm(compose_cfg):
+    kc = compose_cfg["services"]["keycloak"]
+    assert "--import-realm" in kc["command"]
+    assert _kc_import_sources(compose_cfg) == {"realm-dxos.json"}
+    for var in ("DXOS_DOMAIN", "APISIX_OIDC_CLIENT_SECRET", "DXOS_INSTALLER_CLIENT_SECRET"):
+        assert kc["environment"].get(var), var
+
+
+def test_dev_lite_imports_dev_realm(dev_lite_cfg):
+    assert _kc_import_sources(dev_lite_cfg) == {"realm-dxos-dev.json"}

@@ -65,8 +65,15 @@ services:
   keycloak:
     <<: *common
     image: quay.io/keycloak/keycloak:26.3@sha256:357829ec7c4693397533035092ad13b0644bcc95ded311f33a3738c4d9e9bdba
-    command: ["start"]
+    # Nạp realm dxos khi khởi động lần đầu (bỏ qua nếu realm đã có trong kc-db).
+    command: ["start", "--import-realm"]
+    volumes:
+      - ./keycloak/realm-dxos.json:/opt/keycloak/data/import/realm-dxos.json:ro
     environment:
+      # Biến được thay vào realm-dxos.json lúc nạp (${...}); secret không nằm trong repo.
+      DXOS_DOMAIN: ${DXOS_DOMAIN}
+      APISIX_OIDC_CLIENT_SECRET: ${APISIX_OIDC_CLIENT_SECRET:?đặt APISIX_OIDC_CLIENT_SECRET trong .env}
+      DXOS_INSTALLER_CLIENT_SECRET: ${DXOS_INSTALLER_CLIENT_SECRET:?đặt DXOS_INSTALLER_CLIENT_SECRET trong .env}
       KC_DB: postgres
       KC_DB_URL: jdbc:postgresql://kc-db:5432/keycloak
       KC_DB_USERNAME: keycloak

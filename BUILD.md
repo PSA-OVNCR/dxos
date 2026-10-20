@@ -45,5 +45,8 @@ và `make netcheck` bằng `python ops/netcheck.py`.
 | `p8` | máy 8 GB, laptop demo dự phòng | heap 512 MB, ClamAV 1 luồng, không nạp chữ ký song song |
 | `dev-lite` | phát triển trên laptop | **ClamAV thay bằng `fake-av` (chỉ nhận EICAR)**; không dùng để nghiệm thu |
 
+Người dùng dev (chỉ hồ sơ dev-lite, mật khẩu `dev-only-password`): `chuyen_vien1`, `truong_phong1`, `giam_doc1`, `van_thu1`, `nhan_vien1`, `can_bo_clb1`, `truong_clb1`, `owner_a1`, `owner_b1`, `admin1`.
+Realm chỉ được nạp lần đầu; muốn nạp lại thì xóa volume `dxos_kc-db-data`.
+
 Truy cập: `https://localhost/auth/` (Keycloak), `https://localhost/api/v1/...` (qua APISIX).
 Trình duyệt sẽ cảnh báo chứng chỉ vì Caddy dùng CA nội bộ cho `localhost`.

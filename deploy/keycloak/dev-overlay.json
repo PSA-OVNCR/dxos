@@ -1,0 +1,37 @@
+{
+  "_comment": "CHỈ DÙNG KHI PHÁT TRIỂN/TEST. Nạp vào realm-dxos-dev.json bằng `python ops/build_dev_realm.py`. Mật khẩu chung của người dùng dev: dev-only-password.",
+  "roles": [
+    "app:phong-ho-so:chuyen_vien", "app:phong-ho-so:truong_phong", "app:phong-ho-so:giam_doc",
+    "app:phong-ho-so:van_thu", "app:phong-ho-so:nhan_vien",
+    "app:chung-nhan:can_bo_clb", "app:chung-nhan:truong_clb",
+    "app:test-app:member"
+  ],
+  "users": {
+    "chuyen_vien1": ["app:phong-ho-so:chuyen_vien"],
+    "truong_phong1": ["app:phong-ho-so:truong_phong"],
+    "giam_doc1": ["app:phong-ho-so:giam_doc"],
+    "van_thu1": ["app:phong-ho-so:van_thu"],
+    "nhan_vien1": ["app:phong-ho-so:nhan_vien"],
+    "can_bo_clb1": ["app:chung-nhan:can_bo_clb"],
+    "truong_clb1": ["app:chung-nhan:truong_clb"],
+    "owner_a1": ["app:test-app:member"],
+    "owner_b1": ["app:test-app:member"],
+    "admin1": ["dxos-admin"]
+  },
+  "password": "dev-only-password",
+  "test_client": {
+    "clientId": "dxos-test",
+    "name": "Client test (DEV-ONLY, cho phép direct grant)",
+    "enabled": true,
+    "publicClient": true,
+    "protocol": "openid-connect",
+    "standardFlowEnabled": false,
+    "implicitFlowEnabled": false,
+    "directAccessGrantsEnabled": true,
+    "serviceAccountsEnabled": false,
+    "redirectUris": [],
+    "webOrigins": [],
+    "defaultClientScopes": ["web-origins", "acr", "basic", "profile", "roles", "dxos-api-audience"],
+    "optionalClientScopes": []
+  }
+}

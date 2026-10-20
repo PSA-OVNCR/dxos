@@ -9,6 +9,8 @@
 | `network-matrix.yaml` | **Nguồn sự thật** cho phân vùng mạng; test tĩnh và `ops/netcheck.py` đọc tệp này |
 | `caddy/Caddyfile` | TLS, `/auth` → Keycloak, `/api` `/admin` `/verify` `/view` → APISIX, `/apps` tệp tĩnh; host quản trị giới hạn IP |
 | `apisix/` | APISIX standalone (không Admin API, không etcd): route tĩnh, OIDC bearer, limit-req |
+| `keycloak/realm-dxos.json` | Realm `dxos` cho production: vai trò `dxos-admin`, client `dxos-spa` (PKCE S256), `apisix`, `dxos-installer`; scope `dxos-api-audience`. Secret dạng `${BIEN}` lấy từ `.env` khi nạp |
+| `keycloak/dev-overlay.json` → `realm-dxos-dev.json` | Người dùng dev và client `dxos-test` (direct grant). **Chỉ dev-lite/test.** Sinh lại bằng `python ops/build_dev_realm.py` |
 | `openbao/openbao.hcl` | OpenBao lưu tệp; khởi tạo và transit ở Plan 01 Task 15 |
 | `clamav/clamd.p8.conf` | clamd cho hồ sơ p8 |
 | `fake-av/` | Stub giao thức clamd **chỉ nhận EICAR**, DEV-ONLY |

@@ -22,6 +22,7 @@ Bảng kê giấy phép và nguồn gốc mọi mô-đun bên ngoài. Cập nh�
 | reuse | ≥ 4 | GPL-3.0-or-later | Công cụ (kiểm tra giấy phép, không phân phối) | Chưa |
 | PyYAML | ≥ 6 | MIT | Công cụ (test) | Chưa |
 | httpx | ≥ 0.27 | BSD-3-Clause | Công cụ (test) | Chưa |
+| PyJWT | ≥ 2.8 | MIT | Công cụ (test; Task 10 dùng làm thư viện) | Chưa |
 | gitleaks (image Docker) | v8.18.4 | MIT | Công cụ (CI) | Chưa |
 
 ## Dịch vụ (image Docker, chạy độc lập, không nhúng mã)
