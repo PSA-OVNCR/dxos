@@ -20,6 +20,21 @@ x-pg-health: &pg-health
   timeout: 5s
   retries: 10
 
+# Cấu hình chung của trust-core-api và trust-core-worker (dxos_core.settings.Settings, tiền tố DXOS_).
+# Bí mật không nằm trong biến môi trường: đọc từ /run/secrets/<tên> (khối `secrets:` cuối tệp).
+x-core-env: &core-env
+  DXOS_DATABASE_URL: postgresql://dxos_core:${CORE_DB_APP_PASSWORD:?đặt CORE_DB_APP_PASSWORD trong .env}@core-db:5432/dxos
+  DXOS_S3_ENDPOINT: http://seaweedfs:8333
+  DXOS_S3_ACCESS_KEY_FILE: /run/secrets/s3-access-key
+  DXOS_S3_SECRET_KEY_FILE: /run/secrets/s3-secret-key
+  DXOS_OPENBAO_TOKEN_FILE: /run/secrets/openbao-core-token
+  DXOS_KEYCLOAK_ISSUER: https://${DXOS_DOMAIN:?đặt DXOS_DOMAIN trong .env}/auth/realms/dxos
+  DXOS_KEYCLOAK_JWKS_URL: http://keycloak:8080/auth/realms/dxos/protocol/openid-connect/certs
+  DXOS_ACTOR_HMAC_KEY_FILE: /run/secrets/actor-hmac-key
+  DXOS_ANCHOR_REPO_DIR: /var/lib/dxos/anchor-repo
+
+x-core-secrets: &core-secrets [s3-access-key, s3-secret-key, openbao-core-token, actor-hmac-key]
+
 services:
   # ---------- Lối vào ----------
   caddy:
@@ -111,24 +126,45 @@ services:
     networks: [net-kcdb]
     healthcheck: *pg-health
 
-  # ---------- Lõi Tầng 1 (image stub, Task 8 thay bằng image thật) ----------
+  # ---------- Lõi Tầng 1 (image build từ core/Dockerfile, ảnh nền ghim digest) ----------
   trust-core-api:
     <<: *common
-    image: python:3.12-slim@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1
-    command: ["python", "-m", "http.server", "8000"]
+    build: &core-build
+      context: ..
+      dockerfile: core/Dockerfile
+    environment:
+      <<: *core-env
+      # Chỉ dùng lúc khởi động để chạy migration; entrypoint xóa 2 biến này trước khi exec uvicorn.
+      DXOS_MIGRATE_DATABASE_URL: postgresql://dxos_owner:${CORE_DB_OWNER_PASSWORD:?đặt CORE_DB_OWNER_PASSWORD trong .env}@core-db:5432/dxos
+      DXOS_CORE_DB_PASSWORD: ${CORE_DB_APP_PASSWORD:?đặt CORE_DB_APP_PASSWORD trong .env}
+    secrets: *core-secrets
+    depends_on:
+      core-db: {condition: service_healthy}
     networks: [net-app, net-idp, net-wf, net-data]
-    healthcheck: &py-health
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/', timeout=3)"]
+    healthcheck:
+      # /readyz: DB kết nối được và đã có migration.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/readyz', timeout=3)"]
       interval: 15s
       timeout: 5s
       retries: 5
+      start_period: 30s
 
   trust-core-worker:
     <<: *common
-    image: python:3.12-slim@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1
-    command: ["python", "-m", "http.server", "8000"]
+    build: *core-build
+    command: ["python", "-m", "dxos_core.worker"]
+    environment: *core-env
+    secrets: *core-secrets
+    depends_on:
+      trust-core-api: {condition: service_healthy}   # migration đã chạy xong
     networks: [net-data, net-egress]
-    healthcheck: *py-health
+    healthcheck:
+      # Worker ghi heartbeat mỗi 5 giây khi DB trả lời; quá 60 giây là hỏng.
+      test: ["CMD", "python", "-m", "dxos_core.worker", "--check"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   # Đứng thay viewer / backend Tầng 2 trong vùng API, để AT-01 có điểm xuất phát thật.
   net-probe-app:
@@ -234,6 +270,13 @@ networks:
   net-fldb:   {internal: true}
   net-data:   {internal: true}
   net-egress: {internal: false}
+
+# Docker secret lấy giá trị từ biến trong .env; container đọc ở /run/secrets/<tên>.
+secrets:
+  s3-access-key:      {environment: S3_ACCESS_KEY}
+  s3-secret-key:      {environment: S3_SECRET_KEY}
+  openbao-core-token: {environment: OPENBAO_CORE_TOKEN}
+  actor-hmac-key:     {environment: DXOS_ACTOR_HMAC_KEY}
 
 volumes:
   apps-static:

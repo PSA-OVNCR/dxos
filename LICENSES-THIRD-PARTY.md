@@ -16,13 +16,21 @@ Bảng kê giấy phép và nguồn gốc mọi mô-đun bên ngoài. Cập nh�
 |---|---|---|---|---|
 | Python (thư viện chuẩn) | ≥ 3.12 | PSF-2.0 | Runtime | Chưa |
 | pytest | ≥ 8 | MIT | Công cụ (test) | Chưa |
-| pytest-asyncio | ≥ 0.23 | Apache-2.0 | Công cụ (test) | Chưa |
+| pytest-asyncio | ≥ 0.24 | Apache-2.0 | Công cụ (test) | Chưa |
 | respx | ≥ 0.21 | BSD-3-Clause | Công cụ (test) | Chưa |
 | ruff | ≥ 0.6 | MIT | Công cụ (lint) | Chưa |
 | reuse | ≥ 4 | GPL-3.0-or-later | Công cụ (kiểm tra giấy phép, không phân phối) | Chưa |
-| PyYAML | ≥ 6 | MIT | Công cụ (test) | Chưa |
-| httpx | ≥ 0.27 | BSD-3-Clause | Công cụ (test) | Chưa |
-| PyJWT | ≥ 2.8 | MIT | Công cụ (test; Task 10 dùng làm thư viện) | Chưa |
+| PyYAML | ≥ 6 | MIT | Thư viện (`dxos-core`) và công cụ (test) | Chưa |
+| httpx | ≥ 0.27 | BSD-3-Clause | Thư viện (`dxos-core`) và công cụ (test) | Chưa |
+| PyJWT (kèm `cryptography`) | ≥ 2.8 | MIT | Thư viện (`dxos-core`, Task 10) và công cụ (test) | Chưa |
+| FastAPI | ≥ 0.115 | MIT | Thư viện (`dxos-core`) | Chưa |
+| Starlette (phụ thuộc của FastAPI) | theo FastAPI | BSD-3-Clause | Thư viện | Chưa |
+| Pydantic, pydantic-settings | ≥ 2.4 | MIT | Thư viện (`dxos-core`) | Chưa |
+| Uvicorn (`[standard]`: uvloop, httptools, websockets, watchfiles, python-dotenv) | ≥ 0.30 | BSD-3-Clause (uvloop: MIT hoặc Apache-2.0; httptools, watchfiles: MIT; websockets, python-dotenv: BSD-3-Clause) | Thư viện (`dxos-core`) | Chưa |
+| asyncpg | ≥ 0.29 | Apache-2.0 | Thư viện (`dxos-core`) | Chưa |
+| jsonschema | ≥ 4.23 | MIT | Thư viện (`dxos-core`, Task 11) | Chưa |
+| boto3 (botocore, s3transfer) | ≥ 1.35 | Apache-2.0 | Thư viện (`dxos-core`, Task 14) | Chưa |
+| cryptography | ≥ 43 | Apache-2.0 OR BSD-3-Clause | Thư viện (`dxos-core`) | Chưa |
 | gitleaks (image Docker) | v8.18.4 | MIT | Công cụ (CI) | Chưa |
 
 ## Dịch vụ (image Docker, chạy độc lập, không nhúng mã)
@@ -39,4 +47,4 @@ Digest được ghim trong `deploy/` bằng `make pin-images`; cột "Digest" c�
 | ClamAV | `clamav/clamav:1.4` | GPL-2.0-only | Dịch vụ độc lập, nói chuyện qua socket clamd (G2) | `sha256:3bba6dd5ac6663d55b80f86a3126e146612d93b593cc2617188d13f637d91260` | Chưa |
 | OpenBao | `openbao/openbao:2.2.0` | MPL-2.0 | Dịch vụ độc lập | `sha256:19612d67a4a95d05a7b77c6ebc6c2ac5dac67a8712d8df2e4c31ad28bee7edaa` | Chưa |
 | BusyBox | `busybox:1.37` | GPL-2.0-only | Công cụ (probe mạng, AT-01) | `sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e` | Chưa |
-| Python | `python:3.12-slim` | PSF-2.0 (+ Debian) | Image nền: stub trust-core, `fake-av` | `sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1` | Chưa |
+| Python | `python:3.12-slim` | PSF-2.0 (+ Debian) | Image nền: `core/Dockerfile` (trust-core-api, trust-core-worker), `fake-av` | `sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1` | Chưa |

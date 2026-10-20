@@ -16,3 +16,21 @@ Gói Python `dxos-core` (FastAPI). Chạy thành 2 tiến trình: `trust-core-ap
 | `workflow/`, `seal/` | Workflow bridge + guard; niêm phong và đối soát | Plan 02 |
 
 `migrations/` chứa các tệp SQL `NNN_*.sql`. `tests/` gồm unit test và integration test (marker `integration`).
+
+## Chạy và kiểm thử
+```bash
+make dev-install                    # cài dxos-proof và dxos-core ở chế độ editable
+make test                           # unit test (không cần DB)
+make test-db-up && make test-integration   # integration test với PostgreSQL thật
+```
+- API: `uvicorn --factory dxos_core.app:create_app` (cấu hình bằng biến `DXOS_*`, xem `settings.py`). `GET /healthz` báo tiến trình sống; `GET /readyz` báo DB kết nối được và đã có migration.
+- Worker: `python -m dxos_core.worker`; healthcheck `python -m dxos_core.worker --check`.
+- Migration: `DXOS_MIGRATE_DATABASE_URL=<DSN dxos_owner> python -m dxos_core.db.migrate`. Container `trust-core-api` tự chạy bước này khi khởi động (`docker/api-entrypoint.sh`).
+- Lỗi HTTP luôn ở dạng `application/problem+json` (RFC 9457), `type` = `https://dxos.dev/problems/<slug>`.
+
+## Cơ sở dữ liệu (`migrations/001_core.sql`)
+- Mọi bảng nằm trong schema `core`. Role `dxos_owner` sở hữu bảng và chạy migration; role `dxos_core` là role ứng dụng.
+- `ledger_entries`, `tree_heads`: `dxos_core` chỉ có `SELECT, INSERT`; trigger `ledger_append_only` chặn `UPDATE/DELETE/TRUNCATE` kể cả với owner.
+- `records`: trigger `record_seal_guard` chặn sửa `data` và xóa khi `seal_state ≠ NONE`; chỉ cho chuyển `NONE→SEAL_PENDING→SEALED→REVOKED` và `NONE→SEALED`.
+- `objects`: `sha256` và `storage_key` không đổi được (quyền theo cột + trigger `object_identity_guard`).
+- Tệp migration đã phát hành **không được sửa**: `apply_migrations` so sha256 và dừng nếu khác. Thay đổi schema thì thêm `002_*.sql`.

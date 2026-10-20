@@ -22,6 +22,13 @@ make check
 ```
 Kết quả mong đợi: `ruff` không báo lỗi; `reuse lint` in dòng `Congratulations!`; toàn bộ test đơn vị đạt.
 
+Integration test của `core/` (cần PostgreSQL; mỗi test tự tạo rồi xóa một database riêng):
+```bash
+make test-db-up            # PostgreSQL ở 127.0.0.1:55432 (deploy/compose.test.yaml)
+make test-integration
+```
+Dùng PostgreSQL có sẵn: đặt `DXOS_TEST_OWNER_DSN=postgresql://<role có quyền tạo DB>:<mật khẩu>@<host>:<cổng>/<db>`.
+
 ## Cấu hình
 Mọi cấu hình đặt qua biến môi trường (xem `.env.example`). Không cần sửa mã nguồn để cấu hình.
 
@@ -47,6 +54,8 @@ và `make netcheck` bằng `python ops/netcheck.py`.
 
 Người dùng dev (chỉ hồ sơ dev-lite, mật khẩu `dev-only-password`): `chuyen_vien1`, `truong_phong1`, `giam_doc1`, `van_thu1`, `nhan_vien1`, `can_bo_clb1`, `truong_clb1`, `owner_a1`, `owner_b1`, `admin1`.
 Realm chỉ được nạp lần đầu; muốn nạp lại thì xóa volume `dxos_kc-db-data`.
+
+`trust-core-api` tự chạy migration khi khởi động (role `dxos_owner`) rồi mới phục vụ bằng role `dxos_core`. Đã có `.env` từ trước Task 8 thì thêm 2 dòng `DXOS_ACTOR_HMAC_KEY` và `OPENBAO_CORE_TOKEN` từ `.env.example`.
 
 Truy cập: `https://localhost/auth/` (Keycloak), `https://localhost/api/v1/...` (qua APISIX).
 Trình duyệt sẽ cảnh báo chứng chỉ vì Caddy dùng CA nội bộ cho `localhost`.

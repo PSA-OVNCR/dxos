@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Công cụ phát triển (không phân phối kèm sản phẩm)
 pytest>=8
-pytest-asyncio>=0.23
+pytest-asyncio>=0.24
 respx>=0.21
 ruff>=0.6
 reuse>=4

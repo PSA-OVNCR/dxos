@@ -37,6 +37,18 @@ jobs:
       - run: make dev-install
       - run: python -m pytest -m "not integration and not infra"
 
+  integration:
+    runs-on: ubuntu-latest
+    env:
+      DXOS_TEST_REQUIRE_DB: "1"   # không có DB thì báo lỗi, không bỏ qua
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: docker compose -f deploy/compose.test.yaml up -d --wait core-db
+      - run: make dev-install
+      - run: python -m pytest -m integration -v
+
   secrets:
     runs-on: ubuntu-latest
     steps:

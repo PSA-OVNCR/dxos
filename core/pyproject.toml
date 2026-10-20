@@ -1,0 +1,30 @@
+# SPDX-FileCopyrightText: 2026 PSA_OVNCR
+# SPDX-License-Identifier: Apache-2.0
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dxos-core"
+version = "0.1.0"
+description = "DX-OS Trust Core: headless Tier-1 platform (identity, policy, records, quarantine, Merkle ledger)"
+license = "Apache-2.0"
+requires-python = ">=3.12"
+# dxos-proof cài từ thư mục libs/dxos-proof (make dev-install, core/Dockerfile), không lấy từ PyPI.
+# pypdfium2 chưa thêm: để tới Task 14, sau khi kiểm giấy phép các thành phần nhúng trong wheel.
+dependencies = [
+    "dxos-proof",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "asyncpg>=0.29",
+    "pydantic-settings>=2.4",
+    "pyjwt[crypto]>=2.8",
+    "jsonschema>=4.23",
+    "pyyaml>=6",
+    "httpx>=0.27",
+    "boto3>=1.35",
+    "cryptography>=43",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
