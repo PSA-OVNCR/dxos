@@ -3,7 +3,6 @@
 from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
-
 from dxos_proof.canonical import CanonicalError, canonical_bytes, rfc3339_utc, sha256_hex
 
 
