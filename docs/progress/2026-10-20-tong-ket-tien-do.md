@@ -80,8 +80,8 @@ Tài liệu này dành cho thành viên mới và người review: đọc xong b
 | GitHub | Vai trò trong tổ chức | Ghi chú |
 |---|---|---|
 | UI-UX-USHP | Owner | Trưởng nhóm |
-| Levminh | Member (đang mời, chờ xác thực sudo của Owner) | Dự kiến quyền Write trên `dxos` |
-| kirito99152 | Member (đang mời, chờ xác thực sudo của Owner) | Dự kiến quyền Write trên `dxos` |
+| Levminh | Owner (đã mời 20/10, chờ chấp nhận) | Toàn quyền tổ chức và repo |
+| kirito99152 (Cao Thanh Phong) | Owner (đã mời 20/10, chờ chấp nhận) | Toàn quyền tổ chức và repo |
 
 Phân chia theo Plan 00: TV-A hạ tầng/lõi, TV-B ledger/kiểm dịch/PDP, TV-C workflow/nền tảng/Tầng 2. **Cần chốt ai là TV-A/B/C.**
 
