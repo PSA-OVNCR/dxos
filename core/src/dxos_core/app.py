@@ -15,6 +15,7 @@ from dxos_core.db.pool import create_pool
 from dxos_core.errors import install_error_handlers
 from dxos_core.identity import deps as identity
 from dxos_core.identity.jwt import JwksVerifier
+from dxos_core.records import router as records
 from dxos_core.settings import Settings, read_secret
 
 
@@ -37,4 +38,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     install_error_handlers(app)
     app.include_router(health.router)
     app.include_router(identity.router)
+    app.include_router(records.router)
     return app

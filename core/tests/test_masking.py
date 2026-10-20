@@ -35,7 +35,7 @@ def test_mask_record():
     data = {"title": "Hồ sơ", "secret_code": "079203001234"}
     assert mask_record(data, spec, can_reveal=False) == {"title": "Hồ sơ", "secret_code": "07********34"}
     assert mask_record(data, spec, can_reveal=True) == data
-    assert data["secret_code"] == "079203001234"  # noqa: S105 (không sửa dict gốc)
+    assert data["secret_code"] == "079203001234"  # không sửa dict gốc
 
 
 def test_mask_record_skips_missing_and_non_string():

@@ -22,7 +22,7 @@ from dxos_core.db.pool import SEARCH_PATH, create_pool
 OWNER_DSN = os.environ.get(
     "DXOS_TEST_OWNER_DSN", "postgresql://dxos_owner:changeme-test@127.0.0.1:55432/dxos_test"
 )
-CORE_PASSWORD = "changeme-test-core"  # noqa: S105 (chỉ dùng cho DB test)
+CORE_PASSWORD = "changeme-test-core"
 MIGRATIONS = Path(__file__).resolve().parents[2] / "migrations"
 
 
