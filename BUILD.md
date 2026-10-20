@@ -24,7 +24,7 @@ Kết quả mong đợi: `ruff` không báo lỗi; `reuse lint` in dòng `Congra
 
 Integration test của `core/` (cần PostgreSQL; mỗi test tự tạo rồi xóa một database riêng):
 ```bash
-make test-db-up            # PostgreSQL ở 127.0.0.1:55432 (deploy/compose.test.yaml)
+make test-db-up            # PostgreSQL :55432, SeaweedFS :58333, OpenBao dev :58200 (deploy/compose.test.yaml)
 make test-integration
 ```
 Dùng PostgreSQL có sẵn: đặt `DXOS_TEST_OWNER_DSN=postgresql://<role có quyền tạo DB>:<mật khẩu>@<host>:<cổng>/<db>`.
@@ -59,3 +59,13 @@ Realm chỉ được nạp lần đầu; muốn nạp lại thì xóa volume `dx
 
 Truy cập: `https://localhost/auth/` (Keycloak), `https://localhost/api/v1/...` (qua APISIX).
 Trình duyệt sẽ cảnh báo chứng chỉ vì Caddy dùng CA nội bộ cho `localhost`.
+
+## E2E mốc M1 (stack dev-lite đang chạy)
+1. `docker compose -p dxos --env-file .env -f deploy/compose.yaml -f deploy/compose.dev-lite.yaml -f deploy/compose.e2e.yaml up -d --build`
+2. Init và unseal OpenBao, chạy `init.sh`, ghi `OPENBAO_CORE_TOKEN` (`docs/runbook-openbao.md`).
+3. Nạp manifest: `ops/seed_manifests.py` (hướng dẫn trong tệp).
+4. Chạy `ops/e2e/run_e2e.sh` trong container `python:3.12-slim` (lệnh `docker run` ở đầu tệp).
+
+## Phát hành
+Đẩy tag `vX.Y.Z` (đã có mục `## [X.Y.Z]` trong `CHANGELOG.md`). Workflow `release` đính kèm `dxos-X.Y.Z.tar.gz`,
+`sbom-X.Y.Z.cdx.json` và wheel của `dxos-proof`, `dxos-core`, `dxos-witness`.

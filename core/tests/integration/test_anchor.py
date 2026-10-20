@@ -165,7 +165,7 @@ async def test_anchor_job_makes_sth_publishes_and_records(wctx, core_conn, bare_
 
 async def test_anchor_job_push_failure_retries(wctx, core_conn, tmp_path):
     broken = dataclasses.replace(wctx, settings=wctx.settings.model_copy(
-        update={"anchor_remote": f"file://{tmp_path}/khong-co.git", "anchor_repo_dir": tmp_path / "x"}))
+        update={"anchor_remote": "ssh://git@127.0.0.1:1/khong-co.git", "anchor_repo_dir": tmp_path / "x"}))
     await enqueue(core_conn, "anchor_sth", {})
     assert await worker.run_once(broken)
     row = await core_conn.fetchrow("SELECT state, run_after > now() AS later, last_error FROM jobs")
@@ -215,3 +215,11 @@ async def test_anchor_run_503_when_kms_down(anchor_settings, tok_admin, test_jwk
     async with running_api(anchor_settings, signer=Down()) as api:
         r = await api.post("/admin/v1/anchor:run", headers=tok_admin)
     assert r.status_code == 503 and r.json()["type"].endswith("/kms-unavailable")
+
+
+async def test_file_remote_bare_repo_created_when_missing(tmp_path, th):
+    remote = tmp_path / "chua-co.git"
+    clone = tmp_path / "clone"
+    await ensure_clone(f"file://{remote}", clone, GIT_SSH)
+    sha = await publish_sth(th, clone, GIT_SSH)
+    assert git(remote, "rev-parse", "main") == sha

@@ -1,0 +1,37 @@
+# SPDX-FileCopyrightText: 2026 PSA_OVNCR
+# SPDX-License-Identifier: Apache-2.0
+#
+# Phát hành khi đẩy tag vX.Y.Z (Plan 01 Task 17). Tệp đính kèm:
+#   dxos-X.Y.Z.tar.gz (git archive, định dạng mở — TL tr.2), sbom-X.Y.Z.cdx.json (syft, CycloneDX),
+#   wheel của dxos-proof, dxos-core, dxos-witness. Mô tả release = mục [X.Y.Z] của CHANGELOG.md.
+name: release
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Phiên bản từ tag
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+      - name: Ghi chú phát hành (bắt buộc có mục trong CHANGELOG)
+        run: python ops/changelog_section.py "$VERSION" > notes.md
+      - name: Wheel
+        run: |
+          python -m pip install build
+          for pkg in libs/dxos-proof core witness; do python -m build --wheel --outdir dist "$pkg"; done
+      - name: Mã nguồn (.tar.gz)
+        run: git archive --format=tar.gz --prefix="dxos-${VERSION}/" -o "dist/dxos-${VERSION}.tar.gz" "$GITHUB_REF_NAME"
+      - name: SBOM CycloneDX (syft)
+        run: docker run --rm -v "$PWD:/src:ro" anchore/syft:v1.18.1 dir:/src -o cyclonedx-json > "dist/sbom-${VERSION}.cdx.json"
+      - name: Tạo GitHub Release
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" --notes-file notes.md --verify-tag

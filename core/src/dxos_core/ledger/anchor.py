@@ -49,6 +49,10 @@ async def ensure_clone(remote: str, repo_dir: Path, git_ssh_command: str) -> Non
     if (repo_dir / ".git").is_dir():
         return
     repo_dir.parent.mkdir(parents=True, exist_ok=True)
+    if remote.startswith("file://"):            # chỉ cho môi trường thử (compose.e2e.yaml): tự tạo bare repo
+        bare = Path(remote[len("file://"):])
+        if not bare.exists():
+            await _git(repo_dir.parent, git_ssh_command, "init", "-q", "--bare", "-b", BRANCH, str(bare))
     await _git(repo_dir.parent, git_ssh_command, "clone", "-q", remote, str(repo_dir))
     await _git(repo_dir, git_ssh_command, "symbolic-ref", "HEAD", f"refs/heads/{BRANCH}")
 

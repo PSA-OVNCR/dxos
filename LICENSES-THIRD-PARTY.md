@@ -35,6 +35,8 @@ Bảng kê giấy phép và nguồn gốc mọi mô-đun bên ngoài. Cập nh�
 | python-multipart | ≥ 0.0.9 | Apache-2.0 | Thư viện (`dxos-core`, nhận multipart upload) | Có (20/10/2026, metadata PyPI) |
 | pypdf | bất kỳ | BSD-3-Clause | Công cụ (chỉ để sinh `core/tests/fixtures/files/encrypted.pdf`) | Chưa |
 | gitleaks (image Docker) | v8.18.4 | MIT | Công cụ (CI) | Chưa |
+| syft (image Docker `anchore/syft`) | v1.18.1 | Apache-2.0 | Công cụ (CI, sinh SBOM khi phát hành) | Chưa |
+| git, openssh-client (gói Debian trong image trust-core) | theo Debian 12 | GPL-2.0-only; BSD | Chương trình độc lập, worker gọi để đẩy STH (G2) | Chưa |
 
 ## Dịch vụ (image Docker, chạy độc lập, không nhúng mã)
 Digest được ghim trong `deploy/` bằng `make pin-images`; cột "Digest" cập nhật cùng commit ghim.

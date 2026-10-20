@@ -7,14 +7,16 @@ Dự án dự thi **Olympic Tin học Sinh viên Việt Nam – Phần mềm ngu
 > English version: [README_EN.md](README_EN.md)
 
 ## Trạng thái
-Đang phát triển. Mốc hiện tại: **M0 (nền móng)**. Xem `docs/superpowers/plans/`.
+Đang phát triển, hướng tới **M1 / v0.1.0** (Tier-0 phần 1). Xem `docs/superpowers/plans/` và `docs/progress/`.
 
 | Thành phần | Trạng thái |
 |---|---|
-| `libs/dxos-proof`: JSON chuẩn hóa + cây Merkle RFC 6962 | Đã có, kèm kiểm thử |
-| `core/`: trust-core (Tầng 1) | Khung thư mục |
-| `apps/phong-ho-so`, `apps/chung-nhan` (Tầng 2) | Khung thư mục |
-| `deploy/`: hạ tầng Docker Compose | Khung thư mục |
+| `libs/dxos-proof`: JSON chuẩn hóa + cây Merkle RFC 6962 | Có, kèm test vector |
+| `deploy/`: Docker Compose 9 mạng phân vùng, Caddy, APISIX, Keycloak, Flowable, OpenBao, SeaweedFS, ClamAV | Có; đã chạy trên Docker Desktop |
+| `core/`: identity (JWT RS256), manifest + validator, PDP + che PII, Records API, upload → kiểm dịch → CAS, ledger Merkle chỉ-thêm, STH ký qua OpenBao, neo git, API xác minh và quản trị | Có, kèm unit + integration test |
+| `witness/`: CLI `dxos-witness` + mẫu repo neo | Có |
+| `apps/phong-ho-so`, `apps/chung-nhan` (Tầng 2) | Manifest; giao diện ở Plan 03 |
+| Workflow, niêm phong, installer, SDK, giao diện | Plan 02–03 |
 
 ## Kiến trúc tóm tắt
 - **Tầng 1, DX-OS Trust Core:**

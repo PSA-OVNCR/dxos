@@ -1,0 +1,9 @@
+# SPDX-FileCopyrightText: 2026 PSA_OVNCR
+# SPDX-License-Identifier: Apache-2.0
+#
+# Overlay CHỈ cho E2E trên máy phát triển (dùng kèm dev-lite): repo neo là bare repo cục bộ trong volume
+# anchor-repo của worker, không cần GitHub và deploy key. Không dùng ở p8/p16.
+services:
+  trust-core-worker:
+    environment:
+      DXOS_ANCHOR_REMOTE: file:///var/lib/dxos/anchor-remote.git
