@@ -17,5 +17,5 @@ Sửa phân vùng mạng: sửa `network-matrix.yaml` trước, rồi compose, r
 
 Mọi image phải ghim `@sha256:` (`make pin-images`) và được ghi vào `LICENSES-THIRD-PARTY.md`.
 
-**Chưa kiểm chứng trên stack sống** (xem `docs/progress/`): đường dẫn `/auth` của Keycloak sau Caddy,
-biến `${{...}}` trong `apisix.yaml`, healthcheck của Flowable (spike Task 6).
+**Đã chạy sống** hồ sơ dev-lite ngày 20/10/2026 (xem `docs/progress/2026-10-20-task4-kiem-tra-song.md`). Chưa chạy: hồ sơ p8/p16 với ClamAV thật (Task 7),
+route `/admin/v1` trên host quản trị (cần realm `dxos`, Task 5).
