@@ -17,7 +17,7 @@ from urllib.parse import urlsplit, urlunsplit
 import asyncpg
 import pytest
 from dxos_core.db.migrate import apply_migrations, set_core_password
-from dxos_core.db.pool import SEARCH_PATH
+from dxos_core.db.pool import SEARCH_PATH, create_pool
 
 OWNER_DSN = os.environ.get(
     "DXOS_TEST_OWNER_DSN", "postgresql://dxos_owner:changeme-test@127.0.0.1:55432/dxos_test"
@@ -92,6 +92,15 @@ async def core_conn(core_dsn: str) -> AsyncIterator[asyncpg.Connection]:
         yield conn
     finally:
         await conn.close()
+
+
+@pytest.fixture
+async def core_pool(core_dsn: str) -> AsyncIterator[asyncpg.Pool]:
+    pool = await create_pool(core_dsn)
+    try:
+        yield pool
+    finally:
+        await pool.close()
 
 
 @pytest.fixture
