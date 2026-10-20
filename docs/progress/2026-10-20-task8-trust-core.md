@@ -43,7 +43,29 @@ Sau khi chạy, không còn database test nào sót lại (mỗi test tạo rồ
   200 `{"status":"ready","schema":"001_core.sql"}` khi đã migration; worker ghi heartbeat khi DB trả lời.
 - `docker compose config` hợp lệ với p16, p8, dev-lite.
 
-## Chưa kiểm (cần Docker Desktop hoặc VPS)
-- Build `core/Dockerfile` và chạy `trust-core-api`, `trust-core-worker` trong stack (healthy, migration lúc khởi động,
-  Docker secret từ biến môi trường `.env`).
-- `make test-infra` / netcheck với image thật.
+## Chạy sống trên Docker Desktop của trưởng nhóm (20/10/2026 22:50, commit `ee72b95`)
+Script `chay-task8.bat` (PowerShell, hồ sơ dev-lite, `up -d --build`). Trích `task8.log`:
+```
+api=healthy worker=healthy after ~10s          # cả 13 container running|healthy
+trust-core-api-1 | migration: đã áp dụng ['001_core.sql']
+trust-core-api-1 | migration: đã đặt mật khẩu role dxos_core
+trust-core-api-1 | "GET /readyz HTTP/1.1" 200 OK
+uid: 10001                     worker uid: 10001          # không chạy bằng root
+readyz: {"status":"ready","schema":"001_core.sql"}
+secrets: actor-hmac-key,openbao-core-token,s3-access-key,s3-secret-key
+owner DSN in PID1 env (expect 0): 0                       # uvicorn không còn DSN dxos_owner
+PID1 cmd: /usr/local/bin/python3.12 /usr/local/bin/uvicorn --factory dxos_core.app:create_app ...
+core.schema_migrations: 001_core.sql ; 12 tables in core
+dxos_core: UPDATE ledger_entries -> ERROR: permission denied for table ledger_entries
+no token -> 401
+valid token /api/v1/healthz -> {"type":"https://dxos.dev/problems/not-found","title":"Not Found","status":404}
+                               http=404 ct=application/problem+json   # token thật đi qua Caddy + APISIX tới trust-core
+restart trust-core-api -> healthy, /readyz 200 (migration chạy lại không lỗi)
+```
+- Docker secret lấy từ biến trong `.env` hoạt động trên Docker Desktop (Compose v2.39).
+- `dxos_owner` UPDATE ledger trả `UPDATE 0` vì ledger còn rỗng (trigger theo dòng không chạy khi không có dòng).
+  Trường hợp có dòng đã được integration test kiểm (`test_owner_update_blocked_by_trigger`).
+
+## Chưa kiểm
+- Chạy trên VPS (hồ sơ p16 với ClamAV thật): chờ có VPS.
+- `make test-infra` bằng pytest trên Linux/WSL.
