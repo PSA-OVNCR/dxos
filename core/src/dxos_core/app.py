@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from dxos_core import __version__, health
+from dxos_core.admin import router as admin
 from dxos_core.db.pool import create_pool
 from dxos_core.errors import install_error_handlers
 from dxos_core.identity import deps as identity
@@ -47,4 +48,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(records.router)
     app.include_router(objects.router)
     app.include_router(verify.router)
+    app.include_router(admin.router)
     return app

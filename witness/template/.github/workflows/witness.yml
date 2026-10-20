@@ -1,0 +1,36 @@
+# SPDX-FileCopyrightText: 2026 PSA_OVNCR
+# SPDX-License-Identifier: Apache-2.0
+#
+# Witness tự động: chép tệp này vào repo neo dxos-transparency-log (.github/workflows/witness.yml).
+# Đặt biến repo `DXOS_SERVER` (Settings → Secrets and variables → Actions → Variables), ví dụ https://dxos.example
+# Kiểm thất bại → workflow đỏ công khai (spec 11.4). Witness này KHÔNG độc lập trước mối đe dọa X4.
+name: witness
+on:
+  schedule:
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { path: anchor }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Cài dxos-witness từ bản phát hành
+        run: |
+          python -m pip install \
+            "dxos-proof @ git+https://github.com/PSA-OVNCR/dxos@v0.1.0#subdirectory=libs/dxos-proof" \
+            "dxos-witness @ git+https://github.com/PSA-OVNCR/dxos@v0.1.0#subdirectory=witness"
+      - name: Khôi phục STH đã kiểm lần trước
+        uses: actions/cache@v4
+        with:
+          path: state
+          key: witness-state-${{ github.run_id }}
+          restore-keys: witness-state-
+      - name: Kiểm
+        run: dxos-witness sync --server "${{ vars.DXOS_SERVER }}" --anchor-dir anchor --state-dir state --no-pull

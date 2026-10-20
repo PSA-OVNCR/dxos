@@ -18,7 +18,7 @@ pytestmark = pytest.mark.integration
 async def test_migrations_idempotent(owner_dsn):
     first = await apply_migrations(owner_dsn, MIGRATIONS)
     second = await apply_migrations(owner_dsn, MIGRATIONS)
-    assert first == ["001_core.sql"] and second == []
+    assert first == ["001_core.sql", "002_anchors.sql"] and second == []
 
 
 async def test_core_role_cannot_update_ledger(core_conn, seeded_ledger_row):
@@ -62,10 +62,14 @@ async def test_owner_delete_and_truncate_blocked_by_trigger(owner_conn, seeded_l
         "INSERT INTO tree_heads(tree_size, root_hash, ts, key_version, signature)"
         " VALUES (1, $1, '2026-10-20T00:00:00Z', 1, 'sig')", "a" * 64)
     for sql in ("DELETE FROM ledger_entries WHERE idx=0", "TRUNCATE ledger_entries",
-                "UPDATE tree_heads SET signature='x'", "DELETE FROM tree_heads", "TRUNCATE tree_heads"):
+                "UPDATE tree_heads SET signature='x'", "DELETE FROM tree_heads"):
         with pytest.raises(asyncpg.RaiseError, match="ledger_append_only"):
             await owner_conn.execute(sql)
+    # TRUNCATE tree_heads: bị khóa ngoại từ anchors (002) hoặc trigger chặn, tùy cái nào tới trước
+    with pytest.raises(asyncpg.PostgresError):
+        await owner_conn.execute("TRUNCATE tree_heads")
     assert await owner_conn.fetchval("SELECT count(*) FROM ledger_entries") == 1
+    assert await owner_conn.fetchval("SELECT count(*) FROM tree_heads") == 1
 
 
 async def test_ledger_idx_is_plain_bigint_without_sequence(owner_conn):  # D2
@@ -165,7 +169,7 @@ async def test_core_role_cannot_create_objects_in_schema(core_conn):
 
 
 async def test_core_role_cannot_touch_schema_migrations(core_conn):
-    assert await core_conn.fetchval("SELECT count(*) FROM schema_migrations") == 1
+    assert await core_conn.fetchval("SELECT count(*) FROM schema_migrations") == 2
     with pytest.raises(asyncpg.InsufficientPrivilegeError):
         await core_conn.execute("DELETE FROM schema_migrations")
 
@@ -174,7 +178,7 @@ async def test_all_spec_tables_exist(owner_conn):
     names = {r["table_name"] for r in await owner_conn.fetch(
         "SELECT table_name FROM information_schema.tables WHERE table_schema='core'")}
     assert {"apps", "records", "sequences", "uploads", "objects", "object_refs", "pii_findings",
-            "seals", "ledger_entries", "tree_heads", "jobs", "schema_migrations"} <= names
+            "seals", "ledger_entries", "tree_heads", "jobs", "schema_migrations", "anchors"} <= names
 
 
 async def test_core_can_enqueue_job(core_conn):
@@ -201,14 +205,14 @@ async def test_changed_migration_is_detected(owner_dsn, tmp_path):
 
 async def test_failed_migration_rolls_back_and_is_not_recorded(owner_dsn, tmp_path):
     d = _copy_migrations(tmp_path)
-    (d / "002_broken.sql").write_text("CREATE TABLE ok_then_fail(x int);\nSELECT 1/0;\n", encoding="utf-8")
+    (d / "900_broken.sql").write_text("CREATE TABLE ok_then_fail(x int);\nSELECT 1/0;\n", encoding="utf-8")
     with pytest.raises(asyncpg.DivisionByZeroError):
         await apply_migrations(owner_dsn, d)
     conn = await asyncpg.connect(owner_dsn)
     try:
         applied = await conn.fetchval(
             "SELECT array_agg(filename ORDER BY filename) FROM core.schema_migrations")
-        assert applied == ["001_core.sql"]
+        assert applied == ["001_core.sql", "002_anchors.sql"]
         assert await conn.fetchval("SELECT to_regclass('core.ok_then_fail')") is None
     finally:
         await conn.close()
@@ -223,7 +227,7 @@ async def test_bad_migration_name_rejected(owner_dsn, tmp_path):
 
 async def test_database_newer_than_code_rejected(owner_dsn, tmp_path):
     d = _copy_migrations(tmp_path)
-    (d / "002_extra.sql").write_text("SELECT 1;", encoding="utf-8")
+    (d / "900_extra.sql").write_text("SELECT 1;", encoding="utf-8")
     await apply_migrations(owner_dsn, d)
-    with pytest.raises(MigrationError, match="002_extra.sql"):
+    with pytest.raises(MigrationError, match="900_extra.sql"):
         await apply_migrations(owner_dsn, MIGRATIONS)

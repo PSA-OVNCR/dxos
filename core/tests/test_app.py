@@ -107,6 +107,7 @@ def test_settings_has_exactly_planned_fields():
         "clamd_host", "clamd_port", "openbao_addr", "openbao_token_file",
         "keycloak_issuer", "keycloak_jwks_url", "jwt_audience",
         "actor_hmac_key_file", "anchor_repo_dir", "max_upload_mb_default",
+        "anchor_remote", "anchor_git_ssh_command",          # thêm ở Task 16
     }
 
 

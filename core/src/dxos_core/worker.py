@@ -23,6 +23,7 @@ import asyncpg
 from dxos_core.db.pool import create_pool
 from dxos_core.jobs.context import WorkerContext
 from dxos_core.jobs.queue import Job, claim, fail, retry_later
+from dxos_core.ledger.anchor_job import ANCHOR_JOB, maybe_schedule, process_anchor_job
 from dxos_core.objects.ingest import SCAN_JOB, process_scan_job
 from dxos_core.settings import Settings, read_secret
 
@@ -34,7 +35,7 @@ MAX_ATTEMPTS = 10
 _DB_ERRORS = (OSError, TimeoutError, asyncpg.PostgresError, asyncpg.InterfaceError)
 
 Handler = Callable[[WorkerContext, Job], Awaitable[None]]
-HANDLERS: dict[str, Handler] = {SCAN_JOB: process_scan_job}
+HANDLERS: dict[str, Handler] = {SCAN_JOB: process_scan_job, ANCHOR_JOB: process_anchor_job}
 
 
 def touch_heartbeat(path: Path) -> None:
@@ -68,10 +69,13 @@ async def run_once(ctx: WorkerContext) -> bool:
 
 
 def _make_context(settings: Settings, pool: asyncpg.Pool) -> WorkerContext:
+    from dxos_core.kms.openbao import OpenBaoTransit
     from dxos_core.objects.storage import ObjectStore
 
     return WorkerContext(pool=pool, store=ObjectStore(settings), settings=settings,
-                         hmac_key=read_secret(settings.actor_hmac_key_file).encode("utf-8"))
+                         hmac_key=read_secret(settings.actor_hmac_key_file).encode("utf-8"),
+                         signer=OpenBaoTransit(settings.openbao_addr,
+                                               read_secret(settings.openbao_token_file)))
 
 
 async def run(settings: Settings, *, heartbeat: Path = DEFAULT_HEARTBEAT, interval: float = 5.0,
@@ -100,6 +104,9 @@ async def run(settings: Settings, *, heartbeat: Path = DEFAULT_HEARTBEAT, interv
                     except Exception as exc:  # noqa: BLE001 (S3 chưa lên thì lần sau thử lại)
                         log.warning("S3 chưa sẵn sàng: %s", type(exc).__name__)
                 if buckets_ready and not once:
+                    if settings.anchor_remote:
+                        async with pool.acquire() as conn:
+                            await maybe_schedule(conn)
                     while await run_once(ctx):
                         touch_heartbeat(heartbeat)
             if once:

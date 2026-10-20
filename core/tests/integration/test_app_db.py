@@ -15,7 +15,7 @@ def test_readyz_ok_after_migrations(make_settings, core_dsn):
     with TestClient(create_app(make_settings(database_url=core_dsn))) as c:
         r = c.get("/readyz")
     assert r.status_code == 200
-    assert r.json() == {"status": "ready", "schema": "001_core.sql"}
+    assert r.json() == {"status": "ready", "schema": "002_anchors.sql"}
 
 
 async def test_pool_uses_core_search_path(core_dsn):

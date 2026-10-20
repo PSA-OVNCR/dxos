@@ -8,5 +8,6 @@ select = ["E", "F", "I", "B", "UP", "S"]
 ignore = ["S101"]  # assert được phép trong test
 
 [lint.per-file-ignores]
-# Chuỗi mẫu trong test (CCCD giả, mật khẩu changeme của DB test) không phải bí mật thật.
-"**/tests/**" = ["S105", "S106"]
+# Chuỗi mẫu trong test (CCCD giả, mật khẩu changeme của DB test) không phải bí mật thật;
+# test gọi `git` với tham số cố định, không có đầu vào từ ngoài.
+"**/tests/**" = ["S105", "S106", "S603", "S607"]

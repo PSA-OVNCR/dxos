@@ -31,6 +31,11 @@ class Settings(BaseSettings):
     actor_hmac_key_file: Path
     anchor_repo_dir: Path
     max_upload_mb_default: int = 15
+    # Neo STH (Task 16). Không đặt anchor_remote thì không neo (stack vẫn chạy, STH vẫn ký).
+    anchor_remote: str | None = None
+    anchor_git_ssh_command: str = (
+        "ssh -i /run/secrets/anchor-deploy-key -o IdentitiesOnly=yes -o BatchMode=yes"
+        " -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/var/lib/dxos/anchor-known-hosts")
 
 
 def read_secret(path: Path) -> str:

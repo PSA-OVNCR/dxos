@@ -1,0 +1,217 @@
+# SPDX-FileCopyrightText: 2026 PSA_OVNCR
+# SPDX-License-Identifier: Apache-2.0
+"""Neo STH vào repo git có bảo vệ và API quản trị neo (Plan 01 Task 16; AT-16, AT-18 phần mã)."""
+
+import dataclasses
+import json
+import subprocess
+
+import pytest
+from dxos_core import worker
+from dxos_core.db.pool import create_pool
+from dxos_core.jobs.context import WorkerContext
+from dxos_core.jobs.queue import enqueue
+from dxos_core.ledger.anchor import AnchorError, ensure_clone, publish_sth, sth_path
+from dxos_core.ledger.log import append
+from dxos_core.ledger.sth import TreeHead, make_sth
+from dxos_proof.canonical import canonical_bytes
+from helpers.api import running_api, tok
+from helpers.local_signer import LocalSigner
+
+pytestmark = pytest.mark.integration
+GIT_SSH = "ssh -o BatchMode=yes"          # không dùng tới với remote file://
+KEY = b"changeme-test-hmac-key"
+
+
+def git(cwd, *args) -> str:
+    out = subprocess.run(["git", "-C", str(cwd), *args], check=True, capture_output=True, text=True)
+    return out.stdout.strip()
+
+
+@pytest.fixture
+def bare_remote(tmp_path):
+    remote = tmp_path / "anchor-remote.git"
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(remote)], check=True)
+    return remote
+
+
+@pytest.fixture
+async def tmp_bare_repo_clone(bare_remote, tmp_path):
+    clone = tmp_path / "anchor-clone"
+    await ensure_clone(f"file://{bare_remote}", clone, GIT_SSH)
+    return clone
+
+
+@pytest.fixture
+def th():
+    return TreeHead(tree_size=5, root_hash="cd" * 32, ts="2026-10-20T00:00:00Z", key_version=1,
+                    signature="c2ln")
+
+
+# ---------- Các test do Plan 01 Task 16 quy định ----------
+
+async def test_publish_writes_file_and_commits(tmp_bare_repo_clone, th):
+    sha = await publish_sth(th, tmp_bare_repo_clone, GIT_SSH)
+    assert (tmp_bare_repo_clone / sth_path(th.tree_size)).is_file() and len(sha) == 40
+
+
+async def test_publish_never_overwrites(tmp_bare_repo_clone, th):
+    await publish_sth(th, tmp_bare_repo_clone, GIT_SSH)
+    with pytest.raises(AnchorError) as e:
+        await publish_sth(dataclasses.replace(th, root_hash="ab" * 32), tmp_bare_repo_clone, GIT_SSH)
+    assert e.value.code == "ANCHOR_CONFLICT"
+
+
+async def test_anchor_run_requires_admin(api, tok_cv):
+    assert (await api.post("/admin/v1/anchor:run", headers=tok_cv)).status_code == 403
+
+
+# ---------- Bổ sung: publish_sth ----------
+
+def test_sth_path():
+    assert sth_path(42) == "sth/000000000042.json"
+
+
+async def test_file_content_is_canonical_and_pushed(tmp_bare_repo_clone, bare_remote, th):
+    sha = await publish_sth(th, tmp_bare_repo_clone, GIT_SSH)
+    assert (tmp_bare_repo_clone / sth_path(5)).read_bytes() == canonical_bytes(dataclasses.asdict(th))
+    assert git(bare_remote, "rev-parse", "main") == sha                          # đã lên remote
+    assert git(bare_remote, "log", "-1", "--format=%s", "main") == "sth 5"
+
+
+async def test_same_sth_twice_is_idempotent(tmp_bare_repo_clone, bare_remote, th):
+    a = await publish_sth(th, tmp_bare_repo_clone, GIT_SSH)
+    b = await publish_sth(th, tmp_bare_repo_clone, GIT_SSH)
+    assert a == b and git(bare_remote, "rev-list", "--count", "main") == "1"
+
+
+async def test_push_failure_then_retry_succeeds(tmp_bare_repo_clone, bare_remote, th, tmp_path):
+    good_url = git(tmp_bare_repo_clone, "remote", "get-url", "origin")
+    git(tmp_bare_repo_clone, "remote", "set-url", "origin", f"file://{tmp_path}/khong-co.git")
+    with pytest.raises(AnchorError) as e:
+        await publish_sth(th, tmp_bare_repo_clone, GIT_SSH)
+    assert e.value.code == "PUSH_FAILED"
+    git(tmp_bare_repo_clone, "remote", "set-url", "origin", good_url)
+    sha = await publish_sth(th, tmp_bare_repo_clone, GIT_SSH)                   # commit cục bộ được đẩy lên
+    assert git(bare_remote, "rev-parse", "main") == sha
+
+
+async def test_picks_up_commits_made_elsewhere(tmp_bare_repo_clone, bare_remote, th, tmp_path):
+    other = tmp_path / "other"
+    subprocess.run(["git", "clone", "-q", f"file://{bare_remote}", str(other)], check=True)
+    (other / "README.md").write_text("repo neo\n", encoding="utf-8")
+    git(other, "add", "README.md")
+    git(other, "-c", "user.name=x", "-c", "user.email=x@x", "commit", "-q", "-m", "readme")
+    git(other, "push", "-q", "origin", "HEAD:main")
+    await publish_sth(th, tmp_bare_repo_clone, GIT_SSH)
+    assert git(bare_remote, "rev-list", "--count", "main") == "2"
+
+
+async def test_ensure_clone_is_idempotent(bare_remote, tmp_path):
+    clone = tmp_path / "c"
+    await ensure_clone(f"file://{bare_remote}", clone, GIT_SSH)
+    await ensure_clone(f"file://{bare_remote}", clone, GIT_SSH)
+    assert (clone / ".git").is_dir()
+
+
+# ---------- Bổ sung: job anchor_sth và API quản trị ----------
+
+@pytest.fixture
+def signer():
+    return LocalSigner()
+
+
+@pytest.fixture
+def anchor_settings(make_settings, core_dsn, bare_remote, tmp_path):
+    return make_settings(database_url=core_dsn, anchor_repo_dir=tmp_path / "worker-clone",
+                         anchor_remote=f"file://{bare_remote}", anchor_git_ssh_command=GIT_SSH)
+
+
+@pytest.fixture
+async def wctx(anchor_settings, core_dsn, signer):
+    pool = await create_pool(core_dsn)
+    try:
+        yield WorkerContext(pool=pool, store=None, settings=anchor_settings, hmac_key=KEY, signer=signer)
+    finally:
+        await pool.close()
+
+
+@pytest.fixture
+async def api(anchor_settings, signer, test_jwks):
+    async with running_api(anchor_settings, signer=signer) as client:
+        yield client
+
+
+@pytest.fixture
+def tok_cv():
+    return tok("chuyen_vien1", "app:phong-ho-so:chuyen_vien")
+
+
+@pytest.fixture
+def tok_admin():
+    return tok("admin1", "dxos-admin")
+
+
+async def test_anchor_job_makes_sth_publishes_and_records(wctx, core_conn, bare_remote):
+    await append(core_conn, type="object.read", subject="s", body={}, hmac_key=KEY)
+    await enqueue(core_conn, "anchor_sth", {})
+    assert await worker.run_once(wctx)
+    row = await core_conn.fetchrow("SELECT * FROM anchors")
+    assert row["tree_size"] == 2 and row["commit_sha"] == git(bare_remote, "rev-parse", "main")
+    content = json.loads(git(bare_remote, "show", f"main:{sth_path(2)}"))
+    assert content["tree_size"] == 2
+    assert await core_conn.fetchval("SELECT state FROM jobs") == "DONE"
+
+
+async def test_anchor_job_push_failure_retries(wctx, core_conn, tmp_path):
+    broken = dataclasses.replace(wctx, settings=wctx.settings.model_copy(
+        update={"anchor_remote": f"file://{tmp_path}/khong-co.git", "anchor_repo_dir": tmp_path / "x"}))
+    await enqueue(core_conn, "anchor_sth", {})
+    assert await worker.run_once(broken)
+    row = await core_conn.fetchrow("SELECT state, run_after > now() AS later, last_error FROM jobs")
+    assert row["state"] == "QUEUED" and row["later"] and row["last_error"]
+
+
+async def test_anchors_table_is_append_only(core_conn, owner_conn, signer):
+    th_ = await make_sth(core_conn, signer)
+    await core_conn.execute("INSERT INTO anchors(tree_size, repo, commit_sha) VALUES ($1, 'r', $2)",
+                            th_.tree_size, "a" * 40)
+    import asyncpg
+    with pytest.raises(asyncpg.InsufficientPrivilegeError):
+        await core_conn.execute("UPDATE anchors SET commit_sha=$1", "b" * 40)
+    with pytest.raises(asyncpg.RaiseError, match="ledger_append_only"):
+        await owner_conn.execute("DELETE FROM anchors")
+
+
+async def test_admin_anchor_run_returns_sth_and_enqueues(api, tok_admin, core_conn):
+    r = await api.post("/admin/v1/anchor:run", headers=tok_admin)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["tree_size"] >= 1 and body["anchor_job_id"] > 0
+    job = await core_conn.fetchrow("SELECT kind, payload::text AS p FROM jobs WHERE id=$1",
+                                   body["anchor_job_id"])
+    assert job["kind"] == "anchor_sth" and json.loads(job["p"]) == {"tree_size": body["tree_size"]}
+
+
+async def test_admin_ledger_status(api, tok_admin, wctx, core_conn):
+    await api.post("/admin/v1/anchor:run", headers=tok_admin)
+    assert await worker.run_once(wctx)
+    s = (await api.get("/admin/v1/ledger/status", headers=tok_admin)).json()
+    assert s["tree_size"] == s["latest_sth"]["tree_size"] == s["last_anchor"]["tree_size"]
+    assert s["verify"] == {"ok": True, "first_bad_idx": None} and s["pending_anchor_jobs"] == 0
+
+
+async def test_admin_api_needs_token_and_admin(api, tok_cv):
+    assert (await api.get("/admin/v1/ledger/status")).status_code == 401
+    assert (await api.get("/admin/v1/ledger/status", headers=tok_cv)).status_code == 403
+
+
+async def test_anchor_run_503_when_kms_down(anchor_settings, tok_admin, test_jwks):
+    from dxos_core.kms.base import KmsUnavailable
+
+    class Down(LocalSigner):
+        async def sign(self, *a, **k):
+            raise KmsUnavailable("sealed")
+    async with running_api(anchor_settings, signer=Down()) as api:
+        r = await api.post("/admin/v1/anchor:run", headers=tok_admin)
+    assert r.status_code == 503 and r.json()["type"].endswith("/kms-unavailable")

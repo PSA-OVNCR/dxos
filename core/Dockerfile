@@ -14,6 +14,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     DXOS_MIGRATIONS_DIR=/opt/dxos/migrations
 
+# git + ssh: worker đẩy STH lên repo neo (Task 16). Chạy như chương trình độc lập, không nhúng mã (G2).
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends git openssh-client \
+ && rm -rf /var/lib/apt/lists/*
+
 COPY libs/dxos-proof /tmp/src/dxos-proof
 COPY core /tmp/src/core
 RUN pip install /tmp/src/dxos-proof /tmp/src/core \
@@ -21,7 +26,8 @@ RUN pip install /tmp/src/dxos-proof /tmp/src/core \
  && cp -r /tmp/src/core/migrations /opt/dxos/migrations \
  && install -m 0755 /tmp/src/core/docker/api-entrypoint.sh /usr/local/bin/dxos-api-entrypoint \
  && rm -rf /tmp/src \
- && useradd --system --uid 10001 --user-group --no-create-home --shell /usr/sbin/nologin dxos
+ && useradd --system --uid 10001 --user-group --no-create-home --shell /usr/sbin/nologin dxos \
+ && mkdir -p /var/lib/dxos && chown 10001:10001 /var/lib/dxos
 
 # Không chạy bằng root.
 USER 10001:10001

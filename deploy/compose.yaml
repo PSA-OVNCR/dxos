@@ -155,6 +155,7 @@ services:
     command: ["python", "-m", "dxos_core.worker"]
     environment: *core-env
     secrets: *core-secrets
+    volumes: [anchor-repo:/var/lib/dxos]          # bản clone repo neo + known_hosts (Task 16)
     depends_on:
       trust-core-api: {condition: service_healthy}   # migration đã chạy xong
     networks: [net-data, net-egress]
@@ -282,6 +283,7 @@ secrets:
   actor-hmac-key:     {environment: DXOS_ACTOR_HMAC_KEY}
 
 volumes:
+  anchor-repo:
   apps-static:
   caddy-data:
   caddy-config:
