@@ -1,0 +1,25 @@
+# SPDX-FileCopyrightText: 2026 PSA_OVNCR
+# SPDX-License-Identifier: Apache-2.0
+# Manifest App A "Phòng hồ sơ số": chép nguyên văn Design Spec mục 9.1 (bản 1.0.2).
+apiVersion: dxos/v1
+app: { id: phong-ho-so, version: 1.0.0, name: "Phòng hồ sơ số", spaces: [P, D] }
+roles: [chuyen_vien, truong_phong, giam_doc, van_thu, nhan_vien]
+collections:
+  van_ban:
+    fields:
+      so_hieu:   { type: sequence, format: "{n}/QĐ-SM", public: true }
+      trich_yeu: { type: string, required: true, public: true }
+      nguoi_lien_he_cccd: { type: string, pii: CCCD }
+    attachments: { kinds: [pdf], max_mb: 15, min: 1 }
+    access:
+      read:   [owner, role:truong_phong, role:giam_doc, role:van_thu, role:nhan_vien]
+      create: [role:chuyen_vien]
+policies:
+  pii:  { reveal_roles: [giam_doc, van_thu], document_detect: [CCCD, PHONE, BANK_ACCOUNT] }
+  seal: { on_event: "process.completed:approved", target: [record, attachments], public_fields: [so_hieu, trich_yeu] }
+  verify: { public: true, require_file: true }
+workflow:
+  bpmn: bpmn/ban-hanh.bpmn
+  tasks:
+    duyet_noi_dung: { role: truong_phong, guards: [attachments_clean, not_same_actor:creator] }
+    ban_hanh:       { role: giam_doc,    guards: [attachments_clean, pii_reviewed, not_same_actor:creator] }

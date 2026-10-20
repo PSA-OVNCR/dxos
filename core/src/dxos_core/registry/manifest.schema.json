@@ -1,0 +1,139 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dxos.dev/schemas/manifest-v1.json",
+  "title": "DX-OS application manifest (apiVersion dxos/v1)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "app", "roles", "collections"],
+  "$defs": {
+    "name": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,30}$"},
+    "accessList": {
+      "type": "array",
+      "items": {"type": "string", "pattern": "^(owner|role:[a-z][a-z0-9_]{0,30})$"},
+      "uniqueItems": true
+    },
+    "field": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": {"enum": ["string", "sequence", "integer", "boolean", "date"]},
+        "required": {"type": "boolean"},
+        "public": {"type": "boolean"},
+        "pii": {"enum": ["CCCD", "PHONE", "BANK_ACCOUNT", "EMAIL", "NAME"]},
+        "format": {"type": "string", "minLength": 1, "maxLength": 64}
+      }
+    },
+    "collection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fields", "access"],
+      "properties": {
+        "fields": {
+          "type": "object",
+          "propertyNames": {"$ref": "#/$defs/name"},
+          "additionalProperties": {"$ref": "#/$defs/field"}
+        },
+        "attachments": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kinds", "max_mb"],
+          "properties": {
+            "kinds": {"type": "array", "minItems": 1, "items": {"enum": ["pdf"]}, "uniqueItems": true},
+            "max_mb": {"type": "integer", "minimum": 1, "maximum": 100},
+            "min": {"type": "integer", "minimum": 0, "maximum": 50},
+            "quarantine": {"const": "required"}
+          }
+        },
+        "access": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["read", "create"],
+          "properties": {
+            "read": {"$ref": "#/$defs/accessList"},
+            "create": {"$ref": "#/$defs/accessList"},
+            "update": {"$ref": "#/$defs/accessList"}
+          }
+        }
+      }
+    }
+  },
+  "properties": {
+    "apiVersion": {"const": "dxos/v1"},
+    "app": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "name", "spaces"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,30}$"},
+        "version": {"type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$"},
+        "name": {"type": "string", "minLength": 1, "maxLength": 100},
+        "spaces": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["H", "P", "D", "I"]}}
+      }
+    },
+    "roles": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/name"}},
+    "collections": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {"$ref": "#/$defs/name"},
+      "additionalProperties": {"$ref": "#/$defs/collection"}
+    },
+    "policies": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "pii": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "reveal_roles": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/name"}},
+            "document_detect": {
+              "type": "array", "uniqueItems": true,
+              "items": {"enum": ["CCCD", "PHONE", "BANK_ACCOUNT", "EMAIL", "NAME"]}
+            }
+          }
+        },
+        "seal": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["on_event", "target"],
+          "properties": {
+            "on_event": {"type": "string", "pattern": "^process\\.completed:[a-z_]+$"},
+            "target": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["record", "attachments"]}},
+            "public_fields": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/name"}}
+          }
+        },
+        "verify": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "public": {"type": "boolean"},
+            "require_file": {"type": "boolean"}
+          }
+        }
+      }
+    },
+    "workflow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bpmn", "tasks"],
+      "properties": {
+        "bpmn": {"type": "string", "pattern": "^bpmn/[a-z0-9_-]+\\.bpmn$"},
+        "tasks": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {"$ref": "#/$defs/name"},
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["role"],
+            "properties": {
+              "role": {"$ref": "#/$defs/name"},
+              "guards": {"type": "array", "items": {"type": "string", "pattern": "^[a-z_]+(:.+)?$"}}
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -304,7 +304,7 @@ roles: [chuyen_vien, truong_phong, giam_doc, van_thu, nhan_vien]
 collections:
   van_ban:
     fields:
-      so_hieu:   { type: sequence, format: "{n}/QĐ-SM" }
+      so_hieu:   { type: sequence, format: "{n}/QĐ-SM", public: true }
       trich_yeu: { type: string, required: true, public: true }
       nguoi_lien_he_cccd: { type: string, pii: CCCD }
     attachments: { kinds: [pdf], max_mb: 15, min: 1 }
@@ -996,3 +996,4 @@ Giờ của AT-24..26 đã nằm trong giờ của H1, H6, H13 và **không** c�
 | | | UI quản trị: console nguồn mở (Keycloak; Flowable kiểm ở M0) + CLI là MUST, trang admin web là SHOULD; demo phải chỉ ra giao diện admin thật (R7, 12.3, 20.1) |
 | | | Giao trách nhiệm AT-24 → H1, AT-25 → H6, AT-26 → H13; không tính giờ hai lần trong H11 |
 | | | **I1 làm rõ (sửa kỹ thuật quan trọng nhất):** phân vùng mạng theo chủ sở hữu dữ liệu; Flowable chỉ có quyền với `flowable-db` riêng; Viewer và app Tầng 2 chỉ gọi API (4.1, 5, 6.2, 9.4, T1, T3, AT-01, ADR-22, RAM) |
+| 1.0.2 | 20/10/2026 | Mục 9.1: thêm `public: true` cho `so_hieu`. Trường này nằm trong `seal.public_fields`, mà quy tắc validator (Plan 01 Task 11) đòi mọi `public_fields` phải có cờ `public` |
