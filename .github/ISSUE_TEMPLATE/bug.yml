@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 DX-OS Trust Core contributors
+# SPDX-FileCopyrightText: 2026 PSA_OVNCR
 # SPDX-License-Identifier: Apache-2.0
 name: Báo lỗi
 description: Báo một lỗi của DX-OS Trust Core hoặc ứng dụng Tầng 2

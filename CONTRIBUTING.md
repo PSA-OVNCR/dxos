@@ -7,7 +7,7 @@ Cảm ơn bạn quan tâm. Quy trình:
 3. **Viết test trước (TDD).** Mọi thay đổi hành vi đều phải có test.
 4. Mọi tệp mã mới phải có header:
    ```
-   # SPDX-FileCopyrightText: 2026 DX-OS Trust Core contributors
+   # SPDX-FileCopyrightText: 2026 PSA_OVNCR
    # SPDX-License-Identifier: Apache-2.0
    ```
 5. Chạy `make check` trước khi mở Pull Request.

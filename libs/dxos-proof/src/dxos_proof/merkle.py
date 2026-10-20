@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 DX-OS Trust Core contributors
+# SPDX-FileCopyrightText: 2026 PSA_OVNCR
 # SPDX-License-Identifier: Apache-2.0
 """Cây Merkle theo RFC 6962 (§2.1) và thuật toán kiểm chứng của RFC 9162 (§2.1.3.2, §2.1.4.2).
 

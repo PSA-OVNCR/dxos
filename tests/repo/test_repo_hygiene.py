@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 DX-OS Trust Core contributors
+# SPDX-FileCopyrightText: 2026 PSA_OVNCR
 # SPDX-License-Identifier: Apache-2.0
 """Kiểm tra vệ sinh kho mã phục vụ tiêu chí PoF (TL tr.2–3)."""
 

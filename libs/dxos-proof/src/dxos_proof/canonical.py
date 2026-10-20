@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 DX-OS Trust Core contributors
+# SPDX-FileCopyrightText: 2026 PSA_OVNCR
 # SPDX-License-Identifier: Apache-2.0
 """JSON chuẩn hóa (canonical JSON) cho dữ liệu cần băm và ký.
 
