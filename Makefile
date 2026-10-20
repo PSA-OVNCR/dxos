@@ -1,5 +1,6 @@
 # SPDX-FileCopyrightText: 2026 DX-OS Trust Core contributors
 # SPDX-License-Identifier: Apache-2.0
+PYTHON ?= python
 export PYTHONDONTWRITEBYTECODE = 1
 COMPOSE = docker compose -p dxos -f deploy/compose.yaml -f deploy/compose.p16.yaml
 
@@ -15,14 +16,14 @@ help:
 	@echo "make netcheck     - kiểm tra ma trận mạng AT-01 (Plan 01 Task 4)"
 
 dev-install:
-	python -m pip install -r requirements-dev.txt
-	python -m pip install -e libs/dxos-proof
+	$(PYTHON) -m pip install -r requirements-dev.txt
+	$(PYTHON) -m pip install -e libs/dxos-proof
 
 lint:
 	ruff check .
 
 test:
-	pytest -m "not integration and not infra"
+	$(PYTHON) -m pytest -m "not integration and not infra"
 
 reuse:
 	reuse lint
@@ -36,4 +37,4 @@ down:
 	$(COMPOSE) down
 
 netcheck:
-	python ops/netcheck.py --matrix deploy/network-matrix.yaml --project dxos
+	$(PYTHON) ops/netcheck.py --matrix deploy/network-matrix.yaml --project dxos
