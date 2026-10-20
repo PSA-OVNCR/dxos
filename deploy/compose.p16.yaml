@@ -1,0 +1,16 @@
+# SPDX-FileCopyrightText: 2026 PSA_OVNCR
+# SPDX-License-Identifier: Apache-2.0
+# Hồ sơ p16 (máy 16 GB), spec 16.1. Dùng chồng lên compose.yaml.
+services:
+  keycloak:
+    environment:
+      JAVA_OPTS_KC_HEAP: "-Xms256m -Xmx1g"
+  flowable:
+    environment:
+      JAVA_TOOL_OPTIONS: "-Xmx1g"
+  core-db:
+    command: ["postgres", "-c", "shared_buffers=1GB"]
+  kc-db:
+    command: ["postgres", "-c", "shared_buffers=256MB"]
+  flowable-db:
+    command: ["postgres", "-c", "shared_buffers=256MB"]

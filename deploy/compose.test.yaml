@@ -1,0 +1,56 @@
+# SPDX-FileCopyrightText: 2026 PSA_OVNCR
+# SPDX-License-Identifier: Apache-2.0
+#
+# Dịch vụ cho integration test (marker `integration`), dự án riêng `dxos-test`.
+# CHỈ DÙNG KHI PHÁT TRIỂN/CI: OpenBao chạy chế độ dev, cổng chỉ mở trên 127.0.0.1.
+#   docker compose -f deploy/compose.test.yaml up -d --wait
+name: dxos-test
+
+x-test: &test
+  labels:
+    dxos.dev-only: "true"
+
+services:
+  core-db:
+    <<: *test
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: dxos_test
+      POSTGRES_USER: dxos_owner
+      POSTGRES_PASSWORD: changeme-test
+    ports: ["127.0.0.1:55432:5432"]
+    tmpfs: [/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dxos_owner -d dxos_test"]
+      interval: 2s
+      retries: 30
+
+  openbao:
+    <<: *test
+    image: openbao/openbao:2.2.0
+    command: ["server", "-dev", "-dev-root-token-id=changeme-test-root", "-dev-listen-address=0.0.0.0:8200"]
+    ports: ["127.0.0.1:58200:8200"]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8200/v1/sys/health"]
+      interval: 2s
+      retries: 30
+
+  clamav:
+    <<: *test
+    build: ./fake-av
+    ports: ["127.0.0.1:53310:3310"]
+    healthcheck:
+      test: ["CMD", "python", "/app/fake_av.py", "--ping"]
+      interval: 2s
+      retries: 30
+
+  seaweedfs:
+    <<: *test
+    image: chrislusf/seaweedfs:3.80
+    command: ["server", "-dir=/data", "-s3", "-s3.port=8333", "-volume.max=0"]
+    ports: ["127.0.0.1:58333:8333"]
+    tmpfs: [/data]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9333/cluster/status"]
+      interval: 2s
+      retries: 30

@@ -1,0 +1,85 @@
+# SPDX-FileCopyrightText: 2026 PSA_OVNCR
+# SPDX-License-Identifier: Apache-2.0
+#
+# Route tĩnh (spec 6.2). Không thay đổi khi cài ứng dụng Tầng 2 (P1).
+# Không dùng YAML anchor: bộ đọc YAML của APISIX có thể không hỗ trợ.
+# Thứ tự kiểm tra: APISIX xác thực token (lớp ngoài); trust-core kiểm vai trò và chính sách (PDP).
+
+upstreams:
+  - id: trust-core
+    type: roundrobin
+    nodes:
+      "trust-core-api:8000": 1
+
+routes:
+  - id: api-v1
+    uri: /api/v1/*
+    upstream_id: trust-core
+    plugins:
+      request-id:
+        include_in_response: true
+      limit-req:
+        rate: 50
+        burst: 100
+        key_type: var
+        key: http_x_forwarded_for
+        rejected_code: 429
+      openid-connect:
+        client_id: apisix
+        client_secret: ${{APISIX_OIDC_CLIENT_SECRET}}
+        discovery: http://keycloak:8080/realms/dxos/.well-known/openid-configuration
+        realm: dxos
+        bearer_only: true
+        use_jwks: true
+
+  - id: admin-v1
+    uri: /admin/v1/*
+    host: ${{DXOS_ADMIN_HOST}}
+    upstream_id: trust-core
+    plugins:
+      request-id:
+        include_in_response: true
+      limit-req:
+        rate: 10
+        burst: 20
+        key_type: var
+        key: http_x_forwarded_for
+        rejected_code: 429
+      openid-connect:
+        client_id: apisix
+        client_secret: ${{APISIX_OIDC_CLIENT_SECRET}}
+        discovery: http://keycloak:8080/realms/dxos/.well-known/openid-configuration
+        realm: dxos
+        bearer_only: true
+        use_jwks: true
+
+  - id: verify-v1
+    uri: /verify/v1/*
+    upstream_id: trust-core
+    plugins:
+      request-id:
+        include_in_response: true
+      limit-req:
+        rate: 5
+        burst: 10
+        key_type: var
+        key: http_x_forwarded_for
+        rejected_code: 429
+
+  # Viewer (SHOULD) chưa có: route tắt (status 0) cho tới khi có dịch vụ viewer.
+  - id: view
+    uri: /view/*
+    status: 0
+    upstream:
+      type: roundrobin
+      nodes:
+        "viewer:8000": 1
+    plugins:
+      openid-connect:
+        client_id: apisix
+        client_secret: ${{APISIX_OIDC_CLIENT_SECRET}}
+        discovery: http://keycloak:8080/realms/dxos/.well-known/openid-configuration
+        realm: dxos
+        bearer_only: true
+        use_jwks: true
+#END

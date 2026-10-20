@@ -1,0 +1,20 @@
+# SPDX-FileCopyrightText: 2026 PSA_OVNCR
+# SPDX-License-Identifier: Apache-2.0
+# Hồ sơ p8 (máy 8 GB), spec 16.1. Dùng chồng lên compose.yaml.
+services:
+  keycloak:
+    environment:
+      JAVA_OPTS_KC_HEAP: "-Xms128m -Xmx512m"
+  flowable:
+    environment:
+      JAVA_TOOL_OPTIONS: "-Xmx512m"
+  core-db:
+    command: ["postgres", "-c", "shared_buffers=256MB"]
+  kc-db:
+    command: ["postgres", "-c", "shared_buffers=128MB"]
+  flowable-db:
+    command: ["postgres", "-c", "shared_buffers=128MB"]
+  clamav:
+    # ConcurrentDatabaseReload no + 1 luồng quét: tránh nhân đôi RAM khi nạp lại chữ ký.
+    volumes:
+      - ./clamav/clamd.p8.conf:/etc/clamav/clamd.conf:ro

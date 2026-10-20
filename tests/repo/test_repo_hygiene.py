@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Kiểm tra vệ sinh kho mã phục vụ tiêu chí PoF (TL tr.2–3)."""
 
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -28,7 +29,15 @@ def test_license_is_apache_2():
 
 
 def test_env_example_has_no_real_secret():
+    """Biến bí mật chỉ mang giá trị giữ chỗ `changeme...`; cấu hình thường (tên miền) được phép có giá trị."""
+    secret_key = re.compile(r"PASSWORD|SECRET|_KEY$")
+    url_password = re.compile(r"://[^:/@]+:([^@]+)@")
     for line in (ROOT / ".env.example").read_text(encoding="utf-8").splitlines():
-        if "=" in line and not line.startswith("#"):
-            value = line.split("=", 1)[1]
-            assert value in ("", "changeme") or value.startswith("<"), line
+        if "=" not in line or line.startswith("#"):
+            continue
+        key, value = line.split("=", 1)
+        if secret_key.search(key):
+            assert value == "" or value.startswith(("changeme", "<")), line
+        m = url_password.search(value)
+        if m:
+            assert m.group(1).startswith("changeme"), line

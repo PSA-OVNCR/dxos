@@ -1,0 +1,25 @@
+# SPDX-FileCopyrightText: 2026 PSA_OVNCR
+# SPDX-License-Identifier: Apache-2.0
+# Hồ sơ dev-lite (R-4): CHỈ dùng khi phát triển trên laptop.
+# - clamav được thay bằng fake-av (stub giao thức clamd, chỉ nhận EICAR), nhãn dxos.dev-only.
+# - Heap JVM tối thiểu.
+# Không bao giờ dùng cho nghiệm thu chính thức; CI kiểm tra hồ sơ p8/p16 không chứa dịch vụ dev-only (AT-24).
+services:
+  clamav:
+    image: !reset null
+    build: ./fake-av
+    volumes: !reset []
+    labels:
+      dxos.dev-only: "true"
+    healthcheck:
+      test: ["CMD", "python", "/app/fake_av.py", "--ping"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+  keycloak:
+    environment:
+      JAVA_OPTS_KC_HEAP: "-Xms64m -Xmx384m"
+  flowable:
+    environment:
+      JAVA_TOOL_OPTIONS: "-Xmx384m"

@@ -1,0 +1,17 @@
+# SPDX-FileCopyrightText: 2026 PSA_OVNCR
+# SPDX-License-Identifier: Apache-2.0
+# APISIX chế độ standalone: route đọc từ apisix.yaml, KHÔNG có Admin API, KHÔNG cần etcd.
+deployment:
+  role: data_plane
+  role_data_plane:
+    config_provider: yaml
+
+apisix:
+  node_listen: 9080
+  enable_ipv6: false
+
+nginx_config:
+  # Biến môi trường được tham chiếu trong apisix.yaml bằng ${{TEN}}.
+  envs:
+    - APISIX_OIDC_CLIENT_SECRET
+    - DXOS_ADMIN_HOST

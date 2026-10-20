@@ -8,7 +8,7 @@
 | Python | ≥ 3.12 | CI chạy 3.12 |
 | GNU Make | bất kỳ | |
 | Git | bất kỳ | |
-| Docker + Docker Compose v2 | *(sắp có)* | Cần cho `make up` |
+| Docker + Docker Compose v2 (≥ 2.24) | Docker Desktop hoặc Docker Engine | Cần cho `make up`; Windows nên chạy lệnh trong WSL2 |
 | Node.js | *(sắp có)* | Cần cho SDK và ứng dụng Tầng 2 |
 
 Toàn bộ công cụ build đều là phần mềm nguồn mở.
@@ -25,8 +25,25 @@ Kết quả mong đợi: `ruff` không báo lỗi; `reuse lint` in dòng `Congra
 ## Cấu hình
 Mọi cấu hình đặt qua biến môi trường (xem `.env.example`). Không cần sửa mã nguồn để cấu hình.
 
-## Chạy toàn bộ hệ thống *(sắp có, Plan 01 Task 4)*
+## Chạy toàn bộ hệ thống
 ```bash
-cp .env.example .env   # rồi điền giá trị
-make up
+cp .env.example .env          # giá trị mẫu chạy được trên localhost; đổi mật khẩu khi lên VPS
+make pin-images               # lần đầu: ghim digest image (cần mạng tới Docker Hub, quay.io)
+make up PROFILE=dev-lite      # laptop; máy 8 GB dùng PROFILE=p8; máy chủ dùng p16 (mặc định)
+make ps                       # chờ các container "healthy"
+make netcheck                 # kiểm ma trận mạng (AT-01): mọi dòng phải PASS
+make test-infra               # test sống: AT-01, AT-02 phía gateway
 ```
+
+Không có `make` (Windows thuần): thay `make up PROFILE=dev-lite` bằng
+`docker compose -p dxos --env-file .env -f deploy/compose.yaml -f deploy/compose.dev-lite.yaml up -d --build`
+và `make netcheck` bằng `python ops/netcheck.py`.
+
+| Hồ sơ | Dùng khi | Khác biệt |
+|---|---|---|
+| `p16` | máy chủ 16 GB | heap JVM 1 GB, ClamAV mặc định |
+| `p8` | máy 8 GB, laptop demo dự phòng | heap 512 MB, ClamAV 1 luồng, không nạp chữ ký song song |
+| `dev-lite` | phát triển trên laptop | **ClamAV thay bằng `fake-av` (chỉ nhận EICAR)**; không dùng để nghiệm thu |
+
+Truy cập: `https://localhost/auth/` (Keycloak), `https://localhost/api/v1/...` (qua APISIX).
+Trình duyệt sẽ cảnh báo chứng chỉ vì Caddy dùng CA nội bộ cho `localhost`.

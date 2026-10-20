@@ -2,9 +2,12 @@
 # SPDX-License-Identifier: Apache-2.0
 PYTHON ?= python
 export PYTHONDONTWRITEBYTECODE = 1
-COMPOSE = docker compose -p dxos -f deploy/compose.yaml -f deploy/compose.p16.yaml
+# Hồ sơ: p16 (mặc định), p8, dev-lite (laptop, có fake-av). Ví dụ: make up PROFILE=dev-lite
+PROFILE ?= p16
+ENV_FILE ?= .env
+COMPOSE = docker compose -p dxos --env-file $(ENV_FILE) -f deploy/compose.yaml -f deploy/compose.$(PROFILE).yaml
 
-.PHONY: help dev-install lint test reuse check up down netcheck
+.PHONY: help dev-install lint test reuse check up down ps logs netcheck test-infra pin-images
 
 help:
 	@echo "make dev-install  - cài công cụ phát triển và các gói Python ở chế độ editable"
@@ -12,8 +15,11 @@ help:
 	@echo "make test         - test đơn vị (không cần Docker)"
 	@echo "make reuse        - kiểm tra giấy phép từng tệp (REUSE)"
 	@echo "make check        - lint + reuse + test"
-	@echo "make up / down    - dựng / dừng stack (cần deploy/compose*.yaml, Plan 01 Task 4)"
-	@echo "make netcheck     - kiểm tra ma trận mạng AT-01 (Plan 01 Task 4)"
+	@echo "make up / down    - dựng / dừng stack; PROFILE=p16|p8|dev-lite (mặc định p16)"
+	@echo "make ps / logs    - trạng thái / log các container"
+	@echo "make netcheck     - kiểm tra ma trận mạng AT-01 trên stack đang chạy"
+	@echo "make test-infra   - test sống (marker infra) trên stack đang chạy"
+	@echo "make pin-images   - ghim digest mọi image trong deploy/ (cần Docker có buildx)"
 
 dev-install:
 	$(PYTHON) -m pip install -r requirements-dev.txt
@@ -30,11 +36,26 @@ reuse:
 
 check: lint reuse test
 
-up:
-	$(COMPOSE) up -d
+$(ENV_FILE):
+	@echo "Chưa có $(ENV_FILE): chạy 'cp .env.example $(ENV_FILE)' rồi đổi mật khẩu." && exit 1
+
+up: $(ENV_FILE)
+	$(COMPOSE) up -d --build
 
 down:
 	$(COMPOSE) down
+
+ps:
+	$(COMPOSE) ps
+
+logs:
+	$(COMPOSE) logs --tail=100
+
+test-infra:
+	$(PYTHON) -m pytest -m infra tests/infra -v
+
+pin-images:
+	$(PYTHON) ops/pin_images.py
 
 netcheck:
 	$(PYTHON) ops/netcheck.py --matrix deploy/network-matrix.yaml --project dxos

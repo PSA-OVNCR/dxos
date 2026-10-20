@@ -1,0 +1,47 @@
+# SPDX-FileCopyrightText: 2026 PSA_OVNCR
+# SPDX-License-Identifier: Apache-2.0
+#
+# Caddy: TLS + định tuyến tĩnh (spec 6.2). Caddy KHÔNG thấy trust-core-api:
+# mọi lời gọi /api, /admin, /verify buộc đi qua APISIX.
+# DXOS_DOMAIN=localhost thì Caddy tự dùng CA nội bộ (trình duyệt sẽ cảnh báo).
+
+(gateway_routes) {
+	@gateway path /api/* /admin/* /verify/* /view/*
+	handle @gateway {
+		reverse_proxy apisix:9080
+	}
+	handle /apps/* {
+		root * /srv
+		file_server
+	}
+}
+
+# Host công khai: người dùng, ứng dụng Tầng 2, cổng đối soát.
+{$DXOS_DOMAIN} {
+	# Console quản trị Keycloak chỉ mở trên host admin.
+	@kc_admin path /auth/admin /auth/admin/*
+	handle @kc_admin {
+		respond "Not Found" 404
+	}
+	handle_path /auth/* {
+		reverse_proxy keycloak:8080
+	}
+	import gateway_routes
+	handle {
+		respond "Not Found" 404
+	}
+}
+
+# Host quản trị: chỉ IP cho phép (DXOS_ADMIN_ALLOWED_IPS, ví dụ "private_ranges" hoặc "203.0.113.7/32").
+{$DXOS_ADMIN_HOST} {
+	@blocked not remote_ip {$DXOS_ADMIN_ALLOWED_IPS}
+	respond @blocked "Forbidden" 403
+
+	handle_path /auth/* {
+		reverse_proxy keycloak:8080
+	}
+	import gateway_routes
+	handle {
+		respond "Not Found" 404
+	}
+}

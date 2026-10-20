@@ -1,0 +1,75 @@
+# SPDX-FileCopyrightText: 2026 PSA_OVNCR
+# SPDX-License-Identifier: Apache-2.0
+#
+# NGUỒN SỰ THẬT cho phân vùng mạng (spec 6.2) và AT-01.
+# - tests/infra/test_compose_static.py đối chiếu compose với `networks` và `membership`.
+# - ops/netcheck.py chạy `probes` trên stack đang chạy.
+# Sửa ma trận ở đây trước, rồi mới sửa compose.
+
+networks:
+  net-edge:   {internal: false}   # publish 80/443 (chỉ caddy)
+  net-front:  {internal: true}    # caddy <-> apisix, keycloak
+  net-app:    {internal: true}    # apisix <-> trust-core-api, viewer, backend Tầng 2
+  net-idp:    {internal: true}    # trust-core-api -> keycloak (JWKS, admin REST)
+  net-kcdb:   {internal: true}    # keycloak -> kc-db
+  net-wf:     {internal: true}    # trust-core-api <-> flowable
+  net-fldb:   {internal: true}    # flowable -> flowable-db
+  net-data:   {internal: true}    # trust-core -> core-db, seaweedfs, clamav, openbao
+  net-egress: {internal: false}   # chỉ đi ra Internet (git push STH, freshclam); không publish cổng
+
+membership:
+  caddy:             [net-edge, net-front]
+  apisix:            [net-front, net-app]
+  keycloak:          [net-front, net-idp, net-kcdb]
+  kc-db:             [net-kcdb]
+  trust-core-api:    [net-app, net-idp, net-wf, net-data]
+  trust-core-worker: [net-data, net-egress]
+  net-probe-app:     [net-app]          # đứng thay viewer / backend Tầng 2 cho tới khi có
+  flowable:          [net-wf, net-fldb]
+  flowable-db:       [net-fldb]
+  core-db:           [net-data]
+  seaweedfs:         [net-data]
+  clamav:            [net-data, net-egress]
+  openbao:           [net-data]
+
+# Image busybox dùng để thăm dò (ops/pin_images.py ghim digest).
+probe_image: busybox:1.37
+
+# Mỗi probe: một container tạm gắn vào mạng `from`, thử `nc -z host port`.
+probes:
+  # Lối vào: caddy chỉ tới được gateway và Keycloak
+  - {from: net-front,  to: "apisix:9080",            expect: open}
+  - {from: net-front,  to: "keycloak:8080",          expect: open}
+  - {from: net-front,  to: "trust-core-api:8000",    expect: closed}   # không vòng qua APISIX
+  - {from: net-front,  to: "core-db:5432",           expect: closed}
+  - {from: net-front,  to: "seaweedfs:8333",         expect: closed}
+  # Vùng API (APISIX, viewer, backend Tầng 2): chỉ tới được API
+  - {from: net-app,    to: "trust-core-api:8000",    expect: open}
+  - {from: net-app,    to: "core-db:5432",           expect: closed}
+  - {from: net-app,    to: "seaweedfs:8333",         expect: closed}
+  - {from: net-app,    to: "openbao:8200",           expect: closed}
+  - {from: net-app,    to: "clamav:3310",            expect: closed}
+  - {from: net-app,    to: "flowable:8080",          expect: closed}
+  - {from: net-app,    to: "kc-db:5432",             expect: closed}
+  - {from: net-app,    to: "keycloak:8080",          expect: closed}
+  # Vùng IdP: API thấy Keycloak nhưng không thấy kc-db
+  - {from: net-idp,    to: "keycloak:8080",          expect: open}
+  - {from: net-idp,    to: "kc-db:5432",             expect: closed}
+  - {from: net-kcdb,   to: "core-db:5432",           expect: closed}
+  # Flowable: không thấy vùng dữ liệu
+  - {from: net-wf,     to: "flowable:8080",          expect: open}
+  - {from: net-wf,     to: "core-db:5432",           expect: closed}
+  - {from: net-wf,     to: "openbao:8200",           expect: closed}
+  - {from: net-wf,     to: "seaweedfs:8333",         expect: closed}
+  - {from: net-fldb,   to: "flowable-db:5432",       expect: open}
+  - {from: net-fldb,   to: "core-db:5432",           expect: closed}
+  # Vùng dữ liệu: chỉ dành cho trust-core
+  - {from: net-data,   to: "core-db:5432",           expect: open}
+  - {from: net-data,   to: "seaweedfs:8333",         expect: open}
+  - {from: net-data,   to: "clamav:3310",            expect: open}
+  - {from: net-data,   to: "openbao:8200",           expect: open}
+  - {from: net-data,   to: "flowable-db:5432",       expect: closed}
+  - {from: net-data,   to: "kc-db:5432",             expect: closed}
+  # Vùng ra Internet: không thấy kho dữ liệu
+  - {from: net-egress, to: "core-db:5432",           expect: closed}
+  - {from: net-egress, to: "openbao:8200",           expect: closed}

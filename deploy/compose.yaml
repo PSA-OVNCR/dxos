@@ -1,0 +1,238 @@
+# SPDX-FileCopyrightText: 2026 PSA_OVNCR
+# SPDX-License-Identifier: Apache-2.0
+#
+# Stack DX-OS Trust Core: tệp nền. Luôn dùng kèm một hồ sơ:
+#   docker compose -p dxos --env-file .env -f deploy/compose.yaml -f deploy/compose.p16.yaml up -d
+# Phân vùng mạng phải khớp deploy/network-matrix.yaml (kiểm bởi tests/infra/test_compose_static.py).
+# Image ghim digest bằng `python ops/pin_images.py`.
+
+name: dxos
+
+x-common: &common
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options: {max-size: "10m", max-file: "3"}
+
+x-pg-health: &pg-health
+  test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+  interval: 10s
+  timeout: 5s
+  retries: 10
+
+services:
+  # ---------- Lối vào ----------
+  caddy:
+    <<: *common
+    image: caddy:2.10
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DXOS_DOMAIN: ${DXOS_DOMAIN:?đặt DXOS_DOMAIN trong .env}
+      DXOS_ADMIN_HOST: ${DXOS_ADMIN_HOST:?đặt DXOS_ADMIN_HOST trong .env}
+      DXOS_ADMIN_ALLOWED_IPS: ${DXOS_ADMIN_ALLOWED_IPS:?đặt DXOS_ADMIN_ALLOWED_IPS trong .env}
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - apps-static:/srv/apps:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks: [net-edge, net-front]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2019/config/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  apisix:
+    <<: *common
+    image: apache/apisix:3.12.0-debian
+    environment:
+      DXOS_ADMIN_HOST: ${DXOS_ADMIN_HOST:?đặt DXOS_ADMIN_HOST trong .env}
+      APISIX_OIDC_CLIENT_SECRET: ${APISIX_OIDC_CLIENT_SECRET:?đặt APISIX_OIDC_CLIENT_SECRET trong .env}
+    volumes:
+      - ./apisix/config.yaml:/usr/local/apisix/conf/config.yaml:ro
+      - ./apisix/apisix.yaml:/usr/local/apisix/conf/apisix.yaml:ro
+    networks: [net-front, net-app]
+    healthcheck:
+      # Bất kỳ phản hồi HTTP nào (kể cả 404) đều nghĩa là APISIX đang nghe.
+      test: ["CMD", "curl", "-s", "-o", "/dev/null", "http://127.0.0.1:9080/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # ---------- Danh tính ----------
+  keycloak:
+    <<: *common
+    image: quay.io/keycloak/keycloak:26.3
+    command: ["start"]
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://kc-db:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${KC_DB_PASSWORD:?đặt KC_DB_PASSWORD trong .env}
+      # Caddy phục vụ Keycloak dưới /auth (bỏ tiền tố); URL công khai mang tiền tố.
+      KC_HOSTNAME: https://${DXOS_DOMAIN}/auth
+      KC_HOSTNAME_ADMIN: https://${DXOS_ADMIN_HOST}/auth
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+      KC_HTTP_ENABLED: "true"
+      KC_PROXY_HEADERS: xforwarded
+      KC_HEALTH_ENABLED: "true"
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?đặt KEYCLOAK_ADMIN_PASSWORD trong .env}
+    depends_on:
+      kc-db: {condition: service_healthy}
+    networks: [net-front, net-idp, net-kcdb]
+    healthcheck:
+      # Image Keycloak không có curl/wget: dùng /dev/tcp của bash tới cổng quản trị 9000.
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q '\"UP\"' <&3"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+
+  kc-db:
+    <<: *common
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: ${KC_DB_PASSWORD:?đặt KC_DB_PASSWORD trong .env}
+    volumes: [kc-db-data:/var/lib/postgresql/data]
+    networks: [net-kcdb]
+    healthcheck: *pg-health
+
+  # ---------- Lõi Tầng 1 (image stub, Task 8 thay bằng image thật) ----------
+  trust-core-api:
+    <<: *common
+    image: python:3.12-slim
+    command: ["python", "-m", "http.server", "8000"]
+    networks: [net-app, net-idp, net-wf, net-data]
+    healthcheck: &py-health
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  trust-core-worker:
+    <<: *common
+    image: python:3.12-slim
+    command: ["python", "-m", "http.server", "8000"]
+    networks: [net-data, net-egress]
+    healthcheck: *py-health
+
+  # Đứng thay viewer / backend Tầng 2 trong vùng API, để AT-01 có điểm xuất phát thật.
+  net-probe-app:
+    <<: *common
+    image: busybox:1.37
+    command: ["sleep", "infinity"]
+    networks: [net-app]
+    healthcheck:
+      test: ["CMD", "true"]
+      interval: 60s
+
+  # ---------- Workflow ----------
+  flowable:
+    <<: *common
+    image: flowable/flowable-rest:7.1.0
+    environment:
+      SPRING_DATASOURCE_DRIVER-CLASS-NAME: org.postgresql.Driver
+      SPRING_DATASOURCE_URL: jdbc:postgresql://flowable-db:5432/flowable
+      SPRING_DATASOURCE_USERNAME: flowable
+      SPRING_DATASOURCE_PASSWORD: ${FLOWABLE_DB_PASSWORD:?đặt FLOWABLE_DB_PASSWORD trong .env}
+      FLOWABLE_REST_APP_ADMIN_USER-ID: ${FLOWABLE_REST_USER:-rest-admin}
+      FLOWABLE_REST_APP_ADMIN_PASSWORD: ${FLOWABLE_REST_PASSWORD:?đặt FLOWABLE_REST_PASSWORD trong .env}
+    depends_on:
+      flowable-db: {condition: service_healthy}
+    networks: [net-wf, net-fldb]
+    healthcheck:
+      # Xác nhận lại trong spike Task 6 (image có thể không có curl).
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+
+  flowable-db:
+    <<: *common
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: flowable
+      POSTGRES_USER: flowable
+      POSTGRES_PASSWORD: ${FLOWABLE_DB_PASSWORD:?đặt FLOWABLE_DB_PASSWORD trong .env}
+    volumes: [flowable-db-data:/var/lib/postgresql/data]
+    networks: [net-fldb]
+    healthcheck: *pg-health
+
+  # ---------- Vùng dữ liệu (chỉ trust-core thấy) ----------
+  core-db:
+    <<: *common
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: dxos
+      POSTGRES_USER: dxos_owner
+      POSTGRES_PASSWORD: ${CORE_DB_OWNER_PASSWORD:?đặt CORE_DB_OWNER_PASSWORD trong .env}
+    volumes: [core-db-data:/var/lib/postgresql/data]
+    networks: [net-data]
+    healthcheck: *pg-health
+
+  seaweedfs:
+    <<: *common
+    image: chrislusf/seaweedfs:3.80
+    command: ["server", "-dir=/data", "-s3", "-s3.port=8333", "-volume.max=0"]
+    volumes: [seaweedfs-data:/data]
+    networks: [net-data]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9333/cluster/status"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  clamav:
+    <<: *common
+    image: clamav/clamav:1.4
+    volumes: [clamav-db:/var/lib/clamav]
+    networks: [net-data, net-egress]
+    healthcheck:
+      test: ["CMD", "clamdcheck.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 300s
+
+  openbao:
+    <<: *common
+    image: openbao/openbao:2.2.0
+    command: ["server", "-config=/openbao/config/openbao.hcl"]
+    volumes:
+      - ./openbao/openbao.hcl:/openbao/config/openbao.hcl:ro
+      - openbao-data:/openbao/file
+    networks: [net-data]
+    healthcheck:
+      # Sống là đủ; init/unseal do Task 15 đảm nhiệm.
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8200/v1/sys/health?uninitcode=200&sealedcode=200&standbyok=true"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+networks:
+  net-edge:   {internal: false}
+  net-front:  {internal: true}
+  net-app:    {internal: true}
+  net-idp:    {internal: true}
+  net-kcdb:   {internal: true}
+  net-wf:     {internal: true}
+  net-fldb:   {internal: true}
+  net-data:   {internal: true}
+  net-egress: {internal: false}
+
+volumes:
+  apps-static:
+  caddy-data:
+  caddy-config:
+  kc-db-data:
+  flowable-db-data:
+  core-db-data:
+  seaweedfs-data:
+  clamav-db:
+  openbao-data:
