@@ -1,0 +1,16 @@
+# SPDX-FileCopyrightText: 2026 PSA_OVNCR
+# SPDX-License-Identifier: Apache-2.0
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dxos-proof"
+version = "0.1.0"
+description = "Canonical JSON and RFC 6962 Merkle proofs for DX-OS Trust Core and dxos-witness"
+license = "Apache-2.0"
+requires-python = ">=3.12"
+dependencies = []
+
+[tool.setuptools.packages.find]
+where = ["src"]

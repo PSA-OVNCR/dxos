@@ -1,0 +1,8 @@
+# SPDX-FileCopyrightText: 2026 PSA_OVNCR
+# SPDX-License-Identifier: Apache-2.0
+target-version = "py312"
+line-length = 110
+
+[lint]
+select = ["E", "F", "I", "B", "UP", "S"]
+ignore = ["S101"]  # assert được phép trong test

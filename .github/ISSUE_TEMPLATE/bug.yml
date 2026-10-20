@@ -1,0 +1,19 @@
+# SPDX-FileCopyrightText: 2026 PSA_OVNCR
+# SPDX-License-Identifier: Apache-2.0
+name: Báo lỗi
+description: Báo một lỗi của DX-OS Trust Core hoặc ứng dụng Tầng 2
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes: { label: Chuyện gì đã xảy ra?, description: Mô tả lỗi và điều bạn mong đợi }
+    validations: { required: true }
+  - type: textarea
+    id: steps
+    attributes: { label: Các bước tái hiện }
+    validations: { required: true }
+  - type: input
+    id: version
+    attributes: { label: Phiên bản (tag hoặc commit) }
+  - type: markdown
+    attributes: { value: "**Không** đính kèm dữ liệu cá nhân thật. Lỗ hổng bảo mật xin báo theo SECURITY.md." }

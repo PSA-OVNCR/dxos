@@ -1,0 +1,11 @@
+DX-OS Trust Core
+Copyright 2026 PSA_OVNCR
+
+This product includes software developed by team PSA_OVNCR
+for the Vietnam Student Informatics Olympiad – Open Source Software 2026
+(OLP PMNM 2026, theme "DX-OS Open-Core").
+
+Third-party components (Keycloak, Apache APISIX, Flowable, PostgreSQL,
+SeaweedFS, ClamAV, OpenBao, Caddy and others) run as independent services,
+are NOT distributed in this repository, and remain under their own licenses.
+See LICENSES-THIRD-PARTY.md.

@@ -1,0 +1,6 @@
+# SPDX-FileCopyrightText: 2026 PSA_OVNCR
+# SPDX-License-Identifier: Apache-2.0
+* text=auto eol=lf
+*.pdf binary
+*.png binary
+*.bin binary
