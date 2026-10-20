@@ -16,6 +16,15 @@ ssh-keygen -t ed25519 -N "" -C dxos-anchor -f .secrets/anchor-deploy-key   # .se
 Repo neo → Settings → Deploy keys → Add: dán `.secrets/anchor-deploy-key.pub`, **tích "Allow write access"**.
 Khóa riêng chỉ nằm trên VPS (Docker secret).
 
+**Quyền đọc khóa trong container.** Compose (không Swarm) gắn secret dạng `file:` bằng bind mount, giữ nguyên chủ sở hữu
+và quyền của tệp trên máy chủ. Worker chạy bằng uid 10001, còn `ssh` từ chối khóa riêng mà người khác đọc được, nên trên VPS Linux:
+```bash
+sudo chown 10001:10001 .secrets/anchor-deploy-key
+sudo chmod 0400 .secrets/anchor-deploy-key
+```
+Nếu bỏ bước này, việc neo báo `PUSH_FAILED` (Permission denied hoặc "UNPROTECTED PRIVATE KEY FILE") và thử lại mãi.
+Trên Docker Desktop (Windows/macOS) quyền của bind mount được giả lập, chỉ dùng để thử; neo thật chạy trên VPS.
+
 ## 3. Bật neo trong stack
 Thêm vào `.env`:
 ```

@@ -12,7 +12,7 @@ Tài liệu này viết cho **một AI hoặc người mới**: đọc hết là
 3. `docs/superpowers/specs/2026-10-20-dxos-trust-core-design.md` (Spec 1.0.1, **nguồn sự thật về thiết kế**).
 4. `docs/superpowers/plans/2026-10-20-dxos-00-ke-hoach-tong-the.md` (Plan 00) và `...-01-nen-mong-m0-m1.md` (Plan 01, đang thực hiện).
 5. `docs/handoff/ledger-plan01.md`: sổ tiến độ và mọi quyết định (ruling) đã đưa ra khi thực hiện Plan 01.
-6. Nếu có quyền vào máy trưởng nhóm: thư mục `E:\PMMNM 2026\BAN-GIAO\boi-canh\` có tài liệu bối cảnh 00–05 (tóm tắt đề, giải đáp BTC G1–G13, đối thủ, ý tưởng). Ba PDF gốc của BTC nằm ở `E:\PMMNM 2026\`.
+6. Nếu có quyền vào máy trưởng nhóm: thư mục `E:\PMMNM 2026\BAN-GIAO\boi-canh\` có tài liệu bối cảnh 00–05 (tóm tắt đề, giải đáp BTC G1–G13 (G14–G17 xem mục 2.1), đối thủ, ý tưởng). Ba PDF gốc của BTC nằm ở `E:\PMMNM 2026\`.
 
 ### Câu lệnh khởi động gợi ý (dán vào phiên Claude mới)
 > Bạn tiếp nhận dự án DX-OS Trust Core dự thi OLP Phần mềm nguồn mở 2026 của đội PSA_OVNCR. Repo: https://github.com/PSA-OVNCR/dxos. Hãy clone repo, đọc `docs/handoff/HANDOFF.md` và làm theo mục "Cách làm việc với người dùng". Sau đó báo lại cho tôi bằng tiếng Việt: (1) bạn hiểu dự án đang ở đâu, (2) việc tiếp theo bạn đề xuất. Chưa sửa gì cho tới khi tôi đồng ý.
@@ -26,7 +26,7 @@ Tài liệu này viết cho **một AI hoặc người mới**: đọc hết là
   - *Đề*: "Đề thi phần mềm nguồn mở - OLP 2026", 7 trang.
   - *TL*: "Thể lệ cuộc thi phần mềm nguồn mở - OLP 2026", 3 trang.
   - *QG*: "Quick-guide-to-DXOS", 5 trang.
-- **Phân loại** mọi yêu cầu: **[BB]** bắt buộc · **[TK]** tham khảo · **[ĐX]** đề xuất của cố vấn. G1–G13 là các giải đáp của BTC.
+- **Phân loại** mọi yêu cầu: **[BB]** bắt buộc · **[TK]** tham khảo · **[ĐX]** đề xuất của cố vấn. G1–G17 là các giải đáp của BTC.
 - **Trung thực:** không khẳng định "đã kiểm thử" nếu chưa chạy. Mọi tuyên bố "đạt" phải kèm lệnh đã chạy và kết quả. Mỗi lần chạy thật đều ghi minh chứng vào `docs/progress/`.
 - **Git:**
   - Người dùng muốn **push thẳng lên `main`**, không cần PR hay review ("cứ up lên là được").
@@ -72,7 +72,7 @@ Tài liệu này viết cho **một AI hoặc người mới**: đọc hết là
   - M4 30/11 (v0.9.0).
   - M5 04/12 (v1.0.0).
 
-### 2.1. Giải đáp của BTC trên Telegram (G1–G13, đã xác nhận)
+### 2.1. Giải đáp của BTC trên Telegram (G1–G17, đã xác nhận)
 | # | Nội dung | Hệ quả |
 |---|---|---|
 | G1 | 4 nguyên lý (Đề tr.4) chỉ **định hướng**; Tầng 2 chỉ cần **1 không gian** H/P/D/I | Không phải làm đủ HPDI |
@@ -88,8 +88,12 @@ Tài liệu này viết cho **một AI hoặc người mới**: đọc hết là
 | G11 | Bảng 7 lớp công nghệ chỉ là ví dụ | — |
 | G12 | Hạn nộp 17:00 06/12/2026 | — |
 | G13 | Chung kết chỉ demo, không code tại chỗ | — |
+| G14 | Backend Tầng 1 **tổng quát nhất có thể**, dùng được cho mọi loại tổ chức (công ty, cơ quan, trường học…) | Củng cố G10, I3, manifest; đa thuê bao vẫn là hướng phát triển |
+| G15 | "Cắm rút" Tầng 3 là khái niệm cho **người thiết kế, xây dựng hệ thống**, không phải tính năng cho người dùng cuối | Cài ứng dụng bằng manifest qua quản trị (spec 9.5, Plan 02) là đủ |
+| G16 | Sau khi gửi bài **vẫn được commit** để hoàn thiện demo; điểm PoF **chủ yếu theo hiện trạng kho lúc gửi bài** | Mọi hạng mục PoF phải xong trước 17:00 06/12 |
+| G17 | Release phải **được đánh dấu trên git** (tag), lấy đúng mã nguồn phiên bản đó là build hoàn chỉnh được | `release.yml` chạy theo tag; [ĐX] khóa phiên bản phụ thuộc trước v1.0.0 |
 
-**Chưa có giải đáp:** được commit trong thời gian chấm không; `.zip` tự sinh trong release có bị trừ điểm "định dạng không mở" không (TL tr.2); điểm trừ có dừng ở 0 không.
+**Chưa có giải đáp:** `.zip` tự sinh trong release có bị trừ điểm "định dạng không mở" không (TL tr.2; G17 không nói); điểm trừ có dừng ở 0 không; chấm theo commit cuối trước hạn hay theo tag release (G16); release chỉ cần tag hay cần cả trang Release có tệp đính kèm (G17); "tổng quát nhất" có đòi đa thuê bao không (G14). Câu "commit trong thời gian chấm" đã có giải đáp (G16).
 
 Bản đầy đủ (kèm phân tích đối thủ 2026 và bài học các năm trước) nằm ở `E:\PMMNM 2026\OLP2026-TONG-HOP-DU-AN.md` trên máy trưởng nhóm và trong Project claude.ai của tài khoản cũ. Đây là tài liệu nội bộ, không đưa lên repo công khai.
 
