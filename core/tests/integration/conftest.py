@@ -138,3 +138,44 @@ async def sealed_record_id(owner_conn: asyncpg.Connection) -> uuid.UUID:
     rid = await _insert_record(owner_conn)
     await owner_conn.execute("UPDATE records SET seal_state='SEALED' WHERE id=$1", rid)
     return rid
+
+
+# ---------------------------------------------------------------- kho S3 + worker (Task 14)
+S3_ENDPOINT = os.environ.get("DXOS_TEST_S3_ENDPOINT", "http://127.0.0.1:58333")
+
+
+@pytest.fixture(scope="session")
+def s3_buckets(tmp_path_factory):
+    """Một bộ bucket cho cả phiên test: SeaweedFS mất vài giây cho lần ghi đầu vào bucket mới."""
+    from dxos_core.objects.storage import ObjectStore
+    from dxos_core.settings import Settings
+
+    secret = tmp_path_factory.mktemp("s3") / "key"
+    secret.write_text("changeme-test", encoding="utf-8")
+    prefix = f"t{uuid.uuid4().hex[:10]}"
+    names = {"s3_bucket_staging": f"{prefix}-staging", "s3_bucket_objects": f"{prefix}-objects",
+             "s3_bucket_quarantine": f"{prefix}-quarantine"}
+    settings = Settings(database_url="unused", s3_endpoint=S3_ENDPOINT, s3_access_key_file=secret,
+                        s3_secret_key_file=secret, openbao_token_file=secret, keycloak_issuer="unused",
+                        keycloak_jwks_url="unused", actor_hmac_key_file=secret, anchor_repo_dir=secret,
+                        **names)
+    store = ObjectStore(settings)
+    try:
+        store.ensure_buckets()
+    except Exception as exc:  # noqa: BLE001 (không có S3 thì bỏ qua như khi không có DB)
+        msg = f"cần S3 (SeaweedFS) ở {S3_ENDPOINT} cho integration test ({type(exc).__name__})"
+        if os.environ.get("DXOS_TEST_REQUIRE_DB") == "1":
+            pytest.fail(msg)
+        pytest.skip(msg)
+    yield names
+    store.drop_buckets()
+
+
+@pytest.fixture
+def s3_settings(make_settings, core_dsn, fake_clamd, s3_buckets, request):
+    host, port = fake_clamd
+    if request.config.getoption("--real-clamav"):
+        host, _, p = os.environ.get("DXOS_TEST_CLAMD", "127.0.0.1:53310").partition(":")
+        port = int(p)
+    return make_settings(database_url=core_dsn, s3_endpoint=S3_ENDPOINT, clamd_host=host, clamd_port=port,
+                         **s3_buckets)

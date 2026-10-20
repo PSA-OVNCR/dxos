@@ -322,6 +322,8 @@ workflow:
     ban_hanh:       { role: giam_doc,    guards: [attachments_clean, pii_reviewed, not_same_actor:creator] }
 ```
 
+*`access.update` mặc định là `[owner]` khi không khai báo (bản 1.0.2).*
+
 ### 9.2. Chính sách sàn của lõi (không manifest nào nới lỏng được)
 | # | Chính sách sàn | Kiểm thử |
 |---|---|---|
@@ -997,3 +999,4 @@ Giờ của AT-24..26 đã nằm trong giờ của H1, H6, H13 và **không** c�
 | | | Giao trách nhiệm AT-24 → H1, AT-25 → H6, AT-26 → H13; không tính giờ hai lần trong H11 |
 | | | **I1 làm rõ (sửa kỹ thuật quan trọng nhất):** phân vùng mạng theo chủ sở hữu dữ liệu; Flowable chỉ có quyền với `flowable-db` riêng; Viewer và app Tầng 2 chỉ gọi API (4.1, 5, 6.2, 9.4, T1, T3, AT-01, ADR-22, RAM) |
 | 1.0.2 | 20/10/2026 | Mục 9.1: thêm `public: true` cho `so_hieu`. Trường này nằm trong `seal.public_fields`, mà quy tắc validator (Plan 01 Task 11) đòi mọi `public_fields` phải có cờ `public` |
+| | | Mục 9.1: `access.update` không khai báo thì mặc định là `[owner]` (chủ bản ghi sửa và đính kèm tệp khi bản ghi chưa niêm phong) |

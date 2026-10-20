@@ -140,7 +140,8 @@ def _valid_slug(s: str) -> bool:
     return 2 <= len(s) <= 63 and s[0].isalpha() and all(c.islower() or c.isdigit() or c == "-" for c in s)
 
 
-async def _enforce(ctx: Ctx, action: Action, m: Manifest, col: str, owner: str | None, subject: str):
+async def enforce_or_problem(ctx: Ctx, action: Action, m: Manifest, col: str, owner: str | None,
+                             subject: str):
     try:
         return await enforce(ctx.conn, ctx.principal, action, m, col, owner, subject, ctx.hmac_key)
     except NotFound as exc:
@@ -162,7 +163,7 @@ async def _reveal(ctx: Ctx, m: Manifest, col: str, spec: CollectionSpec, datas: 
     return True
 
 
-async def _fetch(ctx: Ctx, m: Manifest, col: str, rid: str) -> asyncpg.Record:
+async def fetch_record(ctx: Ctx, m: Manifest, col: str, rid: str) -> asyncpg.Record:
     try:
         rid_uuid = uuid.UUID(rid)
     except ValueError as exc:
@@ -193,7 +194,7 @@ async def _insert(ctx: Ctx, m: Manifest, col: str, spec: CollectionSpec, data: d
 
 async def create(ctx: Ctx, app_id: str, col: str, body: Any) -> dict:
     m, spec = await load_target(ctx, app_id, col)
-    await _enforce(ctx, "create", m, col, None, f"{app_id}/{col}")
+    await enforce_or_problem(ctx, "create", m, col, None, f"{app_id}/{col}")
     data = validate_data(spec, nfc(body))
     row = await _insert(ctx, m, col, spec, dict(data))
     can_reveal = decide(ctx.principal, "reveal_pii", m, col, None).allow
@@ -202,7 +203,7 @@ async def create(ctx: Ctx, app_id: str, col: str, body: Any) -> dict:
 
 async def bulk_create(ctx: Ctx, app_id: str, col: str, body: Any) -> dict:
     m, spec = await load_target(ctx, app_id, col)
-    await _enforce(ctx, "create", m, col, None, f"{app_id}/{col}")
+    await enforce_or_problem(ctx, "create", m, col, None, f"{app_id}/{col}")
     if not isinstance(body, list) or len(body) > MAX_BULK:
         raise ProblemError(422, "schema", "Bulk body must be a JSON array", f"at most {MAX_BULK} rows")
     results = []
@@ -220,8 +221,8 @@ async def bulk_create(ctx: Ctx, app_id: str, col: str, body: Any) -> dict:
 
 async def get(ctx: Ctx, app_id: str, col: str, rid: str) -> dict:
     m, spec = await load_target(ctx, app_id, col)
-    row = await _fetch(ctx, m, col, rid)
-    await _enforce(ctx, "read", m, col, row["owner_sub"], str(row["id"]))
+    row = await fetch_record(ctx, m, col, rid)
+    await enforce_or_problem(ctx, "read", m, col, row["owner_sub"], str(row["id"]))
     can_reveal = await _reveal(ctx, m, col, spec, [_loads(row["data"])], str(row["id"]))
     return record_out(row, ctx.principal, spec, can_reveal)
 
@@ -241,7 +242,7 @@ def _decode_cursor(cursor: str) -> tuple[datetime, uuid.UUID]:
 
 async def list_records(ctx: Ctx, app_id: str, col: str, cursor: str | None, limit: int) -> dict:
     m, spec = await load_target(ctx, app_id, col)
-    d = await _enforce(ctx, "list", m, col, None, f"{app_id}/{col}")
+    d = await enforce_or_problem(ctx, "list", m, col, None, f"{app_id}/{col}")
     if not 1 <= limit <= 200:
         raise ProblemError(400, "bad-request", "Bad Request", "limit must be between 1 and 200")
     where, args = ["app_id=$1", "collection=$2"], [m.app.id, col]
@@ -278,8 +279,8 @@ def parse_if_match(value: str | None) -> int:
 async def patch(ctx: Ctx, app_id: str, col: str, rid: str, body: Any, if_match: str | None) -> dict:
     expected = parse_if_match(if_match)
     m, spec = await load_target(ctx, app_id, col)
-    row = await _fetch(ctx, m, col, rid)
-    await _enforce(ctx, "update", m, col, row["owner_sub"], str(row["id"]))
+    row = await fetch_record(ctx, m, col, rid)
+    await enforce_or_problem(ctx, "update", m, col, row["owner_sub"], str(row["id"]))
     if row["seal_state"] != "NONE":
         raise ProblemError(409, "record-sealed", "Record is sealed", f"seal_state={row['seal_state']}")
     if row["version"] != expected:

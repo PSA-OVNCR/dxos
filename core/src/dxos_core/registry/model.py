@@ -38,7 +38,8 @@ class AttachmentSpec(_Strict):
 class AccessSpec(_Strict):
     read: list[str]
     create: list[str]
-    update: list[str] = Field(default_factory=list)
+    # Không khai báo thì chủ bản ghi được sửa (và đính kèm tệp) khi bản ghi chưa niêm phong.
+    update: list[str] = Field(default_factory=lambda: ["owner"])
 
 
 class CollectionSpec(_Strict):

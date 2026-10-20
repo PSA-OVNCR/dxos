@@ -54,7 +54,7 @@ logs:
 	$(COMPOSE) logs --tail=100
 
 test-db-up:
-	docker compose -f deploy/compose.test.yaml up -d --wait core-db
+	docker compose -f deploy/compose.test.yaml up -d --wait core-db seaweedfs
 
 test-integration:
 	$(PYTHON) -m pytest -m integration -v

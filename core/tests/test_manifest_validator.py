@@ -76,7 +76,7 @@ def test_parsed_model_fields():
     assert m.roles == ["chuyen_vien", "truong_phong", "giam_doc", "van_thu", "nhan_vien"]
     assert vb.fields["so_hieu"].type == "sequence" and vb.fields["so_hieu"].format == "{n}/QĐ-SM"
     assert vb.fields["nguoi_lien_he_cccd"].pii == "CCCD"
-    assert vb.attachments.max_mb == 15 and vb.attachments.min == 1 and vb.access.update == []
+    assert vb.attachments.max_mb == 15 and vb.attachments.min == 1 and vb.access.update == ["owner"]
     assert m.policies.pii.reveal_roles == ["giam_doc", "van_thu"]
     guards = m.workflow.tasks["ban_hanh"].guards
     assert guards == ["attachments_clean", "pii_reviewed", "not_same_actor:creator"]

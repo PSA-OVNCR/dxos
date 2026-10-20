@@ -63,3 +63,21 @@ def test_jwks():
         route = m.get(JWKS_URL).respond(json=jwks())
         m.route().pass_through()
         yield route
+
+
+@pytest.fixture
+async def fake_clamd():
+    """clamd giả (deploy/fake-av) chạy trong tiến trình test; trả (host, port)."""
+    from helpers.files import load_fake_av
+
+    server = await load_fake_av().serve("127.0.0.1", 0)
+    try:
+        yield "127.0.0.1", server.sockets[0].getsockname()[1]
+    finally:
+        server.close()
+        await server.wait_closed()
+
+
+def pytest_addoption(parser):
+    parser.addoption("--real-clamav", action="store_true", default=False,
+                     help="chạy test kiểm dịch với ClamAV thật ở DXOS_TEST_CLAMD (host:port)")
