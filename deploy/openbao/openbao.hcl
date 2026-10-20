@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 PSA_OVNCR
 # SPDX-License-Identifier: Apache-2.0
 # OpenBao: chỉ nghe trong net-data. TLS tắt vì mạng là internal và chỉ trust-core thấy (spec 6.2).
-# Khởi tạo, unseal và bật transit do Plan 01 Task 15 đảm nhiệm.
+# Khởi tạo, unseal và bật transit: docs/runbook-openbao.md (init.sh trong cùng thư mục).
 storage "file" {
   path = "/openbao/file"
 }

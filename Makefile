@@ -54,7 +54,7 @@ logs:
 	$(COMPOSE) logs --tail=100
 
 test-db-up:
-	docker compose -f deploy/compose.test.yaml up -d --wait core-db seaweedfs
+	docker compose -f deploy/compose.test.yaml up -d --wait core-db seaweedfs openbao
 
 test-integration:
 	$(PYTHON) -m pytest -m integration -v

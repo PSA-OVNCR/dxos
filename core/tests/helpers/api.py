@@ -16,9 +16,11 @@ APPS = ("test-app", "phong-ho-so", "chung-nhan")
 
 
 @asynccontextmanager
-async def running_api(settings):
+async def running_api(settings, *, signer=None):
     app = create_app(settings)
     async with app.router.lifespan_context(app):
+        if signer is not None:
+            app.state.signer = signer
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
             client.app = app

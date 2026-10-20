@@ -15,6 +15,8 @@ from dxos_core.db.pool import create_pool
 from dxos_core.errors import install_error_handlers
 from dxos_core.identity import deps as identity
 from dxos_core.identity.jwt import JwksVerifier
+from dxos_core.kms.openbao import OpenBaoTransit
+from dxos_core.ledger import router as verify
 from dxos_core.objects import router as objects
 from dxos_core.objects.storage import ObjectStore
 from dxos_core.records import router as records
@@ -29,6 +31,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.hmac_key = read_secret(settings.actor_hmac_key_file).encode("utf-8")
         app.state.pool = await create_pool(settings.database_url, min_size=0)
         app.state.store = ObjectStore(settings)
+        app.state.signer = OpenBaoTransit(settings.openbao_addr, read_secret(settings.openbao_token_file))
         try:
             yield
         finally:
@@ -43,4 +46,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(identity.router)
     app.include_router(records.router)
     app.include_router(objects.router)
+    app.include_router(verify.router)
     return app

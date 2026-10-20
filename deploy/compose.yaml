@@ -248,9 +248,12 @@ services:
   openbao:
     <<: *common
     image: openbao/openbao:2.2.0@sha256:19612d67a4a95d05a7b77c6ebc6c2ac5dac67a8712d8df2e4c31ad28bee7edaa
-    command: ["server", "-config=/openbao/config/openbao.hcl"]
+    command: ["server", "-config=/openbao/dxos/openbao.hcl"]
+    environment:
+      BAO_ADDR: http://127.0.0.1:8200     # cho lệnh `bao` chạy bằng docker compose exec (runbook)
     volumes:
-      - ./openbao/openbao.hcl:/openbao/config/openbao.hcl:ro
+      # openbao.hcl + init.sh + dxos-core-policy.hcl (docs/runbook-openbao.md)
+      - ./openbao:/openbao/dxos:ro
       - openbao-data:/openbao/file
     networks: [net-data]
     healthcheck:
