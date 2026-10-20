@@ -1,13 +1,23 @@
 # Runbook neo STH lên GitHub (Plan 01 Task 16, bước thiết lập thủ công)
 
-Các bước dưới đây cần **chủ tổ chức GitHub** làm trên trình duyệt (cần 2FA, "sudo mode"); phiên Claude không làm thay.
+Các bước dưới đây cần **chủ tổ chức GitHub** làm trên trình duyệt (cần 2FA, "sudo mode"). Phiên Claude có thể thao tác thay
+trên trình duyệt đã đăng nhập sẵn, nhưng không nhập mật khẩu hay mã 2FA.
 
 ## 1. Tạo repo neo
 1. Tạo repo **công khai** `dxos-transparency-log`. Chủ sở hữu: trưởng nhóm và giảng viên hướng dẫn, cả hai bật 2FA
    (spec 11.7). Quyền admin repo **không** đặt trên VPS.
 2. Chép nội dung `witness/template/` của repo `dxos` vào repo neo (README và `.github/workflows/witness.yml`).
+   Bản đã tạo: https://github.com/PSA-OVNCR/dxos-transparency-log (workflow chỉ chạy khi có biến `DXOS_SERVER`).
 3. Settings → Rules → Rulesets → New branch ruleset cho `main`: bật *Restrict deletions*, *Block force pushes*,
    *Require linear history*. Không thêm ai vào danh sách bypass.
+
+**Trạng thái 21/10/2026: bước 1–3 đã xong.**
+- Repo https://github.com/PSA-OVNCR/dxos-transparency-log (Public, trong tổ chức `PSA-OVNCR`), commit đầu `dd66478`.
+- Ruleset `protect-main` (id 25495143): Active, áp cho nhánh mặc định `main`, bật *Restrict deletions*, *Require linear
+  history*, *Block force pushes*; danh sách bypass trống (kiểm qua API `repos/PSA-OVNCR/dxos-transparency-log/rulesets/25495143`).
+- Lệch so với spec 11.7: repo nằm trong tổ chức của đội (3 owner là thành viên đội) chứ chưa phải trưởng nhóm + giảng viên.
+  Rủi ro X4 được bù bằng witness độc lập (mục 5). Nên mời giảng viên làm admin repo khi có thể.
+- Còn lại: bước 2 (deploy key, cần VPS), bước 4 (AT-18), mục 5 (witness).
 
 ## 2. Deploy key cho VPS
 ```bash
@@ -46,5 +56,12 @@ Kết quả mong đợi: GitHub từ chối (`protected branch` / `Cannot force-
 `docs/evidence/at18-force-push-rejected.png`, kèm lệnh đã chạy.
 
 ## 5. Witness độc lập (trước 16/11)
-Nhờ một người ngoài đội (ví dụ thành viên CLB) chạy `dxos-witness` theo lịch trên máy riêng, theo
-`witness/template/README.md`. Ghi tên người chạy và ngày bắt đầu vào `docs/evidence/README.md`.
+Nhờ một người ngoài đội (ví dụ thành viên CLB) làm witness. Cách dễ nhất: repo mẫu
+[`PSA-OVNCR/dxos-witness-kit`](https://github.com/PSA-OVNCR/dxos-witness-kit) (GitHub Actions, không cần máy riêng).
+- Người đó bấm **Use this template** để tạo repo **trong tài khoản của chính họ**, đặt biến `DXOS_SERVER`, rồi chạy workflow lần đầu.
+- Nếu chỉ thêm họ làm cộng tác viên vào repo trong tổ chức `PSA-OVNCR` thì workflow vẫn chạy, nhưng owner tổ chức (đội)
+  sửa được `state/`, nên witness đó **không** được tính là độc lập trước X4 (spec 11.4, 11.7).
+- Hoặc chạy `dxos-witness` theo lịch trên máy riêng, theo `witness/template/README.md`.
+- Workflow cần tag `v0.1.0` (hoặc đặt biến `DXOS_REF`) và DX-OS đã chạy công khai trên VPS.
+
+Ghi tên người chạy, link repo witness và ngày bắt đầu vào `docs/evidence/README.md`.
