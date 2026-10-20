@@ -78,15 +78,14 @@ SPDX-License-Identifier: Apache-2.0
 | Tìm **witness độc lập** (người/tổ chức ngoài đội chạy `dxos-witness`) | trước 16/11 | `witness/template/` |
 | Dựng VPS 16 GB; chạy Claude Code trên VPS | sớm nhất có thể | Rồi chạy Task 7 + E2E Task 17 |
 | Quyết định gắn tag `v0.1.0` | sau E2E trên VPS | Plan hẹn 09/11 |
-| Gửi BTC các câu còn treo (mục 6) | sớm | |
 | Đăng ký qua trường, có giảng viên (G5) | | |
 
-## 6. Câu hỏi BTC còn treo
-1. `.zip` GitHub tự sinh trong release có bị trừ điểm "định dạng không mở" (TL tr.2)? G17 không nói.
-2. Điểm trừ của một tiêu chí PoF có dừng ở 0 không?
-3. Chấm PoF theo commit cuối trước 17:00 06/12 hay theo tag release mới nhất (G16)?
-4. Release chỉ cần tag, hay cần cả trang Release có tệp đính kèm (G17)?
-5. "Tổng quát nhất" có đòi nhiều tổ chức dùng chung một bản cài không (G14)?
+## 6. Điểm chưa rõ với BTC: không hỏi thêm, đã chốt cách làm
+- `.zip` tự sinh có bị trừ "định dạng không mở" (TL tr.2)? → luôn đính kèm `.tar.gz`.
+- Điểm trừ PoF có dừng ở 0? → coi như không; rà đủ checklist PoF trước hạn.
+- Chấm theo commit cuối hay theo tag (G16)? → gắn tag `v1.0.0` trước khi gửi email, ghi tag trong email; PoF xong trước 17:00 06/12.
+- Release chỉ cần tag hay cả trang Release (G17)? → làm cả hai (tag + tar.gz, SBOM, wheel).
+- "Tổng quát nhất" có đòi đa thuê bao (G14)? → mỗi tổ chức một bản cài; đa thuê bao là hướng phát triển.
 
 ## 7. Quyết định cần trưởng nhóm xem lại (trích ledger, đầy đủ ở `docs/handoff/ledger-plan01.md`)
 - Spec 1.0.2: `so_hieu` có `public: true`; `access.update` mặc định `[owner]` khi manifest không khai.

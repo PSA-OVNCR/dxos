@@ -93,7 +93,12 @@ Tài liệu này viết cho **một AI hoặc người mới**: đọc hết là
 | G16 | Sau khi gửi bài **vẫn được commit** để hoàn thiện demo; điểm PoF **chủ yếu theo hiện trạng kho lúc gửi bài** | Mọi hạng mục PoF phải xong trước 17:00 06/12 |
 | G17 | Release phải **được đánh dấu trên git** (tag), lấy đúng mã nguồn phiên bản đó là build hoàn chỉnh được | `release.yml` chạy theo tag; [ĐX] khóa phiên bản phụ thuộc trước v1.0.0 |
 
-**Chưa có giải đáp:** `.zip` tự sinh trong release có bị trừ điểm "định dạng không mở" không (TL tr.2; G17 không nói); điểm trừ có dừng ở 0 không; chấm theo commit cuối trước hạn hay theo tag release (G16); release chỉ cần tag hay cần cả trang Release có tệp đính kèm (G17); "tổng quát nhất" có đòi đa thuê bao không (G14). Câu "commit trong thời gian chấm" đã có giải đáp (G16).
+**Không hỏi thêm BTC** (đội quyết 21/10/2026); mỗi điểm chưa rõ chọn cách làm không thể bị trừ điểm:
+- `.zip` tự sinh có bị trừ "định dạng không mở" (TL tr.2)? → luôn đính kèm `.tar.gz`.
+- Điểm trừ PoF có dừng ở 0? → coi như không; rà đủ checklist PoF trước hạn.
+- Chấm theo commit cuối hay theo tag (G16)? → gắn tag `v1.0.0` trước khi gửi email, ghi tag trong email; PoF xong trước 17:00 06/12.
+- Release chỉ cần tag hay cả trang Release (G17)? → làm cả hai (tag + tar.gz, SBOM, wheel).
+- "Tổng quát nhất" có đòi đa thuê bao (G14)? → mỗi tổ chức một bản cài; đa thuê bao là hướng phát triển.
 
 Bản đầy đủ (kèm phân tích đối thủ 2026 và bài học các năm trước) nằm ở `E:\PMMNM 2026\OLP2026-TONG-HOP-DU-AN.md` trên máy trưởng nhóm và trong Project claude.ai của tài khoản cũ. Đây là tài liệu nội bộ, không đưa lên repo công khai.
 
@@ -118,7 +123,7 @@ Test ở cloud tại `56bac6e`: `make check` 258 passed; integration 178 passed 
 ## 4. Việc tiếp theo (theo thứ tự)
 1. **Viết Plan 02 (M2, hạn 16/11)**: workflow bridge + BPMN, danh mục guard, niêm phong, installer + CLI `dxos`, App A và B cài bằng manifest. Làm được ở cloud.
 2. **Khi có VPS** (người dùng sẽ chạy Claude Code trên VPS và báo): Task 7; E2E Task 17 trên hồ sơ p16 với ClamAV thật; `pytest -m infra tests/infra`; rồi hỏi trưởng nhóm gắn tag `v0.1.0`.
-3. Việc của trưởng nhóm: duyệt giấy phép pypdfium2; tạo repo neo + ruleset + khóa deploy + ảnh AT-18 (`docs/runbook-anchor.md`); tìm witness độc lập trước 16/11; gửi BTC các câu còn treo (mục 2.1); đăng ký qua trường (G5).
+3. Việc của trưởng nhóm: duyệt giấy phép pypdfium2; tạo repo neo + ruleset + khóa deploy + ảnh AT-18 (`docs/runbook-anchor.md`); tìm witness độc lập trước 16/11; đăng ký qua trường (G5).
 
 ### Thông số đã chốt mà Task 8 trở đi sẽ dùng
 - Issuer token: `https://<DXOS_DOMAIN>/auth/realms/dxos` (localhost: `https://localhost/auth/realms/dxos`).
