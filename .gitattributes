@@ -1,0 +1,6 @@
+# SPDX-FileCopyrightText: 2026 DX-OS Trust Core contributors
+# SPDX-License-Identifier: Apache-2.0
+* text=auto eol=lf
+*.pdf binary
+*.png binary
+*.bin binary

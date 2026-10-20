@@ -1,0 +1,16 @@
+# SPDX-FileCopyrightText: 2026 DX-OS Trust Core contributors
+# SPDX-License-Identifier: Apache-2.0
+name: Đề xuất tính năng
+description: Đề xuất một tính năng hoặc cải tiến
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes: { label: Bài toán cần giải quyết }
+    validations: { required: true }
+  - type: textarea
+    id: proposal
+    attributes: { label: Giải pháp đề xuất }
+  - type: dropdown
+    id: layer
+    attributes: { label: Thuộc tầng nào?, options: ["Tầng 1 (Trust Core)", "Tầng 2 (ứng dụng)", "Hạ tầng / vận hành", "Tài liệu"] }
