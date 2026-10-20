@@ -1,6 +1,6 @@
-# Ledger Plan 01 (bản sao lúc bàn giao 20/10/2026)
+# Ledger Plan 01 (bản sao, cập nhật 21/10/2026)
 
-Bản gốc nằm ở `.superpowers/sdd/2026-10-20-dxos-01-nen-mong-m0-m1/progress.md` (git-ignored). Phiên mới: chép tệp này về đường dẫn đó (bỏ 4 dòng đầu) rồi tiếp tục ghi.
+Bản gốc nằm ở `.superpowers/sdd/2026-10-20-dxos-01-nen-mong-m0-m1/progress.md` (git-ignored). Phiên mới: chép tệp này về đường dẫn đó (bỏ 4 dòng đầu và dòng ``` cuối) rồi tiếp tục ghi.
 
 ```text
 # SDD ledger — plan: docs/superpowers/plans/2026-10-20-dxos-01-nen-mong-m0-m1.md
@@ -55,4 +55,62 @@ Task 6: Ruling: image license evidenced by Flowable maintainer label + engine ve
 Task 6: complete (commits 2350c7d..9d98631, tests: python3 -m pytest -p no:cacheprovider tests/infra/test_compose_static.py → ============================== 25 passed in 0.49s ==============================)
 Task 7: in progress — tooling committed 34d1c10 (measure.sh, capacity_report.py, 9 tests); live measurement NOT run (chay-task7b.bat ready on user machine); proposed to defer to VPS, awaiting user decision.
 Handoff: 20/10/2026 22:10 — work transferred to another Claude account; see docs/handoff/HANDOFF.md.
+Takeover: 20/10/2026 22:20 — new Claude account resumed; local repo fast-forwarded c0e7fad..18ee9c3 via git bundle (device shell cannot reach GitHub); this ledger restored from docs/handoff/ledger-plan01.md.
+Ruling: Task 7 deferred until VPS exists — user 20/10: not on VPS yet, VPS will have 16 GB — cost if wrong: AT-22 unmeasured until VPS; M0 "measured" criterion slips.
+Ruling: no TV-A/B/C split; whole team works on tasks jointly — user 20/10 — cost if wrong: none.
+Note: user will run Claude Code on the VPS later and will notify.
+Task 8: Ruling: tables in schema `core` (spec 10.1); search_path=core via pool server_settings + ALTER DATABASE SET search_path; SQL in code/tests stays unqualified — cost if wrong: none.
+Task 8: Ruling: tree_heads has NO anchor_commit column; Task 16 adds an append-only `anchors` table in 002_*.sql — spec 10.1 lists anchor_commit but filling it later would need UPDATE on an append-only table — cost if wrong: one extra table in Task 16.
+Task 8: Ruling: ledger_entries.ts and tree_heads.ts stored as text (domain rfc3339_utc), not timestamptz — the exact string is part of the canonical Merkle leaf — cost if wrong: time-range queries need a cast.
+Task 8: Ruling: apps PK (id, version) + partial unique index (one ACTIVE per id) — keeps manifest history on upgrade — cost if wrong: Task 11 store queries filter by status.
+Task 8: Ruling: guards beyond plan: sealed record cannot be DELETEd; TRUNCATE blocked on ledger/tree_heads; objects sha256/storage_key immutable (column grants + trigger); REVOKED is terminal — cost if wrong: none (relax in a later migration).
+Task 8: Ruling: migrations run at trust-core-api start (core/docker/api-entrypoint.sh, owner DSN), then the owner DSN is unset before exec uvicorn; no separate migrate service, so network matrix unchanged — cost if wrong: owner credentials visible in container config (docker inspect); move to one-shot job on VPS if needed.
+Task 8: Ruling: secrets via compose top-level `secrets: {environment: VAR}` mounted at /run/secrets; Settings reads *_file paths — cost if wrong: needs Compose >= 2.23 (config verified on v5.6 here; live run on Docker Desktop 2.39 pending).
+Task 8: Ruling: minimal worker (DB ping + heartbeat file, `--check` healthcheck) created now; Task 14 adds job loop — compose needs a real worker process — cost if wrong: none.
+Task 8: Ruling: pypdfium2 NOT added yet; deferred to Task 14 after checking licences of components bundled in its wheel (PDFium, FreeType, ...) — cost if wrong: Task 14 adds one dependency line.
+Task 8: Ruling: integration fixture creates a fresh database per test; skips without DB unless DXOS_TEST_REQUIRE_DB=1; new CI job `integration` (compose.test core-db) — cost if wrong: ~1 min more CI.
+Task 8: Ruling: pytest-asyncio >= 0.24 with asyncio_mode=auto — plan test samples are bare async defs — cost if wrong: none.
+Task 8: Ruling: local verification in the cloud uses system PostgreSQL 16 (same role/port/password as compose.test.yaml) — image pulls blocked here; CI runs postgres:17 — cost if wrong: a PG17-only difference surfaces in CI.
+Task 8: Ruling: problem() takes slug or full https://dxos.dev/problems/<slug>, plus kw-only extensions (instance allowed; type/title/status/detail reserved) — Task 13 needs extension members (errors) — cost if wrong: none.
+Task 8: env: PyPI enabled by user 20/10 22:39 (only via agent proxy: run pip with NO_PROXY= no_proxy= empty).
+Task 8: complete (commits 18ee9c3..ee72b95, tests: make check → 105 passed, 51 deselected; make test-integration → 34 passed (PostgreSQL 16 local); CI run 39451826958 green 5/5 incl. integration on postgres:17). Evidence docs/progress/2026-10-20-task8-trust-core.md.
+Task 8: live Docker run (image build, api/worker healthy, secrets, migration at start) prepared as _claude-run/chay-task8.bat — NOT yet run.
+Task 8: live run on Docker Desktop PASSED (13/13 healthy, api+worker uid 10001, migration at start, owner DSN gone from PID1 env, core UPDATE ledger denied, token via APISIX reaches core -> 404 problem+json); evidence commit 82d97c2.
+Task 9: Ruling: append() stores subject/app_id in NFC (same form that goes into canonical leaf) — avoid DB value differing from hashed value — cost if wrong: none.
+Task 9: Ruling: append() uses conn.transaction() so inside a caller transaction it becomes a savepoint and the advisory xact lock is held until the outer commit — ledger write atomic with business change, rollback leaves no gap — cost if wrong: long caller transactions serialize ledger writers.
+Task 9: Ruling: verify_log reads all rows in one fetch (demo scale) and reports first gap or first leaf mismatch — cost if wrong: memory at very large logs; switch to cursor.
+Task 9: complete (commits 82d97c2..aad846d, tests: make check → 108 passed; make test-integration → 47 passed; concurrent test 10/10; CI green 5/5). Evidence docs/progress/2026-10-20-task9-ledger.md.
+Task 10: complete (commits aad846d..9982fed, tests: make check → 136 passed). JwksVerifier RS256-only, app_roles strict parse, require_principal/require_admin, /api/v1/whoami, ProblemError.
+Task 11: Ruling: spec 9.1 so_hieu gets public: true (spec 1.0.2) — seal.public_fields lists so_hieu but validator requires public fields; plan also requires the verbatim manifest to validate — cost if wrong: one field flag.
+Task 11: Ruling: validator order FLOOR → NAMESPACE → schema → guards → references, so floor/namespace codes win over generic schema errors (AT-11/12 expect those codes) — cost if wrong: none.
+Task 11: Ruling: save_manifest(..., hmac_key=None) optional ledger events; same version with different content rejected; one ACTIVE per app — cost if wrong: installer (Plan 02) adapts.
+Task 11: complete (commits 9982fed..19406fb, tests: make check → 173 passed; integration → 52 passed).
+Task 12: Ruling: decide() checks roles before owner; list with reason 'owner' = own records only; extra reason unknown_collection — cost if wrong: none.
+Task 12: Ruling: enforce() refuses to log a denial inside a caller transaction (RuntimeError) so policy.denied cannot be rolled back (F3) — cost if wrong: callers must call enforce outside transactions (Records API does).
+Task 12: complete (commits 19406fb..68beb4a, tests: make check → 201 passed; integration → 61 passed).
+Task 13: Ruling: ruff per-file-ignores S105/S106 under tests (sample CCCD/passwords) — cost if wrong: none.
+Task 13: complete (commits 68beb4a..37004ff, tests: make check → 201 passed; integration → 98 passed; CI green).
+Task 14: Ruling: access.update defaults to [owner] when omitted (spec 1.0.2) — App A manifest has no update list but creators must attach PDFs to their own draft — cost if wrong: owners of collections without explicit update can edit unsealed records.
+Task 14: Ruling: pypdfium2 added as planned; its wheel bundles PDFium + ICU, FreeType (FTL/GPL-2.0), libjpeg-turbo, libpng, zlib, OpenJPEG, lcms2, abseil...; installed at build time, not in repo (G4). LEADER MUST APPROVE (outside MIT/BSD/Apache/PSF/ISC list) — fallback: pypdf (BSD-3, pure Python).
+Task 14: Ruling: ObjectStore methods sync (boto3) called via asyncio.to_thread; promote/move take optional data= to avoid slow server-side copy on SeaweedFS — cost if wrong: none.
+Task 14: Ruling: rejected (non-PDF/encrypted/no text) files also moved to quarantine, not deleted — cost if wrong: quarantine bucket grows.
+Task 14: Ruling: S3 test buckets shared per test session (SeaweedFS first write to a new bucket ~4s) — cost if wrong: tests must not rely on empty buckets (they don't).
+Task 14: complete (commits 37004ff..61e95f0, tests: make check → 221 passed; integration → 125 passed; CI green incl. SeaweedFS).
+Task 15: Ruling: Signer.sign(..., key_version=) and make_sth signs with max sth-key version, version is inside signed bytes — cost if wrong: none.
+Task 15: Ruling: keep deploy/openbao/openbao.hcl (plan said config.hcl); whole deploy/openbao mounted ro at /openbao/dxos so init.sh runs in the container — cost if wrong: path rename only.
+Task 15: Ruling: policy dxos-core also allows auth/token/renew-self + lookup-self — init.sh token is periodic and must renew (found by running init.sh) — cost if wrong: none.
+Task 15: complete (commits 61e95f0..26f34de, tests: make check → 230 passed; integration → 147 passed incl. real OpenBao 2.2.0; CI green).
+Task 16: Ruling: anchoring optional via DXOS_ANCHOR_REMOTE (+ deploy/compose.anchor.yaml with deploy key secret); STH still signed without it — cost if wrong: none.
+Task 16: Ruling: anchor:run signs STH in the API (OpenBao in net-data) and enqueues publication for the worker (only worker has egress) — cost if wrong: none.
+Task 16: Ruling: witness pins sth-key per version in state; changed key for same version → BAD_SIGNATURE — cost if wrong: legitimate key replacement needs state reset.
+Task 16: Ruling: image installs git + openssh-client (independent programs, G2) — cost if wrong: +~40 MB image.
+Task 16: complete (commits 26f34de..90eb048, tests: make check → 241 passed; integration → 163 passed; CI green). Manual Step 5 (repo dxos-transparency-log, ruleset, deploy key, AT-18 screenshot) PENDING for leader: docs/runbook-anchor.md.
+Task 17: partial — e2e suite, run_e2e.sh, compose.e2e.yaml, seed, release.yml, nightly.yml committed a4175b8 (make check → 244 passed; integration → 165 passed). Live e2e (chay-task17.bat) NOT yet run; tag v0.1.0 NOT created (needs leader decision; plan date 09/11, VPS not ready).
+Review: independent whole-branch review (Tasks 8–17) found 10 issues (witness missed rewrite of anchored history; staging deleted before commit; PII revealed without ledger on create/PATCH; pii on non-string fields; OpenBao token not renewed; new STH per failed push; git without timeout; upload held DB connection; deploy key perms; worker loop died on DB error). Fixed in 28b114b (make check → 258 passed; integration → 178 passed; witness → 18 passed; CI green). #9 documented in docs/runbook-anchor.md (56bac6e).
+Task 17: Ruling: EICAR fixture stored as XOR 0x5A + base64 (eicar.xor5a.b64) — Windows Defender blocked plain base64 file on user's disk (live run 1) — cost if wrong: none.
+Task 17: live e2e run 1 on Docker Desktop at a4175b8: 4/5 passed (IDOR/admin least privilege, PII mask/reveal, gateway 401 + public verify, admin API not public); test_m1_end_to_end FAILED before any request (OSError reading eicar.b64, blocked by Defender). Evidence docs/progress/2026-10-20-task17-e2e.md.
+Task 17: Ruling: rerun e2e on VPS Linux, not on Windows — user 21/10 — cost if wrong: upload→AV→CAS→ledger→STH→anchor→witness path stays unverified end-to-end until VPS exists.
+Task 17: still partial — e2e main flow, pytest -m infra, tag v0.1.0 pending (VPS + leader decision). NOT marked complete.
+Docs: BTC answers G14–G17 recorded (Project doc OLP2026-TONG-HOP-DU-AN.md §3, HANDOFF §2.1), commit 56bac6e. Summary docs/progress/2026-10-21-tong-ket-tien-do.md.
+Next: write Plan 02 (M2, 16/11).
 ```

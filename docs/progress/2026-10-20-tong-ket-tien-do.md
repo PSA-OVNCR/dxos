@@ -2,6 +2,8 @@
 
 *Đội PSA_OVNCR · Kho mã: https://github.com/PSA-OVNCR/dxos (public, Apache-2.0) · Cập nhật đến commit `34d1c10`.*
 
+> **Đã cũ.** Bản mới nhất: `2026-10-21-tong-ket-tien-do.md`.
+
 Tài liệu này dành cho thành viên mới và người review: đọc xong biết dự án đang ở đâu, cái gì đã chứng minh được và cái gì còn phải làm.
 
 ## 1. Mốc thời gian

@@ -97,45 +97,28 @@ Tài liệu này viết cho **một AI hoặc người mới**: đọc hết là
 
 Bản đầy đủ (kèm phân tích đối thủ 2026 và bài học các năm trước) nằm ở `E:\PMMNM 2026\OLP2026-TONG-HOP-DU-AN.md` trên máy trưởng nhóm và trong Project claude.ai của tài khoản cũ. Đây là tài liệu nội bộ, không đưa lên repo công khai.
 
-## 3. Trạng thái hiện tại
-**Plan 01 đã xong 6/17 task**: Task 1–6. Chi tiết và bằng chứng ở `docs/progress/2026-10-20-tong-ket-tien-do.md`. Tóm tắt:
+## 3. Trạng thái hiện tại (21/10/2026, commit `56bac6e`)
+**Plan 01: xong phần mã của cả 17 task.** Chi tiết và bằng chứng ở `docs/progress/2026-10-21-tong-ket-tien-do.md`.
 
 | Task | Trạng thái | Bằng chứng |
 |---|---|---|
-| 1–3 Khung PoF, canonical JSON, Merkle | Xong | CI xanh |
-| 4 Compose 9 mạng, Caddy, APISIX, netcheck | Xong, đã chạy thật | 13/13 healthy, netcheck 30/30 (`docs/progress/2026-10-20-task4-kiem-tra-song.md`) |
-| 5 Realm Keycloak `dxos` | Xong, đã chạy thật | 10/10 token, APISIX nhận token thật (`docs/progress/2026-10-20-task5-realm-keycloak.md`) |
-| 6 Spike Flowable | Xong | SMOKE OK; giữ ADR-09; OSS 7.x không có console admin (`docs/spikes/flowable.md`) |
-| **7 Đo RAM (AT-22)** | **Dở** | Công cụ đã có (`ops/measure.sh`, `ops/capacity_report.py`, 9 test). **Chưa có số đo.** Script `E:\PMMNM 2026\_claude-run\chay-task7b.bat` đã sẵn, chưa chạy. Đề xuất với người dùng: dời sang lúc dựng VPS. Người dùng chưa trả lời |
-| 8–17 | Chưa làm | Xem Plan 01 |
+| 1–6 | Xong | CI; chạy thật Task 4, 5, 6 trên Docker Desktop |
+| 7 Đo RAM (AT-22) | **Dời sang VPS** (người dùng quyết 20/10; VPS sẽ có 16 GB) | Công cụ `ops/measure.sh`, `ops/capacity_report.py` đã có |
+| 8–16 | Xong | Test đơn vị + integration; Task 8 chạy thật (`docs/progress/2026-10-20-task8-trust-core.md`) |
+| 17 E2E + v0.1.0 | **Dở** | E2E 4/5 trên Docker Desktop; test luồng chính hỏng do Defender (`docs/progress/2026-10-20-task17-e2e.md`). Người dùng quyết chạy lại trên VPS Linux. **Chưa gắn tag** |
+
+Test ở cloud tại `56bac6e`: `make check` 258 passed; integration 178 passed (cần `DXOS_TEST_S3_ENDPOINT` nếu SeaweedFS không ở cổng 58333); witness 18 passed. CI 5 job xanh.
 
 **GitHub:**
 - Repo `PSA-OVNCR/dxos`: public, Apache-2.0, Issues, Discussions, Private vulnerability reporting.
-- Ruleset `protect-main`: chặn force-push, chặn xóa, chặn tạo nhánh mặc định; **không** bắt buộc review hay status check.
-- CI `.github/workflows/ci.yml`: 4 job `reuse`, `lint`, `unit`, `secrets`.
-- Ứng dụng Claude trên GitHub đã cài cho tổ chức, nhưng chỉ cấp quyền cho repo `dxos`.
-  - Tài khoản Claude mới cần **tự kết nối GitHub** (claude.ai → Settings → Connectors) hoặc dùng token riêng để push.
-  - Qua proxy của phiên Claude **không** được ghi cài đặt repo bằng API; phải thao tác qua trình duyệt.
+- Ruleset `protect-main`: chặn force-push, chặn xóa; **không** bắt buộc review hay status check. Đội push thẳng lên `main`.
+- CI `.github/workflows/ci.yml`: 5 job `reuse`, `lint`, `unit`, `integration` (PostgreSQL 17, SeaweedFS, OpenBao), `secrets`.
+  `release.yml` chạy khi đẩy tag `v*.*.*`; `nightly.yml` chạy integration với ClamAV thật (chưa có lượt nào).
 
 ## 4. Việc tiếp theo (theo thứ tự)
-1. **Hỏi người dùng 3 việc còn treo:**
-   - Task 7 dời sang VPS hay đo trên laptop ngay?
-   - Ai là TV-A, TV-B, TV-C?
-   - Khi nào có quyền vào VPS?
-2. **Task 8: khung trust-core và migration** (Plan 01 dòng 443+). Gồm:
-   - `core/pyproject.toml` (gói `dxos-core`).
-   - `Settings` với `env_prefix="DXOS_"`, `create_app()`, `problem()` trả `application/problem+json`.
-   - `apply_migrations()` có bảng `schema_migrations`.
-   - `001_core.sql` theo spec 10.1: `ledger_entries.idx bigint` (không dùng bigserial), trigger `ledger_append_only`, trigger `record_seal_guard`, CHECK định dạng sha256, role `dxos_owner` và `dxos_core`; `dxos_core` **không** có UPDATE/DELETE trên ledger.
-   - `core/Dockerfile` chạy bằng user không phải root.
-   - Thay stub `trust-core-api` và `trust-core-worker` trong `deploy/compose.yaml`.
-   - Integration test cần PostgreSQL: dùng `deploy/compose.test.yaml` (cổng `127.0.0.1:55432`, user `dxos_owner`, mật khẩu `changeme-test`) hoặc Postgres cục bộ.
-3. Sau đó làm Task 9 → 17 theo Plan 01. Task 17 = E2E + **release v0.1.0** (cần `.tar.gz` trong release, TL tr.2).
-4. Việc treo khác:
-   - Hỏi BTC: được commit trong lúc chấm 07–09/12 không? `.zip` tự sinh của GitHub có bị trừ điểm không?
-   - Đăng ký qua trường/GV (G5).
-   - Repo neo STH (cần bảo vệ nhánh, chủ sở hữu là người dùng + GV) trước M1.
-   - Witness độc lập trước 16/11.
+1. **Viết Plan 02 (M2, hạn 16/11)**: workflow bridge + BPMN, danh mục guard, niêm phong, installer + CLI `dxos`, App A và B cài bằng manifest. Làm được ở cloud.
+2. **Khi có VPS** (người dùng sẽ chạy Claude Code trên VPS và báo): Task 7; E2E Task 17 trên hồ sơ p16 với ClamAV thật; `pytest -m infra tests/infra`; rồi hỏi trưởng nhóm gắn tag `v0.1.0`.
+3. Việc của trưởng nhóm: duyệt giấy phép pypdfium2; tạo repo neo + ruleset + khóa deploy + ảnh AT-18 (`docs/runbook-anchor.md`); tìm witness độc lập trước 16/11; gửi BTC các câu còn treo (mục 2.1); đăng ký qua trường (G5).
 
 ### Thông số đã chốt mà Task 8 trở đi sẽ dùng
 - Issuer token: `https://<DXOS_DOMAIN>/auth/realms/dxos` (localhost: `https://localhost/auth/realms/dxos`).
@@ -165,12 +148,12 @@ Bản đầy đủ (kèm phân tích đối thủ 2026 và bài học các năm 
 ### 6.1. Máy trưởng nhóm (Windows)
 - Docker Desktop 28.4 / Compose v2.39, 16 CPU, ~16 GB RAM cho Docker.
 - Thư mục làm việc: `E:\PMMNM 2026\`.
-  - Repo: `E:\PMMNM 2026\dxos` (nhánh `main`, có `.env` sinh từ `.env.example`, toàn giá trị `changeme`).
+  - Repo: `E:\PMMNM 2026\dxos` (nhánh `main`, có `.env` sinh từ `.env.example`). Từ lần chạy Task 17, `.env` này chứa **token OpenBao thật của bản dev** và `_claude-run\openbao-init.json` chứa khóa unseal + root token của bản dev: chỉ dùng trên máy này, không chép đi, không commit.
   - Script chạy thử: `E:\PMMNM 2026\_claude-run\` (`task4.ps1` … `task7b.ps1`, tệp `.bat` tương ứng, log).
 - **Stack dev-lite đang chạy** trên máy này (project `dxos`). Tắt bằng Docker Desktop → Stop nhóm `dxos`.
 - Cách phiên Claude cũ chạy thử trên máy này:
   1. Viết script **PowerShell 5.1, chỉ dùng ký tự ASCII**, kèm tệp `.bat` gọi `powershell -ExecutionPolicy Bypass -File`.
-  2. Chép vào `_claude-run` (qua shell Linux trên máy, hoặc qua công cụ chép tệp).
+  2. Chép vào `_claude-run` (qua shell Linux trên máy, hoặc qua công cụ chép tệp). Shell Linux trên máy không ra được GitHub, nên repo được đồng bộ bằng `git bundle` (tệp `dxos-syncN.bundle` trong `_claude-run`) rồi `git fetch` + `git merge --ff-only`.
   3. Mở File Explorer bằng computer use (chỉ được quyền **click**, không gõ phím được) và bấm đúp tệp `.bat`.
   4. Đọc log qua thư mục được kết nối.
 - Bẫy đã gặp:
@@ -200,7 +183,7 @@ Bản đầy đủ (kèm phân tích đối thủ 2026 và bài học các năm 
 - Gateway (APISIX) chỉ xác thực token; **trust-core** kiểm vai trò `dxos-admin` (Task 10/12).
 - `compose.test.yaml` dùng `fake-av` thay ClamAV để chạy nhanh. Nghiệm thu chính thức chạy ClamAV thật ở hồ sơ p8/p16.
 - Hồ sơ dev-lite thay `clamav` bằng `fake-av` (nhãn `dxos.dev-only`). CI kiểm tra p8/p16 không chứa dịch vụ dev-only (AT-24).
-- Chuỗi EICAR chỉ lưu dạng base64, không commit nguyên văn, để Windows Defender không cách ly tệp.
+- Chuỗi EICAR chỉ lưu dạng **XOR 0x5A rồi base64** (`eicar.xor5a.b64`). Dạng base64 thường vẫn bị Defender chặn (lỗi thật 20/10).
 - Mọi image ghim `@sha256`, ghi trong `LICENSES-THIRD-PARTY.md`.
 - Code of Conduct do đội tự viết, không chép Contributor Covenant.
 
@@ -218,7 +201,8 @@ Danh sách đầy đủ kèm "cái giá nếu sai": `docs/handoff/ledger-plan01.
 ```bash
 git clone https://github.com/PSA-OVNCR/dxos && cd dxos
 python -m venv .venv && . .venv/bin/activate
-make dev-install && make check            # ruff + REUSE + 82 test
+make dev-install && make check            # ruff + REUSE + 258 test
+make test-db-up && DXOS_TEST_REQUIRE_DB=1 make test-integration   # 178 test
 python -m pytest -m infra tests/infra     # test sống, cần stack đang chạy
 make up PROFILE=dev-lite                  # cần .env (cp .env.example .env)
 make netcheck                             # 30/30 PASS
