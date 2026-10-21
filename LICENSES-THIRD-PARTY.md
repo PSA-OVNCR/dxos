@@ -41,10 +41,16 @@ Bảng kê giấy phép và nguồn gốc mọi mô-đun bên ngoài. Cập nh�
 | git, openssh-client (gói Debian trong image trust-core) | theo Debian 12 | GPL-2.0-only; BSD | Chương trình độc lập, worker gọi để đẩy STH (G2) | Chưa |
 | tzdata (gói Debian trong image trust-core) | theo image nền | Public domain (IANA tz database) | Chỉ dữ liệu múi giờ, `zoneinfo` đọc cho `DXOS_TIMEZONE` | Chưa |
 
-## Gói npm (workspace `web`, Plan 03 Task 2)
-Phiên bản ghim chính xác trong `package-lock.json` (đếm từ lockfile ngày 22/10/2026: 85 gói bên thứ ba, gồm cả các gói nhị phân tùy chọn theo nền tảng; chỉ gói của nền tảng đang chạy được cài). Cập nhật bảng **trong cùng commit** khi một Task sau thêm phụ thuộc (Vue, Vue Router, oidc-client-ts, qrcode, @vue/test-utils, jsdom, Playwright...).
+## Gói npm (workspace `web`, Plan 03 Task 2–3)
+Phiên bản ghim chính xác trong `package-lock.json` (đếm từ lockfile ngày 22/10/2026 sau Task 3: 119 gói bên thứ ba, gồm cả các gói nhị phân tùy chọn theo nền tảng; chỉ gói của nền tảng đang chạy được cài). Cập nhật bảng **trong cùng commit** khi một Task sau thêm phụ thuộc (Vue, Vue Router, qrcode, @vue/test-utils, Playwright...).
 
-**Runtime (vào bundle trình duyệt):** hiện chưa có. `dxos-sdk-js` (gói của dự án, Apache-2.0) không phụ thuộc runtime nào. Task 3 và 5 sẽ thêm `oidc-client-ts`, `qrcode`, `vue`, `vue-router` vào bảng này.
+**Runtime (vào bundle trình duyệt):**
+| Thành phần | Phiên bản | Giấy phép | Cách dùng | Đã kiểm chứng |
+|---|---|---|---|---|
+| oidc-client-ts | 3.5.0 | Apache-2.0 | Thư viện (`sdk/js/src/auth.ts`: OIDC Authorization Code + PKCE; ứng dụng tự gói, SDK để ngoài bundle thư viện) | Có (22/10/2026, trường `license` trong `package-lock.json`) |
+| jwt-decode (phụ thuộc duy nhất của oidc-client-ts) | 4.0.0 | MIT | Thư viện (gián tiếp) | Có (22/10/2026, lockfile) |
+
+`dxos-sdk-js` (gói của dự án, Apache-2.0) chỉ phụ thuộc runtime vào hai gói trên. Task 5 sẽ thêm `qrcode`, `vue`, `vue-router` vào bảng này.
 
 **Công cụ build/test (chỉ dùng lúc build/test, không vào bundle):**
 | Thành phần | Phiên bản | Giấy phép | Cách dùng | Đã kiểm chứng |
@@ -53,19 +59,24 @@ Phiên bản ghim chính xác trong `package-lock.json` (đếm từ lockfile ng
 | vue-tsc | 3.3.12 | MIT | Công cụ (kiểm kiểu `.ts`/`.vue`) | Có (22/10/2026, lockfile) |
 | Vite (kèm Rolldown 1.1.5, PostCSS 8.5.31, lightningcss 1.33.0) | 8.1.6 | MIT (Rolldown, PostCSS: MIT; lightningcss: **MPL-2.0**) | Công cụ (build thư viện/ứng dụng) | Có (22/10/2026, lockfile) |
 | Vitest | 5.0.3 | MIT | Công cụ (test đơn vị) | Có (22/10/2026, lockfile) |
+| jsdom (môi trường DOM giả cho test cần `sessionStorage`/`location`) | 30.1.2 | MIT | Công cụ (test đơn vị; các gói gián tiếp kèm theo đều `dev` trong lockfile) | Có (22/10/2026, lockfile) |
 
-**Gói gián tiếp (theo trường `license` trong lockfile, 22/10/2026):**
+**Gói gián tiếp (theo trường `license` trong lockfile, 22/10/2026; tổng 119 gói, gồm cả các gói trực tiếp ở trên):**
 | Giấy phép | Số gói | Ghi chú |
 |---|---|---|
-| MIT | 66 | `@babel/*`, `@rolldown/*`, `@vue/*` (compiler-core, compiler-dom, language-core, shared 3.5.44), `@volar/*`, `chai`, `postcss`, `rolldown`, `picomatch`, `fdir`, `magic-string`... |
-| Apache-2.0 | 3 | `typescript`, `detect-libc`, `expect-type` |
+| MIT | 90 | `@babel/*`, `@rolldown/*`, `@vue/*`, `@volar/*`, `@asamuzakjp/*`, `jsdom` và phần lớn phụ thuộc của nó (`parse5`, `whatwg-url`, `undici`, `css-tree`, `decimal.js`...), `chai`, `postcss`, `rolldown`, `jwt-decode`... |
+| Apache-2.0 | 5 | `typescript`, `detect-libc`, `expect-type`, `oidc-client-ts`, `xml-name-validator` |
 | MPL-2.0 | 12 | `lightningcss` và 11 gói nhị phân theo nền tảng của nó (do Vite kéo vào) |
-| BSD-2-Clause / BSD-3-Clause | 1 / 1 | `entities` / `source-map-js` |
-| ISC | 1 | `picocolors` |
+| BSD-2-Clause | 3 | `entities` (hai phiên bản), `webidl-conversions` |
+| BSD-3-Clause | 2 | `source-map-js`, `tough-cookie` |
+| ISC | 2 | `picocolors`, `saxes` |
+| MIT-0 | 2 | `@csstools/color-helpers`, `@csstools/css-syntax-patches-for-csstree` (jsdom kéo vào; chỉ test) |
+| BlueOak-1.0.0 | 1 | `lru-cache` (jsdom kéo vào; chỉ test) |
+| CC0-1.0 | 1 | `mdn-data` (do `css-tree` của jsdom kéo vào; chỉ test) |
 | 0BSD | 1 | `tslib` (tùy chọn) |
 
 - **MPL-2.0 (lightningcss):** chỉ dùng lúc build/test, không vào bundle và không được phân phối kèm kho này; dự án không sửa mã của nó, nên không phát sinh nghĩa vụ chia sẻ mã nguồn. Cùng nhóm với OpenBao (MPL-2.0) ở bảng dịch vụ.
-- **Các giấy phép sẽ xuất hiện khi Task sau thêm công cụ test** (đo ngày 22/10/2026 trên bộ phiên bản đã chọn, chưa cài ở Task 2): BlueOak-1.0.0 (`glob`, `minimatch`, `lru-cache`, `minipass`, `path-scurry`), MIT-0, và CC0-1.0 (`mdn-data`). Tất cả chỉ dùng lúc build/test, không vào bundle. **CC0-1.0 cần trưởng nhóm xác nhận (V30)** trước khi thêm; Task thêm các gói đó phải ghi lại vào bảng này.
+- **BlueOak-1.0.0, MIT-0, CC0-1.0 (đã xuất hiện từ Task 3 do thêm jsdom):** cả bốn gói (`lru-cache`, hai gói `@csstools/*`, `mdn-data`) đều đánh dấu `dev` trong lockfile: chỉ dùng lúc test, không vào bundle và không phân phối. BlueOak-1.0.0 và MIT-0 là giấy phép cho phép (permissive). **CC0-1.0 (`mdn-data`) cần trưởng nhóm xác nhận (V30)**; nếu không chấp nhận, cách gỡ là bỏ jsdom và chạy test auth trong môi trường node với `sessionStorage` giả. Các gói `glob`, `minimatch`, `minipass`, `path-scurry` dự kiến ở bản trước chưa xuất hiện (sẽ kiểm lại khi thêm công cụ test ở Task sau).
 
 ## Dịch vụ (image Docker, chạy độc lập, không nhúng mã)
 Digest được ghim trong `deploy/` bằng `make pin-images`; cột "Digest" cập nhật cùng commit ghim.
