@@ -7,7 +7,10 @@
   phân giải về 127.0.0.1, và `--ca-file` trỏ tới CA nội bộ của Caddy (giống `ops/e2e/run_e2e.sh`). Chạy thật là việc V28
 - `netcheck.py`: kiểm ma trận kết nối mạng (AT-01), Plan 01 Task 4
 - `measure.sh`: đo RAM theo container (AT-22), Plan 01 Task 7
-- `deploy.sh`: triển khai theo tag, Plan 03 (S9.2)
+- `deploy.sh`: `ops/deploy.sh <vX.Y.Z> [--profile p16|p8] [--repo-url URL]` triển khai theo tag trên VPS: fetch tag (không
+  `--force`), lấy digest image lõi từ Release (`trust-core-image-<X.Y.Z>.txt`), dựng SPA từ mã nguồn của tag, `compose up`
+  với overlay phát hành, kiểm `/readyz` và `/verify/v1/keys`, ghi `deploy/deployments.log`. Không tự quay lui: hỏng thì in
+  lệnh quay lại. Xem `docs/runbook-deploy.md` (Plan 03 Task 12, S9.2, R-3). Chạy thật là việc V29
 - `seed_manifests.py`: nạp manifest thẳng vào DB, **chỉ dùng cho test lõi** (Plan 01 Task 17); cài app thật dùng
   `e2e/install_apps.sh` (CLI `dxos`, bốn mắt)
 - `e2e/install_apps.sh`: cài App A/B bằng CLI `dxos`, người nộp và người duyệt khác nhau; `e2e/run_e2e.sh`: chạy E2E

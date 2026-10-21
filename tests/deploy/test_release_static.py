@@ -89,6 +89,25 @@ def test_release_notes_carry_the_digest_and_assets_include_four_wheels():
     assert "gh release create" in steps and "--verify-tag" in steps
 
 
+def test_release_attaches_the_web_build_as_a_tarball():
+    """Plan 03 Task 12: ``ops/build_web.sh`` trong môi trường Node 22 + npm 11.6.2, đóng gói thành
+    ``dxos-web-<X.Y.Z>.tar.gz`` trong ``dist/`` (cùng các tệp đính kèm khác); thư mục build nằm ngoài
+    ``dist/``."""
+    steps = _wf()["jobs"]["release"]["steps"]
+    node = next(i for i, s in enumerate(steps) if s.get("uses") == "actions/setup-node@v4")
+    assert steps[node]["with"] == {"node-version": "22"}
+    web = next(i for i, s in enumerate(steps) if "ops/build_web.sh" in s.get("run", ""))
+    run = steps[web]["run"]
+    assert node < web
+    assert run.index("npm i -g npm@11.6.2") < run.index("sh ops/build_web.sh build-web")
+    assert 'tar -czf "dist/dxos-web-${VERSION}.tar.gz" -C build-web .' in run
+    assert "dist/web" not in run                         # dist/* được đính kèm: không để thư mục trong đó
+    release = next(i for i, s in enumerate(steps) if "gh release create" in s.get("run", ""))
+    assert web < release
+    sbom = next(i for i, s in enumerate(steps) if "anchore/syft" in s.get("run", ""))
+    assert sbom < web                                    # syft không quét node_modules của bước dựng web
+
+
 # ---------------------------------------------------------------- compose.release.yaml
 def _config(*overlays: str, digest: str | None) -> subprocess.CompletedProcess:
     if shutil.which("docker") is None:

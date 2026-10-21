@@ -8,7 +8,9 @@
 #   GITHUB_TOKEN (quyền packages: write chỉ cấp cho job image). Digest ghi vào mô tả Release và tệp
 #   trust-core-image-X.Y.Z.txt; VPS chạy image theo digest này (deploy/compose.release.yaml, AT-13).
 # - Tệp đính kèm: dxos-X.Y.Z.tar.gz (git archive, định dạng mở — TL tr.2), sbom-X.Y.Z.cdx.json (syft, CycloneDX),
-#   wheel của dxos-proof, dxos-core, dxos-witness, dxos-cli. Mô tả release = mục [X.Y.Z] của CHANGELOG.md + digest.
+#   wheel của dxos-proof, dxos-core, dxos-witness, dxos-cli, dxos-web-X.Y.Z.tar.gz (các SPA do ops/build_web.sh dựng
+#   từ đúng commit của tag, để người chấm tải về xem; VPS tự dựng lại từ mã nguồn bằng ops/deploy.sh).
+#   Mô tả release = mục [X.Y.Z] của CHANGELOG.md + digest.
 name: release
 on:
   push:
@@ -108,6 +110,15 @@ jobs:
         run: git archive --format=tar.gz --prefix="dxos-${VERSION}/" -o "dist/dxos-${VERSION}.tar.gz" "$GITHUB_REF_NAME"
       - name: SBOM CycloneDX (syft)
         run: docker run --rm -v "$PWD:/src:ro" anchore/syft:v1.18.1 dir:/src -o cyclonedx-json > "dist/sbom-${VERSION}.cdx.json"
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - name: SPA (dxos-web .tar.gz)
+        # Sau bước SBOM để syft không quét node_modules. Dựng ra build-web/ (ngoài dist/) vì
+        # `gh release create dist/*` chỉ nhận tệp, không nhận thư mục.
+        run: |
+          npm i -g npm@11.6.2
+          sh ops/build_web.sh build-web
+          tar -czf "dist/dxos-web-${VERSION}.tar.gz" -C build-web .
       - name: Tạo GitHub Release
         env: { GH_TOKEN: "${{ github.token }}" }
         run: gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" --notes-file notes.md --verify-tag
