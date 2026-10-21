@@ -87,7 +87,8 @@ Giới hạn thêm:
 - **App `DISABLED` phải được bật lại mới xóa được.** `:erase-pii` cần bản manifest ACTIVE (quyền theo
   `pii.erase_roles` của bản ACTIVE); app bị vô hiệu hóa trả 404 `app-not-active`. Muốn xóa, admin nộp một phiên bản
   mới hơn của app rồi duyệt bốn mắt (installer không cho nộp lại đúng phiên bản đã `DISABLED`), xóa xong có thể vô
-  hiệu hóa lại.
+  hiệu hóa lại. Phiên bản đó vẫn phải mới hơn và chỉ cộng thêm so với bản từng ACTIVE cao nhất (P2-D14 áp dụng cả
+  khi app đang `DISABLED`): thường là bản cũ tăng số phiên bản, không bớt trường hay role.
 - **Tên trường** đã xóa (không phải giá trị) được ghi ở `pii_erasures` và lá ledger `pii.erased`.
 - Sau khi xóa, không ai còn kiểm lại được `record_digest` với dữ liệu, vì salt đã bị xóa.
 - Bản cũ của hàng còn trên đĩa cho tới khi `VACUUM`, và còn trong backup tới hết thời hạn giữ: cách xử lý ở

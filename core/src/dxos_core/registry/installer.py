@@ -15,8 +15,9 @@ Flowable. Thứ tự:
 
 1. phiên bản phải tồn tại; đã ACTIVE thì trả 200 ngay; khác PENDING → 409;
 2. bốn mắt (P2-D21), trước mọi kiểm tra nội dung: người duyệt khác người nộp, trừ khi ``allow_self_approval``;
-3. kiểm lại manifest, BPMN, phiên bản mới hơn bản ACTIVE (semver, 409 ``version-not-newer``) và luật nâng cấp
-   so với bản ACTIVE **lúc này**;
+3. kiểm lại manifest, BPMN, phiên bản mới hơn mốc (semver, 409 ``version-not-newer``) và luật nâng cấp so với
+   mốc **lúc này**: bản ACTIVE, hoặc khi app đang bị vô hiệu hóa thì bản từng ACTIVE cao nhất
+   (``upgrade_baseline``);
 4. tạo realm role ``app:<id>:<role>`` (Keycloak, service account ``dxos-installer``);
 5. có workflow: deploy đúng ``render_bpmn(check_against_manifest(xml, m))`` (P2-D2), ghi ``app_deployments``
    (bảng chỉ-thêm: đã có dòng cùng ``rendered_sha256`` thì dùng lại, khác hash → 409);
@@ -49,7 +50,14 @@ from dxos_core.policy.pdp import deny
 from dxos_core.registry.bpmn import MAX_BPMN_BYTES, check_against_manifest, render_bpmn
 from dxos_core.registry.keycloak_admin import IdpAdminUnavailable
 from dxos_core.registry.model import CollectionSpec, FieldSpec, Manifest
-from dxos_core.registry.store import get_active, get_deployment, get_files, save_files, save_manifest
+from dxos_core.registry.store import (
+    get_active,
+    get_deployment,
+    get_files,
+    get_version,
+    save_files,
+    save_manifest,
+)
 from dxos_core.registry.upgrade import check_upgrade, sealed_before
 from dxos_core.registry.validator import ManifestError, validate_manifest
 from dxos_core.workflow.flowable import WorkflowUnavailable
@@ -100,11 +108,36 @@ def _semver(version: str) -> tuple[int, ...]:
     return tuple(int(x) for x in version.split("."))
 
 
-def _require_newer(active: Manifest, m: Manifest) -> None:
-    """Không hạ cấp: phiên bản mới phải lớn hơn bản ACTIVE theo semver (``x.y.z`` số nguyên) → 409."""
-    if _semver(m.app.version) <= _semver(active.app.version):
+def _require_newer(base: Manifest, m: Manifest) -> None:
+    """Không hạ cấp: phiên bản mới phải lớn hơn mốc (``upgrade_baseline``) theo semver (``x.y.z``) → 409."""
+    if _semver(m.app.version) <= _semver(base.app.version):
         raise _conflict("version-not-newer",
-                        f"{m.app.version} không mới hơn bản ACTIVE {active.app.version}; hãy tăng version")
+                        f"{m.app.version} không mới hơn bản {base.app.version} (ACTIVE hoặc từng ACTIVE);"
+                        " hãy tăng version")
+
+
+async def upgrade_baseline(conn: asyncpg.Connection, app_id: str) -> Manifest | None:
+    """Mốc so sánh khi nâng cấp (P2-D14, không hạ cấp): bản ACTIVE; không có thì bản **từng ACTIVE** có semver
+    cao nhất (trạng thái ``DISABLED``: chỉ bản đã ACTIVE mới thành DISABLED). Chưa từng ACTIVE → None.
+
+    Nhờ vậy ``:disable`` không phải đường vòng qua luật chỉ-thêm hay luật không hạ cấp (rà soát cuối, I2).
+    """
+    active = await get_active(conn, app_id)
+    if active is not None:
+        return active
+    versions = [r["version"] for r in await conn.fetch(
+        "SELECT version FROM core.apps WHERE id=$1 AND status='DISABLED'", app_id)]
+    if not versions:
+        return None
+    return await get_version(conn, app_id, max(versions, key=_semver))
+
+
+async def _check_against_baseline(conn: asyncpg.Connection, m: Manifest) -> None:
+    """``_require_newer`` + ``check_upgrade`` so với ``upgrade_baseline`` lúc này (nộp và duyệt)."""
+    base = await upgrade_baseline(conn, m.app.id)
+    if base is not None:
+        _require_newer(base, m)
+        check_upgrade(base, m, sealed_before=await sealed_before(conn, m.app.id))
 
 
 async def _try_lock(conn: asyncpg.Connection, app_id: str, *, xact: bool) -> None:
@@ -279,10 +312,7 @@ async def submit(pool: asyncpg.Pool, body: object, *, actor: Principal, hmac_key
                 raise _conflict("app-version-conflict", f"{m.app.id} {m.app.version} đã {row['status']}")
             return result
         try:
-            active = await get_active(conn, m.app.id)
-            if active is not None:
-                _require_newer(active, m)
-                check_upgrade(active, m, sealed_before=await sealed_before(conn, m.app.id))
+            await _check_against_baseline(conn, m)
         except ManifestError as exc:
             raise manifest_problem(exc) from None
         await save_manifest(conn, m, raw, "PENDING", actor.sub, hmac_key=hmac_key,
@@ -388,7 +418,8 @@ async def _approve_locked(conn: asyncpg.Connection, state: Any, app_id: str, ver
                    subject=f"{app_id}@{version}", hmac_key=hmac_key)
         raise ProblemError(403, "forbidden", "Forbidden", "approver must differ from submitter (four eyes)",
                            reason="self_approval")
-    # Bước 3: kiểm lại manifest, BPMN, phiên bản mới hơn và luật nâng cấp so với bản ACTIVE lúc này.
+    # Bước 3: kiểm lại manifest, BPMN, phiên bản mới hơn và luật nâng cấp so với mốc lúc này (bản ACTIVE,
+    # hoặc bản từng ACTIVE cao nhất nếu app đang bị vô hiệu hóa).
     raw = _loads(row["manifest"])
     rendered = bpmn_sha256 = None
     try:
@@ -400,10 +431,7 @@ async def _approve_locked(conn: asyncpg.Connection, state: Any, app_id: str, ver
             xml = text.encode("utf-8")
             bpmn_sha256 = _sha(xml)
             rendered = render_bpmn(check_against_manifest(xml, m))
-        active = await get_active(conn, app_id)
-        if active is not None:
-            _require_newer(active, m)
-            check_upgrade(active, m, sealed_before=await sealed_before(conn, app_id))
+        await _check_against_baseline(conn, m)
     except ManifestError as exc:
         raise manifest_problem(exc) from None
     # Bước 4: realm role (Keycloak). Không transaction nào đang mở.
@@ -454,8 +482,9 @@ async def disable(pool: asyncpg.Pool, app_id: str, *, actor: Principal, hmac_key
     """``POST /admin/v1/apps/{id}:disable``: bản ACTIVE → ``DISABLED`` + lá ``app.disabled``.
 
     Dữ liệu, ledger, role Keycloak và deployment Flowable giữ nguyên; bản ghi đã ghim phiên bản vẫn đọc được
-    manifest của mình (P2-D19). Không có bản ACTIVE → 404 ``app-not-active``. Không kiểm lại manifest (vô hiệu
-    hóa luôn phải làm được) và body lá giống ``save_manifest``: ``{manifest_sha256, status}``.
+    manifest của mình (P2-D19). Không có bản ACTIVE → 404 ``app-not-active``; đang có lần nộp/duyệt/vô hiệu
+    hóa khác của cùng app (khóa ``LOCK_INSTALL``) → 409 ``install-in-progress`` ngay. Không kiểm lại manifest
+    (vô hiệu hóa luôn phải làm được) và body lá giống ``save_manifest``: ``{manifest_sha256, status}``.
     """
     if not APP_ID.fullmatch(app_id):
         raise ProblemError(404, "app-not-active", "Application not active")

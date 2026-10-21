@@ -148,20 +148,22 @@ dxos app disable test-flow                      # gỡ: chỉ vô hiệu hóa, g
 2. **Xem diff quyền**: role, collection, trường mới; `access`, `reveal_roles`, `erase_roles`, `seal`, `verify`, task,
    nhãn, định dạng số thay đổi so với bản ACTIVE.
 3. **Duyệt bốn mắt** (`POST /admin/v1/apps/{id}:approve`): người duyệt phải khác người nộp, nếu không → 403
-   `self_approval` (P2-D21). Lõi kiểm lại toàn bộ so với bản ACTIVE **lúc duyệt**, rồi:
+   `self_approval` (P2-D21). Lõi kiểm lại toàn bộ so với bản ACTIVE **lúc duyệt** (app đang `DISABLED` thì so
+   với bản từng ACTIVE có version cao nhất), rồi:
    - tạo realm role `app:<id>:<role>` trong Keycloak (service account `dxos-installer`);
    - deploy BPMN do lõi dựng lại lên Flowable, tên deployment `id@version#hash16` (16 ký tự đầu của sha256 bản
      dựng lại);
    - chuyển `ACTIVE`, ghi ledger `app.installed` (kèm hash manifest, BPMN, deployment).
 4. **Vô hiệu hóa** (`:disable`): app thành `DISABLED`; quy trình đang chạy bị đóng băng; dữ liệu, niêm phong và ledger
-   giữ nguyên. Không có lệnh xóa app.
+   giữ nguyên. Không có lệnh xóa app. Bật lại = nộp và duyệt một version mới hơn; luật nâng phiên bản vẫn so với bản
+   từng ACTIVE cao nhất, nên vô hiệu hóa không phải đường vòng để bớt trường hay hạ version.
 
 Lỗi thường gặp:
 
 | Mã | Khi nào | Làm gì |
 |---|---|---|
 | 409 `install-in-progress` | đang có lần nộp/duyệt/vô hiệu hóa khác của cùng app | CLI tự thử lại 5 lần, cách 2 giây; sau đó chạy lại |
-| 409 `version-not-newer` | version không lớn hơn bản ACTIVE (so semver, `0.10.0` > `0.2.0`) | tăng `app.version` |
+| 409 `version-not-newer` | version không lớn hơn bản ACTIVE, hoặc khi app đang `DISABLED` là bản từng ACTIVE cao nhất (so semver, `0.10.0` > `0.2.0`) | tăng `app.version` |
 | 409 `app-version-conflict` | version đó đã nộp với nội dung khác, hoặc đã `ACTIVE`/`DISABLED` | tăng `app.version` |
 | 403 `self_approval` | người duyệt là người nộp | admin khác duyệt |
 | 422 `manifest-invalid` | manifest/BPMN sai, hoặc nâng phiên bản không hợp lệ | xem `code`, `path` |
@@ -172,10 +174,11 @@ khi demo một người; **không** bật khi lấy minh chứng AT-13.
 
 ## Nâng phiên bản
 
-Nâng phiên bản chỉ được **cộng thêm hoặc siết chặt** (spec 9.5, P2-D14). Lõi kiểm lúc nộp và kiểm lại lúc duyệt.
+Nâng phiên bản chỉ được **cộng thêm hoặc siết chặt** (spec 9.5, P2-D14). Lõi kiểm lúc nộp và kiểm lại lúc duyệt,
+so với bản ACTIVE; app đang `DISABLED` (không còn bản ACTIVE) thì so với bản từng ACTIVE có version cao nhất.
 Vi phạm → `UPGRADE_NOT_ADDITIVE`, `path` trỏ vào chỗ sai.
 
-- Version mới phải lớn hơn bản ACTIVE (`version-not-newer`).
+- Version mới phải lớn hơn bản ACTIVE, hoặc bản từng ACTIVE cao nhất (`version-not-newer`).
 - Collection cũ, trường cũ còn nguyên và giữ `type`. Trường cũ không được chuyển sang `required`; trường mới của
   collection cũ không được `required` (collection mới thì tự do).
 - Trường cũ có `pii` thì giữ đúng loại `pii` (thêm `pii` vào trường cũ là siết, được phép).
@@ -302,7 +305,7 @@ tại), `list`/`create` trả 403:
 | `unauthenticated` | 401 | thiếu hoặc sai token |
 | `unsupported-media-type` | 415 | `Content-Type` không được nhận |
 | `version-conflict` | 409 | `If-Match` khác version hiện tại |
-| `version-not-newer` | 409 | version nộp không lớn hơn bản ACTIVE |
+| `version-not-newer` | 409 | version nộp không lớn hơn bản ACTIVE (hoặc bản từng ACTIVE cao nhất khi app đang DISABLED) |
 | `workflow-finalize-failed` | 500 | Flowable đã hoàn thành task nhưng lõi chưa ghi xong; sẽ được đối soát |
 | `workflow-inconsistent` | 409 | Flowable và bản ghi hoàn thành của lõi lệch nhau; admin phải đối soát |
 | `workflow-model-mismatch` | 500 | BPMN đã deploy không khớp manifest đã ghim |

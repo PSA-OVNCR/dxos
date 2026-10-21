@@ -65,7 +65,7 @@ Kết quả và xử lý:
 | Phản hồi | Ý nghĩa | Làm gì |
 |---|---|---|
 | 200 | trường đã bị bỏ khỏi `data`; salt của bản ghi, ghi chú thu hồi (nếu có) đã bị xóa; tên tệp gốc đã bị thay | chạy mục 3 trong ngày |
-| 404 | không đọc được bản ghi, không giữ role xóa, hoặc app không có bản ACTIVE (`app-not-active`) | app `DISABLED`: admin nộp phiên bản mới hơn rồi duyệt bốn mắt, xóa xong có thể vô hiệu hóa lại |
+| 404 | không đọc được bản ghi, không giữ role xóa, hoặc app không có bản ACTIVE (`app-not-active`) | app `DISABLED`: admin nộp phiên bản mới hơn, chỉ cộng thêm so với bản từng ACTIVE cao nhất, rồi duyệt bốn mắt; xóa xong có thể vô hiệu hóa lại |
 | 409 `record-in-workflow` | bản ghi đang trong quy trình | chờ quy trình xong rồi làm lại |
 | 409 `seal-pending` | đang chờ niêm phong | chờ `SEALED` rồi làm lại |
 | 409 `version-conflict`, 428 | thiếu hoặc sai `If-Match` | đọc lại version rồi gửi lại |

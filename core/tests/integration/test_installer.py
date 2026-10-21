@@ -615,3 +615,54 @@ async def test_downgrade_or_same_version_rejected(admin, core_conn):  # m6
     r = await admin.post("/admin/v1/apps/test-flow:approve", json={"version": "0.3.0"})
     assert r.status_code == 409 and r.json()["type"].endswith("/version-not-newer")
     assert await status_of(core_conn, "test-flow", "0.3.0") == "PENDING"
+
+
+# ---------------------------------------------------------------- rà soát cuối Plan 02, I2
+async def test_upgrade_after_disable_still_checked_against_last_active(admin, core_conn):
+    """Sau ``:disable`` không còn bản ACTIVE: mốc so sánh là bản từng ACTIVE có semver cao nhất (DISABLED).
+    Vô hiệu hóa không được là đường vòng qua P2-D14 hay luật không hạ cấp."""
+    await submit(admin, "test-flow")
+    r = await admin.post("/admin/v1/apps/test-flow:approve", json={"version": "0.1.0"})
+    assert r.status_code == 200
+    assert (await admin.post("/admin/v1/apps/test-flow:disable")).status_code == 200
+    r = await admin.post(
+        "/admin/v1/apps",
+        json={"manifest": mutate(load("test-flow"), "drop_field", version="0.2.0"), "files": FLOW_FILES},
+    )
+    assert r.status_code == 422 and r.json()["code"] == "UPGRADE_NOT_ADDITIVE"
+    r = await admin.post(
+        "/admin/v1/apps",
+        json={"manifest": mutate(load("test-flow"), "none", version="0.0.9"), "files": FLOW_FILES},
+    )
+    assert r.status_code == 409 and r.json()["type"].endswith("/version-not-newer")
+    # Nộp lại một phiên bản mới hơn, chỉ thêm: duyệt được, app hoạt động lại.
+    await submit(admin, "test-flow", doc=mutate(load("test-flow"), "add_optional", version="0.2.0"))
+    r = await admin.post("/admin/v1/apps/test-flow:approve", json={"version": "0.2.0"})
+    assert r.status_code == 200
+    assert await status_of(core_conn, "test-flow", "0.2.0") == "ACTIVE"
+
+
+async def test_approve_after_disable_rechecks_against_last_active(admin, core_conn):
+    await submit(admin, "test-flow")
+    r = await admin.post("/admin/v1/apps/test-flow:approve", json={"version": "0.1.0"})
+    assert r.status_code == 200
+    await submit(admin, "test-flow", doc=mutate(load("test-flow"), "none", version="0.3.0"))
+    await submit(admin, "test-flow", doc=mutate(load("test-flow"), "add_optional", version="0.2.0"))
+    r = await admin.post("/admin/v1/apps/test-flow:approve", json={"version": "0.2.0"})
+    assert r.status_code == 200
+    assert (await admin.post("/admin/v1/apps/test-flow:disable")).status_code == 200
+    # 0.3.0 thiếu trường note và role observer của 0.2.0 (bản từng ACTIVE cao nhất, nay DISABLED).
+    r = await admin.post("/admin/v1/apps/test-flow:approve", json={"version": "0.3.0"})
+    assert r.status_code == 422 and r.json()["code"] == "UPGRADE_NOT_ADDITIVE"
+    assert await status_of(core_conn, "test-flow", "0.3.0") == "PENDING"
+    # Bản nộp khi 0.1.0 còn ACTIVE nhưng không mới hơn 0.2.0 → 409 lúc duyệt.
+    await core_conn.execute(
+        "INSERT INTO apps(id, version, manifest, manifest_sha256, status, submitted_by)"
+        " SELECT id, '0.1.5', jsonb_set(manifest, '{app,version}', '\"0.1.5\"'), repeat('0', 64), 'PENDING',"
+        " submitted_by FROM apps WHERE id='test-flow' AND version='0.2.0'")
+    await core_conn.execute(
+        "INSERT INTO app_files(app_id, version, path, sha256, content)"
+        " SELECT app_id, '0.1.5', path, sha256, content FROM app_files WHERE app_id='test-flow'"
+        " AND version='0.2.0'")
+    r = await admin.post("/admin/v1/apps/test-flow:approve", json={"version": "0.1.5"})
+    assert r.status_code == 409 and r.json()["type"].endswith("/version-not-newer")
