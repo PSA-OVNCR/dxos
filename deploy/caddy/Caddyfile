@@ -39,6 +39,13 @@
 	handle /auth/* {
 		reverse_proxy keycloak:8080
 	}
+	# API quản trị chỉ mở trên host admin (spec 12.3). APISIX cũng ràng buộc route admin-v1 theo host; chặn ở đây
+	# để host công khai không bao giờ chuyển /admin tới APISIX (phòng thủ nhiều lớp). Đường dẫn dài hơn /api/* nên
+	# Caddy xếp handle này trước handle @gateway của gateway_routes.
+	@admin_api path /admin/* /admin
+	handle @admin_api {
+		respond "Not Found" 404
+	}
 	import gateway_routes
 	handle {
 		respond "Not Found" 404

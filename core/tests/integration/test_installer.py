@@ -202,17 +202,20 @@ async def test_upgrade_must_be_additive_via_api(admin, core_conn):
 
 # ---------------------------------------------------------------- duyệt
 async def test_approve_rechecks_against_the_active_version_now(admin, core_conn):
-    await submit(admin, "test-flow", doc=mutate(load("test-flow"), "none", version="0.2.0"))
-    await submit(admin, "test-flow")  # 0.1.0 nộp sau, cả hai PENDING
-    await submit(admin, "test-flow", doc=mutate(load("test-flow"), "add_optional", version="0.3.0"))
+    await submit(admin, "test-flow")
     assert (
-        await admin.post("/admin/v1/apps/test-flow:approve", json={"version": "0.3.0"})
+        await admin.post("/admin/v1/apps/test-flow:approve", json={"version": "0.1.0"})
     ).status_code == 200
-    # 0.2.0 thiếu trường note và role observer của bản ACTIVE (0.3.0): không còn là nâng cấp cộng thêm.
-    r = await admin.post("/admin/v1/apps/test-flow:approve", json={"version": "0.2.0"})
+    await submit(admin, "test-flow", doc=mutate(load("test-flow"), "none", version="0.3.0"))
+    await submit(admin, "test-flow", doc=mutate(load("test-flow"), "add_optional", version="0.2.0"))
+    assert (
+        await admin.post("/admin/v1/apps/test-flow:approve", json={"version": "0.2.0"})
+    ).status_code == 200
+    # 0.3.0 hợp lệ lúc nộp (so với 0.1.0) nhưng thiếu trường note và role observer của bản ACTIVE (0.2.0).
+    r = await admin.post("/admin/v1/apps/test-flow:approve", json={"version": "0.3.0"})
     assert r.status_code == 422 and r.json()["code"] == "UPGRADE_NOT_ADDITIVE"
-    assert await status_of(core_conn, "test-flow", "0.2.0") == "PENDING"
-    assert await deployment_of(core_conn, "test-flow", "0.2.0") is None
+    assert await status_of(core_conn, "test-flow", "0.3.0") == "PENDING"
+    assert await deployment_of(core_conn, "test-flow", "0.3.0") is None
 
 
 async def test_approve_twice_is_idempotent_and_upgrade_disables_old(admin, kc_fake, core_conn):
@@ -496,13 +499,119 @@ async def test_quarantine_limit(admin, infected_upload):
     assert (await admin.get("/admin/v1/quarantine?limit=1")).json()[0]["upload_id"] == str(infected_upload)
 
 
-async def test_concurrent_approves_install_once(admin, kc_fake, core_conn):          # LOCK_INSTALL
+async def test_concurrent_approves_never_wait_and_install_once(admin, kc_fake, core_conn, monkeypatch):
+    """LOCK_INSTALL không chờ (fix 1, m5): lần duyệt đang chạy giữ khóa, lần khác trả 409 install-in-progress
+    ngay hoặc 200 nếu tới lúc bản đã ACTIVE; thử lại sau đó được 200."""
     import asyncio
 
     await submit(admin, "test-flow")
-    rs = await asyncio.gather(*(admin.post("/admin/v1/apps/test-flow:approve", json={"version": "0.1.0"})
-                                for _ in range(3)))
-    assert [r.status_code for r in rs] == [200, 200, 200] and kc_fake.calls == 1
+    real = kc_fake.ensure_app_roles
+
+    async def slow(*args, **kwargs):
+        await asyncio.sleep(0.5)
+        return await real(*args, **kwargs)
+
+    monkeypatch.setattr(kc_fake, "ensure_app_roles", slow)
+    rs = await asyncio.gather(
+        *(admin.post("/admin/v1/apps/test-flow:approve", json={"version": "0.1.0"}) for _ in range(3))
+    )
+    codes = sorted(r.status_code for r in rs)
+    assert codes.count(200) >= 1 and set(codes) <= {200, 409}, codes
+    assert all(r.json()["type"].endswith("/install-in-progress") for r in rs if r.status_code == 409)
+    assert 409 in codes  # có lần không chờ khóa
+    assert kc_fake.calls == 1
     assert len(await ledger_rows(core_conn, "test-flow", "app.installed")) == 1
-    assert await core_conn.fetchval(
-        "SELECT count(*) FROM pg_locks WHERE locktype='advisory' AND classid=724102") == 0
+    assert (
+        await admin.post("/admin/v1/apps/test-flow:approve", json={"version": "0.1.0"})
+    ).status_code == 200
+    assert (
+        await core_conn.fetchval("SELECT count(*) FROM pg_locks WHERE locktype='advisory' AND classid=724102")
+        == 0
+    )
+
+
+async def test_submit_and_disable_do_not_wait_for_a_running_approve(admin, core_conn, owner_conn):
+    await submit(admin, "test-flow")
+    await owner_conn.execute(
+        "SELECT pg_advisory_lock(724102, hashtext('test-flow'))"
+    )  # một lần duyệt đang chạy
+    try:
+        r = await admin.post(
+            "/admin/v1/apps",
+            json={"manifest": mutate(load("test-flow"), "none", version="0.2.0"), "files": FLOW_FILES},
+        )
+        assert r.status_code == 409 and r.json()["type"].endswith("/install-in-progress")
+        r = await admin.post("/admin/v1/apps/test-flow:approve", json={"version": "0.1.0"})
+        assert r.status_code == 409 and r.json()["type"].endswith("/install-in-progress")
+        assert (await admin.post("/admin/v1/apps/test-flow:disable")).status_code == 409
+    finally:
+        await owner_conn.execute("SELECT pg_advisory_unlock(724102, hashtext('test-flow'))")
+    assert (
+        await admin.post("/admin/v1/apps/test-flow:approve", json={"version": "0.1.0"})
+    ).status_code == 200
+
+
+# ---------------------------------------------------------------- fix round 1
+async def test_self_approval_denied_before_content_checks(admin_strict, owner_conn, core_conn):  # m1
+    await submit(admin_strict, "test-flow")
+    # Manifest đã lưu không còn qua bộ kiểm (vd. bộ kiểm siết hơn sau nâng cấp lõi): bốn mắt vẫn thắng.
+    await owner_conn.execute(
+        "UPDATE apps SET manifest = jsonb_set(manifest, '{roles}', '[\"app_bad\"]')"
+        " WHERE id='test-flow' AND version='0.1.0'"
+    )
+    r = await admin_strict.post("/admin/v1/apps/test-flow:approve", json={"version": "0.1.0"})
+    assert r.status_code == 403 and r.json()["reason"] == "self_approval"
+    [leaf] = await ledger_rows(core_conn, "test-flow", "policy.denied")
+    assert leaf["body_sha256"] == _sha(canonical_bytes({"action": "approve", "reason": "self_approval"}))
+    assert await status_of(core_conn, "test-flow", "0.1.0") == "PENDING"
+
+
+async def test_unencodable_manifest_is_422_not_500(admin):  # m2
+    body = json.dumps(
+        {
+            "manifest": {**load("test-flow"), "app": {**load("test-flow")["app"], "name": "x\ud800y"}},
+            "files": FLOW_FILES,
+        },
+        ensure_ascii=True,
+    )
+    assert "\\ud800" in body
+    r = await admin.post(
+        "/admin/v1/apps", content=body.encode(), headers={"content-type": "application/json"}
+    )
+    assert r.status_code == 422 and r.json()["code"] == "SCHEMA_INVALID"
+
+
+async def test_chunked_body_over_cap_is_413(admin):  # m4
+    sent = []
+
+    async def chunks():
+        for _ in range(20):  # 20 × 64 KiB = 1,25 MiB, không có Content-Length
+            sent.append(1)
+            yield b"x" * 65536
+
+    r = await admin.post("/admin/v1/apps", content=chunks(), headers={"content-type": "application/json"})
+    assert r.status_code == 413 and r.json()["type"].endswith("/payload-too-large")
+    assert len(sent) < 20  # dừng đọc ngay khi vượt trần
+
+
+async def test_downgrade_or_same_version_rejected(admin, core_conn):  # m6
+    await submit(admin, "test-flow", doc=mutate(load("test-flow"), "none", version="0.2.0"))
+    await submit(admin, "test-flow", doc=mutate(load("test-flow"), "none", version="0.10.0"))
+    assert (
+        await admin.post("/admin/v1/apps/test-flow:approve", json={"version": "0.2.0"})
+    ).status_code == 200
+    r = await admin.post("/admin/v1/apps", json={"manifest": load("test-flow"), "files": FLOW_FILES})  # 0.1.0
+    assert r.status_code == 409 and r.json()["type"].endswith("/version-not-newer")
+    # 0.10.0 > 0.2.0 theo semver (không so chuỗi).
+    assert (
+        await admin.post("/admin/v1/apps/test-flow:approve", json={"version": "0.10.0"})
+    ).status_code == 200
+    # Nộp khi 0.2.0 còn ACTIVE, duyệt khi 0.10.0 đã ACTIVE → kiểm lại lúc duyệt.
+    await core_conn.execute("UPDATE apps SET status='DISABLED' WHERE id='test-flow' AND version='0.10.0'")
+    await core_conn.execute("UPDATE apps SET status='ACTIVE' WHERE id='test-flow' AND version='0.2.0'")
+    await submit(admin, "test-flow", doc=mutate(load("test-flow"), "none", version="0.3.0"))
+    await core_conn.execute("UPDATE apps SET status='DISABLED' WHERE id='test-flow' AND version='0.2.0'")
+    await core_conn.execute("UPDATE apps SET status='ACTIVE' WHERE id='test-flow' AND version='0.10.0'")
+    r = await admin.post("/admin/v1/apps/test-flow:approve", json={"version": "0.3.0"})
+    assert r.status_code == 409 and r.json()["type"].endswith("/version-not-newer")
+    assert await status_of(core_conn, "test-flow", "0.3.0") == "PENDING"

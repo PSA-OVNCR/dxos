@@ -8,12 +8,15 @@ Nộp (``submit``): kiểm manifest, tệp đi kèm, BPMN và luật nâng cấp
 
 Duyệt (``approve``): mọi bước idempotent, chạy lại được sau lỗi giữa chừng. Cả lần duyệt chạy dưới khóa
 advisory **phiên** ``(LOCK_INSTALL, hashtext(app_id))`` trên một kết nối riêng (nhả trong ``finally``), vì
-``FlowableClient.deploy`` là tra-rồi-tạo: hai lần duyệt đồng thời có thể tạo hai deployment. Không transaction
-nào mở trong lúc gọi Keycloak hay Flowable. Thứ tự:
+``FlowableClient.deploy`` là tra-rồi-tạo: hai lần duyệt đồng thời có thể tạo hai deployment. Khóa lấy bằng
+``pg_try_advisory_*``: đang có thao tác cài khác của cùng app (nộp, duyệt, vô hiệu hóa) → 409
+``install-in-progress`` ngay, không giữ kết nối chờ. Không transaction nào mở trong lúc gọi Keycloak hay
+Flowable. Thứ tự:
 
 1. phiên bản phải tồn tại; đã ACTIVE thì trả 200 ngay; khác PENDING → 409;
-2. kiểm lại manifest; bốn mắt (P2-D21): người duyệt khác người nộp, trừ khi ``allow_self_approval``;
-3. kiểm lại BPMN và luật nâng cấp so với bản ACTIVE **lúc này**;
+2. bốn mắt (P2-D21), trước mọi kiểm tra nội dung: người duyệt khác người nộp, trừ khi ``allow_self_approval``;
+3. kiểm lại manifest, BPMN, phiên bản mới hơn bản ACTIVE (semver, 409 ``version-not-newer``) và luật nâng cấp
+   so với bản ACTIVE **lúc này**;
 4. tạo realm role ``app:<id>:<role>`` (Keycloak, service account ``dxos-installer``);
 5. có workflow: deploy đúng ``render_bpmn(check_against_manifest(xml, m))`` (P2-D2), ghi ``app_deployments``
    (bảng chỉ-thêm: đã có dòng cùng ``rendered_sha256`` thì dùng lại, khác hash → 409);
@@ -91,6 +94,25 @@ def _loads(v: Any) -> Any:
 
 def _sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def _semver(version: str) -> tuple[int, ...]:
+    return tuple(int(x) for x in version.split("."))
+
+
+def _require_newer(active: Manifest, m: Manifest) -> None:
+    """Không hạ cấp: phiên bản mới phải lớn hơn bản ACTIVE theo semver (``x.y.z`` số nguyên) → 409."""
+    if _semver(m.app.version) <= _semver(active.app.version):
+        raise _conflict("version-not-newer",
+                        f"{m.app.version} không mới hơn bản ACTIVE {active.app.version}; hãy tăng version")
+
+
+async def _try_lock(conn: asyncpg.Connection, app_id: str, *, xact: bool) -> None:
+    """Khóa ``(LOCK_INSTALL, hashtext(app_id))`` không chờ: đang có thao tác cài khác → 409
+    ``install-in-progress`` ngay (không giữ kết nối của pool để chờ)."""
+    fn = "pg_try_advisory_xact_lock" if xact else "pg_try_advisory_lock"
+    if not await conn.fetchval(f"SELECT {fn}($1, hashtext($2))", LOCK_INSTALL, app_id):  # noqa: S608
+        raise _conflict("install-in-progress", f"{app_id}: đang có thao tác cài đặt khác; thử lại sau")
 
 
 # ---------------------------------------------------------------- tệp đi kèm
@@ -222,8 +244,10 @@ def _check_submission(body: object) -> tuple[Manifest, dict, str, dict[str, byte
         m = validate_manifest(raw)
         try:
             digest = sha256_hex(canonical_bytes(raw))
-        except CanonicalError as exc:      # số thực, khóa không phải chuỗi…: không băm chuẩn hóa được
-            raise ManifestError("SCHEMA_INVALID", "", f"manifest không chuẩn hóa được: {exc}") from None
+        except (CanonicalError, UnicodeError) as exc:
+            # số thực, khóa không phải chuỗi, surrogate lẻ (không mã hóa UTF-8 được): không băm chuẩn hóa được
+            raise ManifestError("SCHEMA_INVALID", "",
+                                f"manifest không chuẩn hóa được ({type(exc).__name__})") from None
         data = check_files(m, body["files"])
         if m.workflow is not None:
             check_against_manifest(data[m.workflow.bpmn], m)
@@ -241,7 +265,7 @@ async def submit(pool: asyncpg.Pool, body: object, *, actor: Principal, hmac_key
     result = {"app_id": m.app.id, "version": m.app.version, "status": "PENDING", "manifest_sha256": digest,
               "files": hashes}
     async with pool.acquire() as conn, conn.transaction():
-        await conn.execute("SELECT pg_advisory_xact_lock($1, hashtext($2))", LOCK_INSTALL, m.app.id)
+        await _try_lock(conn, m.app.id, xact=True)
         row = await conn.fetchrow("SELECT manifest_sha256, status FROM core.apps WHERE id=$1 AND version=$2",
                                   m.app.id, m.app.version)
         if row is not None:
@@ -257,6 +281,7 @@ async def submit(pool: asyncpg.Pool, body: object, *, actor: Principal, hmac_key
         try:
             active = await get_active(conn, m.app.id)
             if active is not None:
+                _require_newer(active, m)
                 check_upgrade(active, m, sealed_before=await sealed_before(conn, m.app.id))
         except ManifestError as exc:
             raise manifest_problem(exc) from None
@@ -356,21 +381,18 @@ async def _approve_locked(conn: asyncpg.Connection, state: Any, app_id: str, ver
     if row["status"] != "PENDING":
         raise _conflict("app-version-not-pending",
                         f"{app_id} {version} đang {row['status']}, không duyệt được")
-    raw = _loads(row["manifest"])
-    try:
-        m = validate_manifest(raw)
-    except ManifestError as exc:
-        raise manifest_problem(exc) from None
-    # Bước 2: bốn mắt (P2-D21).
+    # Bước 2: bốn mắt (P2-D21), trước mọi kiểm tra nội dung của phiên bản.
     self_approved = approver.sub == row["submitted_by"]
     if self_approved and not settings.allow_self_approval:
-        await deny(conn, approver, m, action="approve", reason="self_approval", subject=f"{app_id}@{version}",
-                   hmac_key=hmac_key)
+        await deny(conn, approver, app_id, action="approve", reason="self_approval",
+                   subject=f"{app_id}@{version}", hmac_key=hmac_key)
         raise ProblemError(403, "forbidden", "Forbidden", "approver must differ from submitter (four eyes)",
                            reason="self_approval")
-    # Bước 3: kiểm lại BPMN và luật nâng cấp so với bản ACTIVE lúc này.
+    # Bước 3: kiểm lại manifest, BPMN, phiên bản mới hơn và luật nâng cấp so với bản ACTIVE lúc này.
+    raw = _loads(row["manifest"])
     rendered = bpmn_sha256 = None
     try:
+        m = validate_manifest(raw)
         if m.workflow is not None:
             text = (await get_files(conn, app_id, version)).get(m.workflow.bpmn)
             if text is None:
@@ -380,6 +402,7 @@ async def _approve_locked(conn: asyncpg.Connection, state: Any, app_id: str, ver
             rendered = render_bpmn(check_against_manifest(xml, m))
         active = await get_active(conn, app_id)
         if active is not None:
+            _require_newer(active, m)
             check_upgrade(active, m, sealed_before=await sealed_before(conn, app_id))
     except ManifestError as exc:
         raise manifest_problem(exc) from None
@@ -410,7 +433,7 @@ async def approve(state: Any, app_id: str, version: str, *, approver: Principal)
     pool: asyncpg.Pool = state.pool
     conn = await pool.acquire()
     try:
-        await conn.execute("SELECT pg_advisory_lock($1, hashtext($2))", LOCK_INSTALL, app_id)
+        await _try_lock(conn, app_id, xact=False)
         try:
             return await _approve_locked(conn, state, app_id, version, approver)
         finally:
@@ -437,7 +460,7 @@ async def disable(pool: asyncpg.Pool, app_id: str, *, actor: Principal, hmac_key
     if not APP_ID.fullmatch(app_id):
         raise ProblemError(404, "app-not-active", "Application not active")
     async with pool.acquire() as conn, conn.transaction():
-        await conn.execute("SELECT pg_advisory_xact_lock($1, hashtext($2))", LOCK_INSTALL, app_id)
+        await _try_lock(conn, app_id, xact=True)
         row = await conn.fetchrow("SELECT version, manifest_sha256 FROM core.apps"
                                   " WHERE id=$1 AND status='ACTIVE'"
                                   " FOR UPDATE", app_id)

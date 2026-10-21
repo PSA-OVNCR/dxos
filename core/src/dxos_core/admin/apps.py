@@ -12,6 +12,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Request
 
 from dxos_core.errors import ProblemError
+from dxos_core.http_body import read_capped_body
 from dxos_core.identity.deps import require_admin
 from dxos_core.identity.jwt import Principal
 from dxos_core.registry import installer
@@ -23,26 +24,10 @@ MAX_SMALL_BYTES = 4096              # :approve
 
 
 async def read_json(request: Request, limit: int) -> Any:
-    """Content-Type ``application/json`` (415), thân tối đa ``limit`` byte đọc theo luồng (413), JSON hợp lệ
-    (422 ``invalid-request``)."""
-    media = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
-    if media != "application/json":
-        raise ProblemError(415, "unsupported-media-type", "Unsupported Media Type", "only application/json")
-    too_large = ProblemError(413, "payload-too-large", "Payload Too Large", f"body limit is {limit} bytes")
-    declared = request.headers.get("content-length")
-    if declared is not None:
-        try:
-            if int(declared) > limit:
-                raise too_large
-        except ValueError as exc:
-            raise ProblemError(400, "bad-request", "Bad Request", "invalid Content-Length") from exc
-    buf = bytearray()
-    async for chunk in request.stream():
-        buf += chunk
-        if len(buf) > limit:
-            raise too_large
+    """``read_capped_body`` (415/413/400) rồi JSON hợp lệ (422 ``invalid-request``)."""
+    raw = await read_capped_body(request, limit)
     try:
-        return json.loads(bytes(buf))
+        return json.loads(raw)
     except (ValueError, RecursionError):
         raise ProblemError(422, "invalid-request", "Request validation failed",
                            "body is not valid JSON") from None

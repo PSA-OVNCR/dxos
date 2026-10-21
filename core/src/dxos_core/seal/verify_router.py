@@ -33,6 +33,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
 from dxos_core.errors import ProblemError
+from dxos_core.http_body import read_capped_body
 from dxos_core.kms.cache import KeysUnavailable
 from dxos_core.registry.model import Manifest
 from dxos_core.registry.store import get_version
@@ -91,24 +92,10 @@ def parse_hash_body(raw: bytes) -> str:
 async def read_hash_body(request: Request) -> str:
     """Content-Type trước (415), rồi đọc luồng với trần cứng ``MAX_BODY`` (413 ngay khi vượt, không đọc thêm),
     rồi kiểm JSON (422)."""
-    media = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
-    if media != "application/json":
-        raise ProblemError(415, "unsupported-media-type", "Unsupported Media Type",
-                           "only application/json {sha256} is accepted; files are never uploaded here")
-    too_large = ProblemError(413, "payload-too-large", "Payload Too Large", f"body limit is {MAX_BODY} bytes")
-    declared = request.headers.get("content-length")
-    if declared is not None:
-        try:
-            if int(declared) > MAX_BODY:
-                raise too_large
-        except ValueError as exc:
-            raise ProblemError(400, "bad-request", "Bad Request", "invalid Content-Length") from exc
-    buf = bytearray()
-    async for chunk in request.stream():
-        buf += chunk
-        if len(buf) > MAX_BODY:
-            raise too_large
-    return parse_hash_body(bytes(buf))
+    raw = await read_capped_body(
+        request, MAX_BODY,
+        unsupported_detail="only application/json {sha256} is accepted; files are never uploaded here")
+    return parse_hash_body(raw)
 
 
 # ---------------------------------------------------------------- tra niêm phong

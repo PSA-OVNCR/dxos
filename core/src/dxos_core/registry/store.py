@@ -101,7 +101,7 @@ async def save_files(conn: asyncpg.Connection, app_id: str, version: str, files:
         if row is None:
             old = await conn.fetchval(
                 "SELECT sha256 FROM app_files WHERE app_id=$1 AND version=$2 AND path=$3",
-                                      app_id, version, path)
+                app_id, version, path)
             if old != digest:
                 raise ValueError(f"{app_id} {version}: tệp {path} đã có với nội dung khác")
 
@@ -110,5 +110,5 @@ async def get_files(conn: asyncpg.Connection, app_id: str, version: str) -> dict
     """Các tệp đi kèm phiên bản: đường dẫn → nội dung đúng như đã nộp."""
     rows = await conn.fetch(
         "SELECT path, content FROM app_files WHERE app_id=$1 AND version=$2 ORDER BY path",
-                            app_id, version)
+        app_id, version)
     return {r["path"]: r["content"] for r in rows}

@@ -75,22 +75,23 @@ async def enforce(conn: asyncpg.Connection, p: Principal, action: Action, m: Man
         raise RuntimeError("enforce() bị từ chối trong một transaction: lá policy.denied có thể bị rollback")
     await append(conn, type="policy.denied", subject=subject,
                  body={"action": action, "reason": d.reason, "collection": collection},
-                 hmac_key=hmac_key, app_id=m.app.id, actor_sub=p.sub)
+                 hmac_key=hmac_key, app_id=m if isinstance(m, str) else m.app.id, actor_sub=p.sub)
     if action in ("list", "create"):
         raise Forbidden(d.reason)
     raise NotFound(d.reason)
 
 
-async def deny(conn: asyncpg.Connection, p: Principal, m: Manifest, *, action: str, reason: str, subject: str,
-               hmac_key: bytes) -> None:
+async def deny(conn: asyncpg.Connection, p: Principal, m: Manifest | str, *, action: str, reason: str,
+               subject: str, hmac_key: bytes) -> None:
     """Ghi ledger ``policy.denied {action, reason}`` cho một lần từ chối ngoài ``decide`` (Plan 02 Task 6).
 
     ``reason`` theo định dạng thống nhất: ``guard:<guard>:<lý do>``, ``not_task_role``, ``kms_unavailable``,
     ``seal_key_expired``, ``org_not_configured``, ``not_pii_reviewer`` (Task 7/12 thêm ``not_revoker``,
     ``not_eraser``, ``self_approval``). Bên gọi tự trả mã HTTP.
+    ``m`` là manifest hoặc chỉ ``app_id`` (installer từ chối duyệt trước khi kiểm manifest, Task 12).
     Như ``enforce``: phải gọi **ngoài** transaction, nếu không lá có thể bị rollback cùng transaction (F3).
     """
     if conn.is_in_transaction():
         raise RuntimeError("deny() trong một transaction: lá policy.denied có thể bị rollback")
     await append(conn, type="policy.denied", subject=subject, body={"action": action, "reason": reason},
-                 hmac_key=hmac_key, app_id=m.app.id, actor_sub=p.sub)
+                 hmac_key=hmac_key, app_id=m if isinstance(m, str) else m.app.id, actor_sub=p.sub)

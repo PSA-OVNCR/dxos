@@ -115,3 +115,5 @@ def test_ip_inside_allow_list_passes_on_admin_host(run_caddy):
     assert _get(port, "admin.localhost", "/apps/other.txt") == 200
     assert _get(port, "admin.localhost", "/") == 404       # tới được fallback, không bị 403
     assert _get(port, "admin.localhost", "/apps/verify/") == 200
+    for path in ("/admin", "/admin/v1/health", "/admin/v1/apps"):      # API quản trị: chỉ host admin
+        assert _get(port, "localhost", path) == 404, path
