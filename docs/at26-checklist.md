@@ -52,11 +52,34 @@ AT-26 đòi "một app **mới**". Sau bước (25–30') yêu cầu người th
 
 1. Sao chép `examples/so-muon-sach` sang thư mục mới (ví dụ `examples/<tên-họ-chọn>`), **đổi** `app.id`, tên collection, tên
    role và ít nhất một trường theo ý họ (ví dụ sổ mượn thiết bị), tăng `version` nếu cần.
-2. Kiểm cục bộ bằng đoạn Python trong hướng dẫn (mục 5–15'), rồi `dxos app install <thư mục>` và `dxos app approve <id> <version>`
-   (admin thứ hai), rồi `dxos app list` phải thấy app mới ở trạng thái `ACTIVE`.
-3. Giao diện của Phần B là tùy chọn (SPA ví dụ gắn với `so-muon-sach`).
+2. Kiểm cục bộ bằng đoạn Python trong hướng dẫn (mục 5–15'), rồi
+   `dxos --ca-file caddy-root.crt app install <thư mục>` và `dxos --ca-file caddy-root.crt app approve <id> <version>`
+   (admin thứ hai, đã `dxos --ca-file caddy-root.crt login`), rồi `dxos --ca-file caddy-root.crt app list` phải thấy app mới ở
+   trạng thái `ACTIVE`. `--ca-file` không được CLI lưu nên phải có ở **mọi** lệnh khi dùng `https://admin.localhost`.
+3. Giao diện của Phần B là tùy chọn (SPA ví dụ gắn với `so-muon-sach`). Nếu làm, xem danh sách đổi tên dưới đây.
+
+**Danh sách đổi tên khi sao chép ví dụ** (sót một chỗ là lỗi `422 manifest-invalid` hoặc app không hoạt động):
+
+- `app.id` trong `manifest.yaml` (khớp `^[a-z][a-z0-9-]{1,30}$`) và tên thư mục.
+- `id` của `<process>` trong BPMN phải là `<app.id mới>.<tên>`; `targetNamespace` nên đổi theo.
+- Tên role: `roles`, `access`, `policies.*`, `workflow.tasks.<t>.role` **và** `flowable:candidateGroups="app:<app.id mới>:<role>"`
+  trong BPMN phải cùng một bộ tên.
+- `id` của `userTask` trong BPMN phải trùng khóa trong `workflow.tasks` (và `gateway`, `sequenceFlow` đổi theo nếu bạn đổi tên task).
+- Tên collection và trường: `policies.seal.public_fields` chỉ được liệt kê trường có `public: true`.
+- Đường dẫn trong lệnh và đoạn Python của hướng dẫn đang cứng `examples/so-muon-sach` (và `so-muon-sach 1.0.0` ở `diff`/`approve`):
+  thay bằng thư mục và `<id> <version>` của bạn.
+- Nếu làm giao diện: sao chép `examples/so-muon-sach/web`, đổi tên gói npm, `APP`, `COL`, `BASE` ở `src/session.ts`, `base` ở
+  `vite.config.ts`; thêm thư mục vào `workspaces` của `package.json` và một mục `<tên>:examples/<tên>/web/dist` vào `DIST_MAP`
+  của `ops/build_web.sh` (ngoài `core/`, không vi phạm P1).
+- Sau khi đổi, chạy lại: kiểm cục bộ, rồi `git diff --stat <commit> -- core/ deploy/apisix/` phải rỗng.
 
 ## 5. Ghi chỗ vướng
+
+**[BB] Không bao giờ ghi bí mật vào biên bản, ảnh hay bản quay mà bạn sẽ commit vào `docs/progress/` hay `docs/evidence/`:** khóa
+unseal và token của OpenBao, giá trị bí mật trong `.env` (mật khẩu, secret client, `OPENBAO_CORE_TOKEN`), mật khẩu quản trị
+Keycloak (`KEYCLOAK_ADMIN_PASSWORD`), mã thiết bị và liên kết của lệnh đăng nhập CLI (device flow), token `DXOS_TOKEN`. Cắt hoặc làm mờ
+ảnh chụp console Keycloak và terminal trước khi lưu; chép lỗi bằng văn bản đã bỏ các giá trị đó. Nghi ngờ lộ thì xoay bí mật
+đó, không chỉ xóa tệp.
 
 Ghi mỗi chỗ vướng một dòng trong bảng "Vướng" của biên bản: bước, điều bạn thấy (chép nguyên văn thông báo lỗi, đính ảnh nếu
 có), nguyên nhân (tài liệu thiếu/sai, môi trường, hiểu nhầm), cách gỡ, mức độ: **chặn** (không đi tiếp được), **chậm** (mất
@@ -119,7 +142,7 @@ Chép khối dưới đây vào `docs/progress/<yyyy-mm-dd>-at26.md` và điền
 
 | Kiểm | Kết quả | Minh chứng |
 |---|---|---|
-| App mới `ACTIVE` (`dxos app list`) qua manifest, người duyệt khác người nộp | | |
+| App mới `ACTIVE` (`dxos --ca-file caddy-root.crt app list`) qua manifest, người duyệt khác người nộp | | |
 | Tạo phiếu, duyệt bởi người khác, niêm phong, đối soát QR (bước 5) | | |
 | `git diff --stat <commit> -- core/ deploy/apisix/` rỗng | | |
 | `git status --short -- core/ deploy/apisix/` rỗng | | |

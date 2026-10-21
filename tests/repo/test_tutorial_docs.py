@@ -45,8 +45,9 @@ def test_tutorial_has_the_five_timed_steps_in_order():
 
 def test_tutorial_sections_cover_the_required_content():
     t = _text(TUTORIAL)
-    for needle in ("make up PROFILE=dev-lite", "dxos login", "dxos app install examples/so-muon-sach",
-                   "dxos app diff so-muon-sach 1.0.0", "dxos app approve so-muon-sach 1.0.0",
+    for needle in ("make up PROFILE=dev-lite", "login --server", "app install examples/so-muon-sach",
+                   "app diff so-muon-sach 1.0.0", "app approve so-muon-sach 1.0.0",
+                   "NODE_IMAGE chưa ghim digest", "make pin-images",
                    "app:so-muon-sach:ban_doc", "app:so-muon-sach:thu_thu", "make web-build",
                    "/apps/so-muon-sach/",
                    "FLOOR_WEAKENED", "spec 9.2", "Kiểm lại P1", "git diff --stat", "-- core/",
@@ -62,6 +63,26 @@ def test_every_dxos_command_in_the_tutorial_parses_with_the_real_cli():
         line = re.sub(r"^(DXOS_\w+=\S+ )*", "", ln.replace("<miền>", "example.vn"))
         argv = shlex.split(line.split(" #")[0])[1:]
         parser.parse_args(argv)                                         # SystemExit nếu lệnh hay đối số sai
+
+
+def _dxos_invocations(text: str) -> list[str]:
+    """Mọi lệnh `dxos ...`: dòng trong khối mã shell và đoạn mã nội tuyến (`...`)."""
+    inline = [m.strip() for m in re.findall(r"`([^`\n]+)`", text)]
+    return [ln for ln in [*_shell_lines(text), *inline] if re.match(r"(DXOS_\w+=\S+ )*dxos ", ln)]
+
+
+@pytest.mark.parametrize("doc", [TUTORIAL, CHECKLIST], ids=lambda p: p.name)
+def test_every_dxos_call_that_talks_to_the_server_carries_ca_file(doc):
+    """`--ca-file` không được CLI lưu (chỉ lưu server, issuer): thiếu ở lệnh nào, lệnh đó lỗi TLS."""
+    calls = [ln for ln in _dxos_invocations(_text(doc)) if not re.search(r"(^|\s)(--help|-h)(\s|$)", ln)]
+    assert calls, "không tìm thấy lệnh dxos nào"
+    missing = [ln for ln in calls if "--ca-file" not in ln]
+    assert missing == []
+
+
+def test_the_ca_file_check_catches_a_bare_call():
+    bare = "```bash\ndxos app approve x 1.0.0\n```\nvà `dxos app list` rồi `dxos app list --help`"
+    assert _dxos_invocations(bare) == ["dxos app approve x 1.0.0", "dxos app list", "dxos app list --help"]
 
 
 def test_every_make_target_in_the_tutorial_exists():

@@ -187,9 +187,14 @@ PY
 Admin thứ nhất đăng nhập (device flow: CLI in một liên kết, mở bằng trình duyệt, đăng nhập `admin1`) rồi nộp:
 
 ```bash
-dxos login --server https://admin.localhost --ca-file caddy-root.crt
-dxos app install examples/so-muon-sach
+dxos --ca-file caddy-root.crt login --server https://admin.localhost
+dxos --ca-file caddy-root.crt app install examples/so-muon-sach
 ```
+
+**`--ca-file caddy-root.crt` phải có ở MỌI lệnh `dxos` nói chuyện với server** (login, install, diff, approve, list, disable...):
+CLI không lưu nó (chỉ lưu server và issuer), nên thiếu ở một lệnh là lệnh đó lỗi xác minh chứng chỉ (mã thoát 2) vì
+`https://admin.localhost` dùng CA nội bộ của Caddy. Trên VPS có chứng chỉ công khai thì bỏ được. Đặt tùy chọn **trước** lệnh con
+(`dxos --ca-file ... app install ...`); đặt sau lệnh con cũng được.
 
 `install` đọc `manifest.yaml` và tệp BPMN, nộp cho lõi (kết quả `202`, bản `PENDING`) và in **diff quyền** để người duyệt xem.
 Với một app mới, diff liệt kê toàn bộ cái được thêm. Phần đầu của diff (mô phỏng bằng `permission_diff` của lõi và hàm in của
@@ -214,18 +219,18 @@ trường nào thành công khai vĩnh viễn**.
 trước khi đăng nhập `admin2`) xem lại diff rồi duyệt:
 
 ```bash
-dxos login --server https://admin.localhost --ca-file caddy-root.crt
-dxos app diff so-muon-sach 1.0.0
-dxos app approve so-muon-sach 1.0.0
-dxos app list
+dxos --ca-file caddy-root.crt login --server https://admin.localhost
+dxos --ca-file caddy-root.crt app diff so-muon-sach 1.0.0
+dxos --ca-file caddy-root.crt app approve so-muon-sach 1.0.0
+dxos --ca-file caddy-root.crt app list
 ```
 
 Người duyệt **phải khác** người nộp, nếu không lõi trả 403 `self_approval` (`DXOS_ALLOW_SELF_APPROVAL` chỉ dành cho demo một
 người). Khi duyệt, lõi kiểm lại toàn bộ, tạo hai realm role `app:so-muon-sach:ban_doc` và `app:so-muon-sach:thu_thu` trong
 Keycloak, deploy BPMN lên Flowable, rồi chuyển app sang `ACTIVE`.
 
-Đã kiểm ở cloud: `dxos app install --help`, `approve --help`, `diff --help` (đúng cú pháp trên); chạy `dxos app install
-examples/so-muon-sach` khi chưa đăng nhập trả `Chưa đăng nhập: chạy dxos login --server https://admin.<miền>` và mã thoát 3.
+Đã kiểm ở cloud: `dxos app install --help`, `approve --help`, `diff --help`, và parser thật của CLI nhận đúng các dòng lệnh ở trên
+(có test); chạy lệnh `install` khi chưa đăng nhập trả `Chưa đăng nhập: chạy dxos login --server https://admin.<miền>` và mã thoát 3.
 *Trạng thái các lệnh nộp, diff, duyệt với server thật: chưa kiểm ở cloud — kiểm trong AT-26.*
 
 ## (20–25') Gán vai trò trong console Keycloak
@@ -255,7 +260,9 @@ make web-build
 ```
 
 `make web-build` chạy `npm ci` và build mọi SPA trong một container Node, rồi chép vào volume `apps-static` mà Caddy phục vụ
-(`ops/build_web.sh`; `so-muon-sach` nằm trong danh sách cố định của script). Mở `https://localhost/apps/so-muon-sach/`
+(`ops/build_web.sh`; `so-muon-sach` nằm trong danh sách cố định của script). Nếu lệnh dừng với `NODE_IMAGE chưa ghim digest`,
+chạy `make pin-images` (lệnh này sửa dòng `NODE_IMAGE=` trong `ops/web_build_docker.sh`, nằm ngoài `core/` nên không ảnh hưởng P1)
+rồi `make web-build` lại. Mở `https://localhost/apps/so-muon-sach/`
 (trình duyệt cảnh báo chứng chỉ nội bộ của Caddy: chấp nhận cho `localhost`).
 
 1. Đăng nhập `nhan_vien1`. Form "Phiếu mượn" có **bốn ô** (Tên sách, Người mượn, Ngày mượn, Email): không có ô "Số phiếu"
@@ -300,10 +307,12 @@ phải là sửa lõi.
 
 | Thấy | Nghĩa | Làm gì |
 |---|---|---|
-| `dxos`: "Chưa đăng nhập" (mã 3) | chưa có token hoặc đã hết hạn | `dxos login --server ...` |
+| `dxos`: "Chưa đăng nhập" (mã 3) | chưa có token hoặc đã hết hạn | `dxos --ca-file caddy-root.crt login --server ...` |
 | `422 manifest-invalid` + `code`, `path` | manifest hay BPMN sai | sửa đúng chỗ `path` chỉ; bảng mã ở [manifest-guide](manifest-guide.md) |
 | `409 version-not-newer` | version không lớn hơn bản ACTIVE | tăng `app.version` |
 | `403 self_approval` | người duyệt là người nộp | admin khác duyệt |
+| `dxos` báo lỗi chứng chỉ / xác minh TLS (mã thoát 2) khi gọi `https://admin.localhost` | thiếu `--ca-file caddy-root.crt` ở lệnh đó (CLI không lưu tùy chọn này) | thêm `--ca-file caddy-root.crt` vào MỌI lệnh `dxos`; chưa có tệp thì lấy CA của Caddy ở bước (0–5') |
+| `make web-build`: `NODE_IMAGE chưa ghim digest` | chưa chạy `make pin-images` | `make pin-images` rồi `make web-build` lại |
 | SPA: "Phiên đăng nhập không được máy chủ chấp nhận" | token bị lõi từ chối (thường lệch đồng hồ) | chỉnh đồng hồ, **Đăng nhập lại** |
 | SPA: danh sách trống, form báo 403 | người dùng chưa có vai trò của app, hoặc token cũ | gán vai trò ở Keycloak rồi đăng nhập lại |
 | Phiếu đã duyệt kẹt ở "Chờ niêm phong" | OpenBao còn khóa hoặc `DXOS_ORG_NAME` chưa đặt | xem bước (0–5') và [runbook-openbao](runbook-openbao.md) |
