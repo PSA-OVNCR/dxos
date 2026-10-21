@@ -124,7 +124,9 @@ async def test_latest_endpoint_and_keys(api, core_conn, local_signer, seeded_ent
     assert dataclasses.asdict(await latest_sth(core_conn)) == body
     keys = (await api.get("/verify/v1/keys")).json()
     pk = base64.b64decode(keys["sth-key"][str(th.key_version)])
-    assert set(keys) == {"seal-key", "sth-key"} and verify_sth(th, pk)
+    # statements: Plan 02 Task 8
+    assert set(keys) == {"seal-key", "sth-key", "statements"} and verify_sth(th, pk)
+    assert keys["statements"] == {"seal-key": {}}
 
 
 @pytest.mark.parametrize("q", ["first=0&second=1", "first=1&second=999", "first=a&second=b", "second=3"])

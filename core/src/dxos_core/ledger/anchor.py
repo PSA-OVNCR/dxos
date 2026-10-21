@@ -6,13 +6,19 @@
 - **Không bao giờ ghi đè**: tệp đã có với nội dung khác → ``ANCHOR_CONFLICT`` (dấu hiệu viết lại lịch sử).
 - Mạng lỗi, remote từ chối → ``PUSH_FAILED``; commit cục bộ được đẩy lại ở lần sau.
 - Bảo vệ nhánh (cấm force-push, cấm xóa, lịch sử tuyến tính) nằm **ở GitHub**, ngoài tầm với của VPS (AT-18).
+- Plan 02 Task 8 (spec 11.6, 25.3): cùng commit với STH còn có khóa công khai ``keys/<khóa>/v<n>.pub``
+  (base64 khóa ed25519 thô + ``\n``, cho ``seal-key`` và ``sth-key``) và tuyên bố khóa
+  ``keys/seal-key/v<n>.json`` (``canonical_bytes(tuyên bố)`` + ``\n``). Cùng luật không ghi đè: tệp đã có mà
+  khác byte → ``ANCHOR_CONFLICT``; trùng byte → bỏ qua. Mọi tệp được so **trước** khi ghi tệp nào.
 """
 
 import asyncio
+import base64
 import dataclasses
 import os
+from collections.abc import Iterable, Mapping
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from dxos_proof.canonical import canonical_bytes
 
@@ -31,6 +37,23 @@ class AnchorError(Exception):
 
 def sth_path(tree_size: int) -> str:
     return f"sth/{tree_size:012d}.json"
+
+
+_KEY_FILES = ("seal-key", "sth-key")
+
+
+def key_files(keys: Mapping[str, Mapping[int, bytes]] | None,
+              statements: Iterable[Mapping[str, Any]] = ()) -> list[tuple[str, bytes]]:
+    """Các tệp khóa cần có trong repo neo: ``(đường dẫn, nội dung)``, theo thứ tự cố định."""
+    out: list[tuple[str, bytes]] = []
+    for name in _KEY_FILES:
+        for v, raw in sorted((keys or {}).get(name, {}).items()):
+            out.append((f"keys/{name}/v{int(v)}.pub", base64.b64encode(raw) + b"\n"))
+    for st in sorted(statements, key=lambda x: int(x["version"])):
+        if st.get("key") != "seal-key":
+            raise ValueError(f"tuyên bố khóa lạ: {st.get('key')!r}")
+        out.append((f"keys/seal-key/v{int(st['version'])}.json", canonical_bytes(dict(st)) + b"\n"))
+    return out
 
 
 async def _git(repo: Path, git_ssh_command: str, *args: str, check: bool = True) -> tuple[int, str]:
@@ -70,22 +93,31 @@ async def _remote_has_branch(repo: Path, ssh: str) -> bool:
     return bool(out.strip())
 
 
-async def publish_sth(th: TreeHead, repo_dir: Path, git_ssh_command: str) -> str:
-    """Ghi, commit và đẩy STH lên ``origin main``; trả về sha của commit chứa tệp."""
+async def publish_sth(th: TreeHead, repo_dir: Path, git_ssh_command: str, *,
+                      keys: Mapping[str, Mapping[int, bytes]] | None = None,
+                      statements: Iterable[Mapping[str, Any]] = ()) -> str:
+    """Ghi, commit và đẩy STH (cùng tệp khóa/tuyên bố còn thiếu) lên ``origin main``; trả về sha của commit
+    chứa tệp STH."""
     ssh = git_ssh_command
     if await _remote_has_branch(repo_dir, ssh):
         await _git(repo_dir, ssh, *_AUTHOR, "pull", "-q", "--rebase", "origin", BRANCH)
     rel = sth_path(th.tree_size)
-    path = repo_dir / rel
-    content = canonical_bytes(dataclasses.asdict(th))
-    if path.exists():
-        if path.read_bytes() != content:
-            raise AnchorError("ANCHOR_CONFLICT", f"{rel} đã có với nội dung khác")
-        await _git(repo_dir, ssh, "push", "-q", "origin", f"HEAD:refs/heads/{BRANCH}")
-        return (await _git(repo_dir, ssh, "log", "-1", "--format=%H", "--", rel))[1]
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(content)
-    await _git(repo_dir, ssh, "add", rel)
-    await _git(repo_dir, ssh, *_AUTHOR, "commit", "-q", "-m", f"sth {th.tree_size}")
+    files = [(rel, canonical_bytes(dataclasses.asdict(th))), *key_files(keys, statements)]
+    # So hết trước khi ghi: xung đột ở bất kỳ tệp nào thì không ghi tệp nào.
+    for f, content in files:
+        path = repo_dir / f
+        if path.exists() and path.read_bytes() != content:
+            raise AnchorError("ANCHOR_CONFLICT", f"{f} đã có với nội dung khác")
+    sth_is_new = not (repo_dir / rel).exists()
+    for f, content in files:
+        path = repo_dir / f
+        if not path.exists():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(content)
+    await _git(repo_dir, ssh, "add", "--", *(f for f, _ in files))
+    staged, _ = await _git(repo_dir, ssh, "diff", "--cached", "--quiet", check=False)
+    if staged != 0:     # có tệp mới (STH và/hoặc khóa) → một commit
+        message = f"sth {th.tree_size}" if sth_is_new else "keys"
+        await _git(repo_dir, ssh, *_AUTHOR, "commit", "-q", "-m", message)
     await _git(repo_dir, ssh, "push", "-q", "origin", f"HEAD:refs/heads/{BRANCH}")
-    return (await _git(repo_dir, ssh, "rev-parse", "HEAD"))[1]
+    return (await _git(repo_dir, ssh, "log", "-1", "--format=%H", "--", rel))[1]

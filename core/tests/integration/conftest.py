@@ -10,6 +10,7 @@ trừ khi đặt DXOS_TEST_REQUIRE_DB=1 (CI) thì báo lỗi.
 
 import hashlib
 import os
+import subprocess
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import AsyncExitStack, asynccontextmanager
@@ -511,3 +512,60 @@ def flowable_no_answer_once(flow, monkeypatch):
         await real(*args, **kwargs)
 
     monkeypatch.setattr(client, "complete", no_answer)
+
+
+# ---------------------------------------------------------- đối soát công khai, repo neo (Plan 02 Task 8)
+@pytest.fixture
+def verify(flow):
+    """``VerifyClient`` (helpers/verify.py): gọi ẩn danh (không token) các route ``/verify/v1/`` của API của
+    ``flow``; ``stream_post(path, chunks)`` gửi thân chunked với content-type application/json."""
+    from helpers.verify import VerifyClient
+
+    return VerifyClient(flow.api)
+
+
+@pytest.fixture
+def kms_down(local_signer, monkeypatch):
+    """Gọi ``kms_down()``: từ đó mọi ``public_keys()``/``sign()`` của ``local_signer`` (signer của API và
+    worker trong ``flow``) ném ``KmsUnavailable``, như OpenBao bị khóa."""
+    from dxos_core.kms.base import KmsUnavailable
+
+    def down() -> None:
+        async def public_keys():
+            raise KmsUnavailable("OpenBao sealed (giả lập, kms_down)")
+
+        async def sign(*_a, **_k):
+            raise KmsUnavailable("OpenBao sealed (giả lập, kms_down)")
+
+        monkeypatch.setattr(local_signer, "public_keys", public_keys)
+        monkeypatch.setattr(local_signer, "sign", sign)
+
+    return down
+
+
+@pytest.fixture
+async def anchor_env(make_settings, core_dsn, local_signer, tmp_path):
+    """``AnchorEnv`` (helpers/verify.py): bare repo ``file://`` mới + clone của worker + Settings neo +
+    ``anchor_once()`` chạy job ``anchor_sth`` thật (``local_signer``) + ``overwrite_remote(rel, text)``."""
+    from dxos_core.jobs.context import WorkerContext
+    from helpers.verify import AnchorEnv
+
+    remote = tmp_path / f"anchor-env-{uuid.uuid4().hex[:8]}.git"
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(remote)], check=True)
+    settings = make_settings(database_url=core_dsn, anchor_repo_dir=tmp_path / "anchor-env-clone",
+                             anchor_remote=f"file://{remote}", anchor_git_ssh_command="ssh -o BatchMode=yes")
+    pool = await create_pool(core_dsn)
+    try:
+        ctx = WorkerContext(pool=pool, store=None, settings=settings, hmac_key=b"changeme-test-hmac-key",
+                            signer=local_signer)
+        yield AnchorEnv(remote=remote, repo=settings.anchor_repo_dir, ctx=ctx, scratch=tmp_path)
+    finally:
+        await pool.close()
+
+
+@pytest.fixture
+async def sealed_once(flow):
+    """Một niêm phong đã xong qua ``flow`` (nên ``key_statements`` có hàng ``seal-key`` v1); trả
+    ``seal_id``."""
+    sid, _ = await flow.sealed_ids()
+    return sid

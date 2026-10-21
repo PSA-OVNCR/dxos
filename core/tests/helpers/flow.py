@@ -435,6 +435,51 @@ class FlowHarness:
         assert r.status_code == 200, r.text
         return r.json()
 
+    # ------------------------------------------------------------ đối soát công khai (Plan 02 Task 8)
+    async def sealed_ids(self, data: dict | None = None) -> tuple[str, str]:
+        """``(seal_id, record_id)`` của một bản ghi vừa ``SEALED``."""
+        rid = await self.sealed_record(data=data)
+        return await self.seal_id_of(rid), rid
+
+    async def install_verify_policy(self, version: str, **verify: bool) -> None:
+        """Cài và kích hoạt phiên bản ``version`` với ``policies.verify`` sửa theo ``verify``; bản ghi bắt đầu
+        quy trình sau đó ghim phiên bản này."""
+        def mutate(r: dict) -> None:
+            r["policies"]["verify"] = {**r["policies"]["verify"], **verify}
+
+        await self.install_version(version, mutate=mutate)
+
+    async def pending_seal_id(self, *, verify_public: bool = True) -> str:
+        """``seal_id`` của một bản ghi ``SEAL_PENDING``; ``verify_public=False``: phiên bản đã ghim có
+        ``verify.public: false`` (cài 0.2.0 trước)."""
+        if not verify_public:
+            await self.install_verify_policy("0.2.0", public=False)
+        return await self.seal_id_of(await self.pending_record())
+
+    async def sealed_with_file(self) -> tuple[str, bytes]:
+        """``(seal_id, bytes tệp gốc)`` của bản ghi đã niêm phong kèm đúng một tệp (``clean-text.pdf``)."""
+        sid, _ = await self.sealed_ids()
+        original = (FILES / "clean-text.pdf").read_bytes()
+        assert await self.attachment_hashes(sid) == [hashlib.sha256(original).hexdigest()]
+        return sid, original
+
+    async def revoked_seal_id(self) -> str:
+        """``seal_id`` của một niêm phong đã bị ``p1`` thu hồi."""
+        sid, rid = await self.sealed_ids()
+        r = await self.revoke(rid, as_="p1")
+        assert r.status_code == 200, r.text
+        return sid
+
+    async def attachment_hashes(self, sid: str) -> list[str]:
+        """Hash tệp trong payload đã ký của niêm phong ``sid``."""
+        payload = await self.db.fetchval("SELECT payload FROM seals WHERE seal_id=$1", sid)
+        return _loads(payload)["attachments"]
+
+    async def record_data_of(self, sid: str) -> dict:
+        """``data`` đang lưu (owner, không che) của bản ghi thuộc niêm phong ``sid``."""
+        rid = await self.db.fetchval("SELECT record_id FROM seal_requests WHERE seal_id=$1", sid)
+        return await self.raw_data(str(rid))
+
     # ------------------------------------------------------------ đọc thô (owner)
     async def salt_of(self, rid: str) -> str | None:
         return await self.owner.fetchval("SELECT salt FROM record_salts WHERE record_id=$1", uuid.UUID(rid))

@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Neo STH vào repo git có bảo vệ và API quản trị neo (Plan 01 Task 16; AT-16, AT-18 phần mã)."""
 
+import base64
 import dataclasses
 import json
 import subprocess
@@ -249,3 +250,90 @@ async def test_hanging_git_times_out(tmp_path, th, monkeypatch):                
     with pytest.raises(AnchorError) as e:
         await publish_sth(th, repo, "sh -c 'sleep 30' --")
     assert e.value.code == "PUSH_FAILED" and time.monotonic() - t0 < 10
+
+
+# ---------- Plan 02 Task 8: khóa công khai và tuyên bố khóa trong repo neo ----------
+
+async def test_anchor_publishes_keys_and_detects_swap(anchor_env, local_signer):
+    await anchor_env.anchor_once()
+    pk = (await local_signer.public_keys())["seal-key"][1]
+    assert (anchor_env.repo / "keys/seal-key/v1.pub").read_text().strip() == base64.b64encode(pk).decode()
+    anchor_env.overwrite_remote("keys/seal-key/v1.pub", "AAAA\n")
+    with pytest.raises(AnchorError, match="ANCHOR_CONFLICT"):
+        await anchor_env.anchor_once()
+
+
+# sealed_once: fixture mới, một niêm phong đã xong nên có hàng key_statements
+async def test_anchor_publishes_key_statement(anchor_env, sealed_once):
+    await anchor_env.anchor_once()
+    doc = json.loads((anchor_env.repo / "keys/seal-key/v1.json").read_text(encoding="utf-8"))
+    assert doc["serial"] == "seal-key/v1" and "signature" not in doc
+    anchor_env.overwrite_remote("keys/seal-key/v1.json", "{}\n")
+    with pytest.raises(AnchorError, match="ANCHOR_CONFLICT"):
+        await anchor_env.anchor_once()
+
+
+async def test_key_files_exact_bytes_and_same_commit_as_sth(anchor_env, local_signer, sealed_once, flow):
+    await anchor_env.anchor_once()            # chạy cả job neo do lần niêm phong xếp, rồi job của lần này
+    pub = await local_signer.public_keys()
+    for name in ("seal-key", "sth-key"):
+        assert anchor_env.remote_file(f"keys/{name}/v1.pub") == base64.b64encode(pub[name][1]) + b"\n"
+    [stmt] = [s["statement"] for s in await flow.key_statements()]
+    assert anchor_env.remote_file("keys/seal-key/v1.json") == canonical_bytes(stmt) + b"\n"
+    first = git(anchor_env.remote, "log", "--format=%H", "--", "keys/seal-key/v1.pub").splitlines()
+    assert len(first) == 1                                                      # tệp khóa chỉ ghi một lần
+    files = set(git(anchor_env.remote, "show", "--name-only", "--format=", first[0]).splitlines())
+    keys = {"keys/seal-key/v1.pub", "keys/sth-key/v1.pub", "keys/seal-key/v1.json"}
+    assert keys < files and len([f for f in files - keys if f.startswith("sth/")]) == 1 == len(files - keys)
+    # lần sau: tệp khóa trùng byte → không đổi, commit mới chỉ có STH mới
+    size2 = await anchor_env.anchor_once()
+    files2 = set(git(anchor_env.remote, "show", "--name-only", "--format=", "main").splitlines())
+    assert files2 == {sth_path(size2)}
+
+
+async def test_rotated_key_adds_file_and_keeps_old(anchor_env, local_signer):
+    await anchor_env.anchor_once()
+    v1 = anchor_env.remote_file("keys/seal-key/v1.pub")
+    assert local_signer.rotate("seal-key") == 2
+    await anchor_env.anchor_once()
+    pub = await local_signer.public_keys()
+    assert anchor_env.remote_file("keys/seal-key/v1.pub") == v1
+    assert anchor_env.remote_file("keys/seal-key/v2.pub") == base64.b64encode(pub["seal-key"][2]) + b"\n"
+
+
+async def test_conflicting_key_file_blocks_before_any_write(tmp_bare_repo_clone, bare_remote, th, tmp_path):
+    other = tmp_path / "other-k"
+    subprocess.run(["git", "clone", "-q", f"file://{bare_remote}", str(other)], check=True)
+    (other / "keys/sth-key").mkdir(parents=True)
+    (other / "keys/sth-key/v1.pub").write_text("AAAA\n", encoding="utf-8")
+    git(other, "add", "keys")
+    git(other, "-c", "user.name=x", "-c", "user.email=x@x", "commit", "-q", "-m", "khóa lạ")
+    git(other, "push", "-q", "origin", "HEAD:main")
+    keys = {"seal-key": {1: b"\x01" * 32}, "sth-key": {1: b"\x02" * 32}}
+    with pytest.raises(AnchorError) as e:
+        await publish_sth(th, tmp_bare_repo_clone, GIT_SSH, keys=keys)
+    assert e.value.code == "ANCHOR_CONFLICT"
+    assert not (tmp_bare_repo_clone / sth_path(th.tree_size)).exists()
+    assert not (tmp_bare_repo_clone / "keys/seal-key/v1.pub").exists()
+    assert git(bare_remote, "rev-list", "--count", "main") == "1"
+
+
+async def test_publish_without_keys_unchanged(tmp_bare_repo_clone, bare_remote, th):
+    await publish_sth(th, tmp_bare_repo_clone, GIT_SSH)
+    assert not (tmp_bare_repo_clone / "keys").exists()
+
+
+async def test_anchor_job_without_kms_on_pinned_retry_still_anchors(anchor_env, local_signer, kms_down):
+    """Lần thử lại của một STH đã ký (``tree_size`` cố định) không cần KMS: neo STH, bỏ qua tệp khóa lần
+    này."""
+    async with anchor_env.ctx.pool.acquire() as c:
+        th_ = await make_sth(c, local_signer)
+        job_id = await enqueue(c, "anchor_sth", {"tree_size": th_.tree_size})
+    kms_down()
+    async with anchor_env.ctx.pool.acquire() as c:
+        from dxos_core.jobs.queue import claim
+        from dxos_core.ledger.anchor_job import process_anchor_job
+
+        await process_anchor_job(anchor_env.ctx, await claim(c, ["anchor_sth"]))
+        assert await c.fetchval("SELECT state FROM jobs WHERE id=$1", job_id) == "DONE"
+    assert anchor_env.remote_file(sth_path(th_.tree_size))

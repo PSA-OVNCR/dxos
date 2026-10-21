@@ -17,12 +17,14 @@ from dxos_core.db.pool import create_pool
 from dxos_core.errors import install_error_handlers
 from dxos_core.identity import deps as identity
 from dxos_core.identity.jwt import JwksVerifier
+from dxos_core.kms.cache import PublicKeyCache
 from dxos_core.kms.openbao import OpenBaoTransit
 from dxos_core.ledger import router as verify
 from dxos_core.objects import router as objects
 from dxos_core.objects.storage import ObjectStore
 from dxos_core.records import router as records
 from dxos_core.seal import router as seal
+from dxos_core.seal import verify_router as seal_verify
 from dxos_core.seal.service import request_seal, seal_record
 from dxos_core.settings import Settings, read_secret
 from dxos_core.workflow import router as workflow
@@ -70,6 +72,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(title="DX-OS Trust Core", version=__version__, lifespan=lifespan)
     app.state.settings = settings
+    # Khóa công khai bất biến theo phiên bản: một cache cho /verify/v1/keys và cổng đối soát (Task 8).
+    app.state.public_keys = PublicKeyCache()
     app.state.verifier = JwksVerifier(
         settings.keycloak_jwks_url, settings.keycloak_issuer, settings.jwt_audience)
     install_error_handlers(app)
@@ -80,5 +84,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(objects.router)
     app.include_router(workflow.router)
     app.include_router(verify.router)
+    app.include_router(seal_verify.router)
     app.include_router(admin.router)
     return app
