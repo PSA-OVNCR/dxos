@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 PSA_OVNCR
 # SPDX-License-Identifier: Apache-2.0
-"""Tiến trình trust-core-worker: lấy việc từ bảng ``jobs`` và chạy (quét tệp, neo STH...).
+"""Tiến trình trust-core-worker: lấy việc từ bảng ``jobs`` và chạy (quét tệp, neo STH, niêm phong).
 
 - Mỗi vòng: kiểm DB, ghi heartbeat (healthcheck của container đọc tệp này), lấy và chạy một việc.
 - Việc lỗi không làm dừng worker: ghi ``last_error``, thử lại với backoff;
@@ -25,6 +25,8 @@ from dxos_core.jobs.context import WorkerContext
 from dxos_core.jobs.queue import Job, claim, fail, retry_later
 from dxos_core.ledger.anchor_job import ANCHOR_JOB, maybe_schedule, process_anchor_job
 from dxos_core.objects.ingest import SCAN_JOB, process_scan_job
+from dxos_core.seal.job import process_seal_job
+from dxos_core.seal.service import SEAL_JOB
 from dxos_core.settings import Settings, read_secret
 
 log = logging.getLogger("dxos_core.worker")
@@ -36,7 +38,8 @@ RENEW_EVERY_S = 3600.0
 _DB_ERRORS = (OSError, TimeoutError, asyncpg.PostgresError, asyncpg.InterfaceError)
 
 Handler = Callable[[WorkerContext, Job], Awaitable[None]]
-HANDLERS: dict[str, Handler] = {SCAN_JOB: process_scan_job, ANCHOR_JOB: process_anchor_job}
+HANDLERS: dict[str, Handler] = {SCAN_JOB: process_scan_job, ANCHOR_JOB: process_anchor_job,
+                                SEAL_JOB: process_seal_job}
 
 
 def touch_heartbeat(path: Path) -> None:

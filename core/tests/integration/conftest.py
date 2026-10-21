@@ -12,6 +12,7 @@ import hashlib
 import os
 import uuid
 from collections.abc import AsyncIterator
+from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
@@ -318,26 +319,28 @@ def failing_signer():
 
 
 # ---------------------------------------------------------------- cầu nối quy trình (Plan 02 Task 6)
-@pytest.fixture
-async def flow(s3_settings, core_conn, core_dsn, test_jwks, flowable_client, local_signer, tmp_path):
-    """``FlowHarness`` (helpers/flow.py): API thật (S3, fake clamd, Flowable thật, ``local_signer``) với
-    ``test-flow`` 0.1.0 đã cài và ACTIVE; khi xong hủy mọi instance Flowable của DB test này."""
+@asynccontextmanager
+async def _flow_harness(s3_settings, core_conn, owner_conn, core_dsn, flowable_client, signer, tmp_path,
+                        **overrides) -> AsyncIterator:
+    """Dựng ``FlowHarness`` với Settings của ``s3_settings`` cộng Flowable và ``overrides``."""
     from dxos_core.jobs.context import WorkerContext
     from dxos_core.objects.storage import ObjectStore
     from dxos_core.settings import read_secret
     from helpers.api import running_api
     from helpers.flow import FlowHarness
 
-    password = tmp_path / "flowable-password"
+    password = tmp_path / f"flowable-password-{uuid.uuid4().hex[:8]}"
     password.write_text(FLOWABLE_PASSWORD, encoding="utf-8")
     settings = s3_settings.model_copy(update={
-        "flowable_url": FLOWABLE_URL, "flowable_user": FLOWABLE_USER, "flowable_password_file": password})
+        "flowable_url": FLOWABLE_URL, "flowable_user": FLOWABLE_USER, "flowable_password_file": password,
+        **overrides})
     pool = await create_pool(core_dsn)
     try:
-        async with running_api(settings, signer=local_signer) as api:
+        async with running_api(settings, signer=signer) as api:
             ctx = WorkerContext(pool=pool, store=ObjectStore(settings), settings=settings,
-                                hmac_key=read_secret(settings.actor_hmac_key_file).encode("utf-8"))
-            harness = FlowHarness(api, core_conn, flowable_client, ctx)
+                                hmac_key=read_secret(settings.actor_hmac_key_file).encode("utf-8"),
+                                signer=signer)
+            harness = FlowHarness(api, core_conn, flowable_client, ctx, owner=owner_conn)
             try:
                 await harness.install_version("0.1.0")
                 yield harness
@@ -345,6 +348,54 @@ async def flow(s3_settings, core_conn, core_dsn, test_jwks, flowable_client, loc
                 await harness.close()
     finally:
         await pool.close()
+
+
+@pytest.fixture
+async def flow(s3_settings, core_conn, owner_conn, core_dsn, test_jwks, flowable_client, local_signer,
+               tmp_path):
+    """``FlowHarness`` (helpers/flow.py): API thật (S3, fake clamd, Flowable thật, ``local_signer``, seal
+    hooks thật) với ``test-flow`` 0.1.0 đã cài và ACTIVE; worker dùng cùng signer; khi xong hủy mọi instance
+    Flowable của DB test này."""
+    async with _flow_harness(s3_settings, core_conn, owner_conn, core_dsn, flowable_client, local_signer,
+                             tmp_path) as harness:
+        yield harness
+
+
+@pytest.fixture
+async def flow_factory(s3_settings, core_conn, owner_conn, core_dsn, test_jwks, flowable_client, local_signer,
+                       tmp_path):
+    """``await flow_factory(**settings)``: như ``flow`` nhưng Settings ghi đè theo ``settings``."""
+    async with AsyncExitStack() as stack:
+        async def make(**overrides):
+            return await stack.enter_async_context(_flow_harness(
+                s3_settings, core_conn, owner_conn, core_dsn, flowable_client, local_signer, tmp_path,
+                **overrides))
+
+        yield make
+
+
+@pytest.fixture
+def flaky_signer(local_signer):
+    """``FlakySigner`` dùng chung khóa với ``local_signer``: cờ ``fail`` làm lần ký thật lỗi
+    ``KmsUnavailable``, lần ký thăm dò R-1 vẫn đạt."""
+    from helpers.local_signer import FlakySigner
+
+    return FlakySigner(local_signer)
+
+
+@pytest.fixture
+def seal_pending_between_check_and_lock(flow, owner_conn, monkeypatch):
+    """``:erase-pii``: ngay sau bước kiểm nhanh và trước ``SELECT … FOR UPDATE``, đặt ``SEAL_PENDING`` cho
+    bản ghi bằng ``owner_conn`` (như lần duyệt cuối commit chen vào giữa)."""
+    from dxos_core.records import erase
+
+    real = erase._lock_record
+
+    async def lock(conn, rid):
+        await owner_conn.execute("UPDATE records SET seal_state='SEAL_PENDING' WHERE id=$1", rid)
+        return await real(conn, rid)
+
+    monkeypatch.setattr(erase, "_lock_record", lock)
 
 
 @pytest.fixture

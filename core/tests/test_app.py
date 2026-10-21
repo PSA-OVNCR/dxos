@@ -111,6 +111,7 @@ def test_settings_has_exactly_planned_fields():
         "timezone",                                         # Plan 02 Task 2 (spec 25.4)
         "flowable_url", "flowable_user", "flowable_password_file",   # Plan 02 Task 4
         "org_name", "org_id", "seal_key_validity_days", "seal_purpose", "key_policy_url",   # Task 6 (25.3)
+        "public_base_url", "sth_after_seal",                                                 # Task 7
     }
 
 

@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: 2026 PSA_OVNCR
 # SPDX-License-Identifier: Apache-2.0
-"""Test helper: app ``test-flow`` chạy trên Flowable thật, với API thật (Plan 02 Task 6; Task 7 dùng tiếp).
+"""Test helper: app ``test-flow`` chạy trên Flowable thật, với API thật (Plan 02 Task 6; Task 7 thêm niêm
+phong, thu hồi, xóa PII).
 
 ``FlowHarness`` cài ``test-flow`` như installer sẽ làm (Task 12): lưu manifest + ``app_files``, deploy
 ``render_bpmn(check_against_manifest(...))`` lên Flowable, ghi ``app_deployments``, kích hoạt bằng
@@ -12,7 +13,9 @@ trong DB riêng của test; ``close()`` hủy mọi instance mà DB này biết.
 
 import asyncio
 import copy
+import functools
 import hashlib
+import json
 import uuid
 from collections.abc import Callable, Coroutine
 from typing import Any
@@ -21,13 +24,16 @@ import asyncpg
 import httpx
 from dxos_core import worker
 from dxos_core.jobs.context import WorkerContext
+from dxos_core.ledger.log import LedgerEntry, VerifyResult, verify_log
 from dxos_core.registry.bpmn import check_against_manifest, render_bpmn
 from dxos_core.registry.store import save_manifest
 from dxos_core.registry.validator import validate_manifest
 from dxos_core.workflow.flowable import FlowableClient
+from dxos_core.workflow.reconcile import SealHooks
 from dxos_proof.canonical import canonical_bytes, sha256_hex
 
 from helpers.files import FILES
+from helpers.local_signer import FlakySigner
 from helpers.manifests import raw
 from helpers.tokens import bearer, make_token
 
@@ -39,11 +45,19 @@ BPMN_FILE = FILES.parent / "bpmn/test-review.bpmn"
 ROLES = {"a1": ("author",), "a2": ("author",), "r1": ("reviewer",), "r2": ("reviewer",), "p1": ("approver",)}
 ROLE_NAMES = ("author", "reviewer", "approver")
 # Từ vựng lý do của policy.denied (Task 6 + lý do guard của Task 5), để đọc ngược lá ledger qua body_sha256.
-_DENY_ACTIONS = ("complete", "pii_review", "list_tasks", "read", "update", "list", "create", "reveal_pii")
+_DENY_ACTIONS = ("complete", "pii_review", "list_tasks", "read", "update", "list", "create", "reveal_pii",
+                 "revoke", "erase_pii")
 _GUARD_REASONS = ("same_actor", "role_not_allowed", "field_missing", "attachments_not_clean",
                   "pii_not_reviewed", "record_sealed", "not_assignee")
 _PLAIN_REASONS = ("not_task_role", "kms_unavailable", "seal_key_expired", "org_not_configured",
-                  "not_pii_reviewer", "no_app_role", "admin_no_data_access", "not_in_access_list")
+                  "not_pii_reviewer", "no_app_role", "admin_no_data_access", "not_in_access_list",
+                  "not_revoker", "not_eraser")
+# Bảng không có cột record_id: đếm qua seals.
+_VIA_SEAL = frozenset({"seal_revocations", "seal_revocation_notes"})
+
+
+def _loads(v: Any) -> Any:
+    return json.loads(v) if isinstance(v, str) else v
 
 
 def headers_for(as_: str | dict) -> dict[str, str]:
@@ -54,8 +68,10 @@ def headers_for(as_: str | dict) -> dict[str, str]:
 
 class FlowHarness:
     def __init__(self, api: httpx.AsyncClient, conn: asyncpg.Connection, flowable: FlowableClient,
-                 worker_ctx: WorkerContext) -> None:
+                 worker_ctx: WorkerContext, *, owner: asyncpg.Connection | None = None) -> None:
         self.api, self.conn, self.flowable, self.worker_ctx = api, conn, flowable, worker_ctx
+        self.owner = owner                     # dxos_owner: đọc không che, bỏ qua quyền của dxos_core
+        self._sent: dict[str, list[dict]] = {}  # các dict data đã gửi cho từng bản ghi
         self.db = worker_ctx.pool              # đọc từ pool: các lời gọi của harness có thể chạy đồng thời
         self._slow: list[tuple[asyncio.Event, asyncio.Event]] = []
         self.slow_uploads_past_checks = 0      # số upload chậm đã qua bước kiểm quyền, đang gửi thân
@@ -99,8 +115,10 @@ class FlowHarness:
 
     # ------------------------------------------------------------ bản ghi và tệp
     async def new_record(self, author: str = "a1", data: dict | None = None) -> str:
-        r = await self.api.post(URL, json=data or {"title": "Hồ sơ thử"}, headers=headers_for(author))
+        body = data or {"title": "Hồ sơ thử"}
+        r = await self.api.post(URL, json=body, headers=headers_for(author))
         assert r.status_code == 201, r.text
+        self._sent.setdefault(r.json()["id"], []).append(dict(body))
         return r.json()["id"]
 
     async def upload(self, rid: str, data: bytes, as_: str | dict = "a1") -> httpx.Response:
@@ -163,6 +181,7 @@ class FlowHarness:
 
     async def patch(self, rid: str, data: dict, as_: str | dict = "a1") -> httpx.Response:
         headers = {**headers_for(as_), "If-Match": f'"{await self.version(rid)}"'}
+        self._sent.setdefault(rid, []).append(dict(data))
         return await self.api.patch(f"{URL}/{rid}", json=data, headers=headers)
 
     # ------------------------------------------------------------ quy trình
@@ -273,9 +292,205 @@ class FlowHarness:
         assert r.status_code == expect, r.text
         return r
 
+
+    # ------------------------------------------------------------ niêm phong (Plan 02 Task 7)
+    @property
+    def settings(self):
+        return self.api.app.state.settings
+
+    async def approved_record(self, *, signer=None, kms_ok_for_probe: bool = True, seal_now=None,
+                              data: dict | None = None) -> str:
+        """Bản ghi đã qua cả hai task; ``p1`` vừa duyệt cuối (200), nên đã ``SEAL_PENDING`` rồi thử ký ngay.
+
+        ``signer``: signer của API cho riêng lần ``:complete`` này (ký thăm dò R-1 và ký thật sau commit).
+        ``kms_ok_for_probe``: với ``FlakySigner``, lần ký thăm dò có đạt hay không. ``seal_now``: ``now``
+        truyền vào ``seal_record`` của lần ký ngay (thời điểm niêm phong giả lập).
+        """
+        rid = await self.reviewed_record(data=data)
+        if isinstance(signer, FlakySigner):
+            signer.probe_ok = kms_ok_for_probe
+        state = self.api.app.state
+        hooks = state.seal_hooks
+        if seal_now is not None:
+            state.seal_hooks = SealHooks(request_seal=hooks.request_seal,
+                                         seal_record=functools.partial(hooks.seal_record, now=seal_now))
+        try:
+            r = await self.complete_task("approve", rid, "approve", as_="p1", signer=signer)
+        finally:
+            state.seal_hooks = hooks
+        assert r.status_code == 200, r.text
+        return rid
+
+    async def sealed_record(self, data: dict | None = None) -> str:
+        """Bản ghi đã ``SEALED`` (ký ngay sau lần duyệt cuối, bằng signer của API)."""
+        rid = await self.approved_record(data=data)
+        assert await self.seal_state_db(rid) == "SEALED"
+        return rid
+
+    async def pending_record(self) -> str:
+        """Bản ghi ``SEAL_PENDING`` có job niêm phong đang chờ: lần ký ngay lỗi KMS (cùng khóa với signer của
+        API)."""
+        flaky = FlakySigner(self.api.app.state.signer)
+        flaky.fail = True
+        rid = await self.approved_record(signer=flaky)
+        assert await self.seal_state_db(rid) == "SEAL_PENDING"
+        return rid
+
+    async def approved_record_before_seal(self) -> str:
+        """Bản ghi vừa kết thúc lần duyệt cuối nhưng lần commit ``SEAL_PENDING`` chưa tới: dựng bằng owner từ
+        một bản ghi sẵn sàng (``wf_state='ended:approved'``, ``seal_state='NONE'``), có trường ``cccd``."""
+        rid = await self.ready_record(data={"title": "QĐ", "cccd": "001099012345"})
+        await self.owner.execute("UPDATE records SET wf_state='ended:approved' WHERE id=$1", uuid.UUID(rid))
+        return rid
+
+    async def seal_inline(self, rid: str):
+        """Gọi thẳng ``seal_record`` (như lần thử ngay của API) bằng signer của API."""
+        from dxos_core.seal.service import seal_record
+
+        state = self.api.app.state
+        async with self.db.acquire() as c:
+            return await seal_record(c, signer=state.signer, hmac_key=state.hmac_key, settings=state.settings,
+                                     record_id=uuid.UUID(rid))
+
+    async def run_worker_once(self) -> bool:
+        return await worker.run_once(self.worker_ctx)
+
+    async def run_worker_until_idle(self, signer=None) -> None:
+        """Chạy worker tới khi hết việc tới hạn; ``signer`` thay signer của worker trong lúc chạy."""
+        old = self.worker_ctx.signer
+        if signer is not None:
+            self.worker_ctx.signer = signer
+        try:
+            for _ in range(100):
+                if not await worker.run_once(self.worker_ctx):
+                    return
+            raise AssertionError("worker không hết việc sau 100 lần")
+        finally:
+            self.worker_ctx.signer = old
+
+    async def seal_state_db(self, rid: str) -> str:
+        return await self.db.fetchval("SELECT seal_state FROM records WHERE id=$1", uuid.UUID(rid))
+
+    async def seal_row(self, rid: str) -> dict:
+        row = await self.db.fetchrow("SELECT * FROM seals WHERE record_id=$1", uuid.UUID(rid))
+        assert row is not None, f"bản ghi {rid} chưa có niêm phong"
+        return {**dict(row), "payload": _loads(row["payload"])}
+
+    async def seal_request(self, rid: str) -> dict:
+        row = await self.db.fetchrow("SELECT * FROM seal_requests WHERE record_id=$1", uuid.UUID(rid))
+        assert row is not None
+        return {**dict(row), "attachments": _loads(row["attachments"]),
+                "public_fields": _loads(row["public_fields"])}
+
+    async def seal_id_of(self, rid: str) -> str | None:
+        return await self.db.fetchval("SELECT seal_id FROM seal_requests WHERE record_id=$1", uuid.UUID(rid))
+
+    async def seal_status(self, rid: str) -> str | None:
+        return await self.db.fetchval("SELECT status FROM seals WHERE record_id=$1", uuid.UUID(rid))
+
+    async def seal_job(self, rid: str) -> asyncpg.Record:
+        return await self.db.fetchrow("SELECT * FROM jobs WHERE kind='seal' AND payload->>'record_id' = $1"
+                                      " ORDER BY id DESC LIMIT 1", rid)
+
+    async def queued_jobs(self, kind: str) -> int:
+        return await self.db.fetchval("SELECT count(*) FROM jobs WHERE kind=$1 AND state='QUEUED'", kind)
+
+    async def force_extra_clean_ref(self, rid: str) -> str:
+        """Thêm một tệp CLEAN + object_ref ``original`` cho bản ghi bằng owner (bỏ qua mọi kiểm của lõi)."""
+        sha = hashlib.sha256(uuid.uuid4().bytes).hexdigest()
+        await self.owner.execute("INSERT INTO objects(sha256, size, mime_sniffed, status, storage_key)"
+                                 " VALUES ($1, 1, 'application/pdf', 'CLEAN', $2)", sha, f"late-{sha}")
+        await self.owner.execute(
+            "INSERT INTO object_refs(record_id, sha256, role) VALUES ($1, $2, 'original')",
+            uuid.UUID(rid), sha)
+        return sha
+
+    async def disable_app(self) -> None:
+        await self.conn.execute("UPDATE apps SET status='DISABLED', updated_at=now() WHERE id=$1", APP)
+
+    async def revoke(self, rid: str, as_: str | dict, *, reason_code: str = "superseded",
+                     note: str | None = None) -> httpx.Response:
+        body: dict[str, Any] = {"reason_code": reason_code}
+        if note is not None:
+            body["note"] = note
+        headers = {**headers_for(as_), "If-Match": f'"{await self.version(rid)}"'}
+        return await self.api.post(f"{URL}/{rid}:revoke", json=body, headers=headers)
+
+    async def erase_pii(self, rid: str, fields: Any, reason_code: str, as_: str | dict, *,
+                        version: int | None = None) -> httpx.Response:
+        """``:erase-pii`` kèm ``If-Match`` hiện tại (hoặc ``version``)."""
+        v = version if version is not None else await self.version(rid)
+        headers = {**headers_for(as_), "If-Match": f'"{v}"'}
+        return await self.api.post(f"{URL}/{rid}:erase-pii",
+                                   json={"fields": fields, "reason_code": reason_code}, headers=headers)
+
+    async def admin_status(self) -> dict:
+        r = await self.api.get("/admin/v1/ledger/status", headers=self.admin())
+        assert r.status_code == 200, r.text
+        return r.json()
+
+    # ------------------------------------------------------------ đọc thô (owner)
+    async def salt_of(self, rid: str) -> str | None:
+        return await self.owner.fetchval("SELECT salt FROM record_salts WHERE record_id=$1", uuid.UUID(rid))
+
+    async def raw_data(self, rid: str) -> dict:
+        return _loads(await self.owner.fetchval("SELECT data FROM records WHERE id=$1", uuid.UUID(rid)))
+
+    async def data_versions_sent(self, rid: str) -> list[dict]:
+        """Các dict ``data`` fixture đã gửi cho bản ghi, cộng ``data`` đang lưu (có trường do lõi cấp)."""
+        out = [*self._sent.get(rid, []), await self.raw_data(rid)]
+        return [d for i, d in enumerate(out) if d not in out[:i]]
+
+    async def dump_core_tables(self) -> str:
+        """``row_to_json(t)::text`` của mọi hàng trong mọi bảng schema ``core`` (cả bảng chỉ-thêm), nối
+        lại."""
+        names = [r["table_name"] for r in await self.owner.fetch(
+            "SELECT table_name FROM information_schema.tables WHERE table_schema='core'"
+            " AND table_type='BASE TABLE' ORDER BY table_name")]
+        parts = []
+        for t in names:
+            rows = await self.owner.fetch(f'SELECT row_to_json(t)::text AS j FROM core."{t}" t')  # noqa: S608
+            parts += [r["j"] for r in rows]
+        return "\n".join(parts)
+
+    async def ledger_has_body_sha256(self, h: str) -> bool:
+        return await self.db.fetchval("SELECT EXISTS (SELECT 1 FROM ledger_entries WHERE body_sha256=$1)", h)
+
+    async def ledger_entries(self, type_: str) -> list[LedgerEntry]:
+        rows = await self.db.fetch("SELECT * FROM ledger_entries WHERE type=$1 ORDER BY idx", type_)
+        return [self._entry(r) for r in rows]
+
+    async def ledger_entry(self, idx: int) -> LedgerEntry:
+        return self._entry(await self.db.fetchrow("SELECT * FROM ledger_entries WHERE idx=$1", idx))
+
+    @staticmethod
+    def _entry(r: asyncpg.Record) -> LedgerEntry:
+        return LedgerEntry(idx=r["idx"], ts=r["ts"], type=r["type"], app_id=r["app_id"], subject=r["subject"],
+                           actor_ref=r["actor_ref"], body_sha256=r["body_sha256"],
+                           leaf_hash=bytes(r["leaf_hash"]))
+
+    async def ledger_verify(self) -> VerifyResult:
+        async with self.db.acquire() as c:
+            return await verify_log(c)
+
+    async def key_statements(self) -> list[dict]:
+        rows = await self.db.fetch("SELECT * FROM key_statements ORDER BY key, version")
+        return [{**dict(r), "statement": _loads(r["statement"])} for r in rows]
+
+    async def first_seal_payload(self) -> dict:
+        return _loads(await self.db.fetchval("SELECT payload FROM seals ORDER BY leaf_index LIMIT 1"))
+
     # ------------------------------------------------------------ đọc DB / ledger
-    async def count(self, table: str, rid: str) -> int:
+    async def count(self, table: str, rid: str | None = None) -> int:
+        """Số hàng của ``table`` thuộc bản ghi ``rid`` (bảng không có record_id thì đếm qua seals); không có
+        ``rid`` thì đếm cả bảng."""
         assert table.isidentifier()
+        if rid is None:
+            return await self.db.fetchval(f"SELECT count(*) FROM {table}")  # noqa: S608
+        if table in _VIA_SEAL:
+            return await self.db.fetchval(
+                f"SELECT count(*) FROM {table} x JOIN seals s ON s.seal_id = x.seal_id"  # noqa: S608
+                " WHERE s.record_id=$1", uuid.UUID(rid))
         return await self.db.fetchval(f"SELECT count(*) FROM {table} WHERE record_id=$1",  # noqa: S608
                                         uuid.UUID(rid))
 

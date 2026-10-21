@@ -58,6 +58,24 @@ class Settings(BaseSettings):
     seal_key_validity_days: int = Field(3650, ge=1, le=3650)
     seal_purpose: str = "Niêm phong văn bản và bản ghi do tổ chức ban hành qua DX-OS Trust Core"
     key_policy_url: str | None = None
+    # Niêm phong (Plan 02 Task 7). public_base_url: gốc của verify_url (DXOS_PUBLIC_BASE_URL).
+    # sth_after_seal: xếp việc lập STH + neo ngay sau mỗi lần niêm phong (DXOS_STH_AFTER_SEAL).
+    public_base_url: str = "https://localhost"
+    sth_after_seal: bool = True
+
+    @field_validator("org_name", "seal_purpose", mode="before")
+    @classmethod
+    def _blank_is_default(cls, v: object, info) -> object:
+        """Compose truyền ``${DXOS_ORG_NAME:-}``: chuỗi rỗng nghĩa là "chưa đặt", dùng mặc định. Nhờ vậy tên
+        rỗng không bao giờ lọt vào tuyên bố khóa (tên mặc định thì lõi từ chối niêm phong)."""
+        if isinstance(v, str) and not v.strip():
+            return cls.model_fields[info.field_name].default
+        return v
+
+    @field_validator("org_id", "key_policy_url", mode="before")
+    @classmethod
+    def _blank_is_none(cls, v: object) -> object:
+        return None if isinstance(v, str) and not v.strip() else v
 
     @field_validator("timezone")
     @classmethod

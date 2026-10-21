@@ -192,9 +192,10 @@ async def test_pii_review_requires_read_access(flow):
 # ---------- Bổ sung ----------
 
 async def test_reaching_seal_end_without_seal_hooks_fails_closed(flow):
-    """Chưa có Task 7: tới end event niêm phong thì rollback, 500; không SEAL_PENDING thiếu seal_requests."""
+    """Không có seal hooks (Task 7 nối chúng trong create_app; test gỡ ra): tới end event niêm phong thì
+    rollback, 500; không SEAL_PENDING thiếu seal_requests."""
     rid = await flow.reviewed_record(author="a1", reviewer="r1")
-    assert flow.api.app.state.seal_hooks is None
+    flow.api.app.state.seal_hooks = None
     r = await flow.complete_task("approve", rid, "approve", as_="p1")
     assert r.status_code == 500
     row = await flow.conn.fetchrow("SELECT seal_state, wf_state FROM records WHERE id=$1", uuid.UUID(rid))

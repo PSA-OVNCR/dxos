@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: 2026 PSA_OVNCR
 # SPDX-License-Identifier: Apache-2.0
-"""Route Records API (spec 12.1). Logic nằm ở ``service.py``; ở đây chỉ nhận request và trả response."""
+"""Route Records API (spec 12.1). Logic nằm ở ``service.py`` và ``erase.py``; ở đây chỉ nhận request và trả
+response."""
 
 import json
 from collections.abc import AsyncIterator
@@ -12,7 +13,7 @@ from fastapi.responses import JSONResponse
 from dxos_core.errors import ProblemError
 from dxos_core.identity.deps import require_principal
 from dxos_core.identity.jwt import Principal
-from dxos_core.records import service
+from dxos_core.records import erase, service
 
 router = APIRouter(prefix="/api/v1/apps/{app}/collections/{col}", tags=["records"])
 
@@ -61,3 +62,10 @@ async def patch_record(app: str, col: str, rid: str, request: Request,
                        if_match: str | None = Header(default=None),  # noqa: B008
                        ctx: service.Ctx = Depends(ctx_dep)) -> JSONResponse:  # noqa: B008
     return _with_etag(await service.patch(ctx, app, col, rid, await _json_body(request), if_match))
+
+
+@router.post("/records/{rid}:erase-pii")
+async def erase_pii(app: str, col: str, rid: str, request: Request,
+                    if_match: str | None = Header(default=None),  # noqa: B008
+                    ctx: service.Ctx = Depends(ctx_dep)) -> JSONResponse:  # noqa: B008
+    return _with_etag(await erase.erase_pii(ctx, app, col, rid, await _json_body(request), if_match))

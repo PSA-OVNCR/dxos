@@ -22,9 +22,12 @@ from dxos_core.ledger import router as verify
 from dxos_core.objects import router as objects
 from dxos_core.objects.storage import ObjectStore
 from dxos_core.records import router as records
+from dxos_core.seal import router as seal
+from dxos_core.seal.service import request_seal, seal_record
 from dxos_core.settings import Settings, read_secret
 from dxos_core.workflow import router as workflow
 from dxos_core.workflow.flowable import FlowableClient, WorkflowUnavailable, flowable_from_settings
+from dxos_core.workflow.reconcile import SealHooks
 
 log = logging.getLogger("dxos_core.app")
 
@@ -58,8 +61,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.signer = OpenBaoTransit(settings.openbao_addr, read_secret(settings.openbao_token_file))
         app.state.flowable = await _flowable(settings)
         app.state.process_models = {}
-        # Task 7 đặt SealHooks(request_seal, seal_record); chưa có thì tới end event niêm phong: fail-closed.
-        app.state.seal_hooks = None
+        # Niêm phong (Task 7). finalize vẫn fail-closed nếu hooks bị gỡ (SealHooksMissing).
+        app.state.seal_hooks = SealHooks(request_seal=request_seal, seal_record=seal_record)
         try:
             yield
         finally:
@@ -73,6 +76,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health.router)
     app.include_router(identity.router)
     app.include_router(records.router)
+    app.include_router(seal.router)
     app.include_router(objects.router)
     app.include_router(workflow.router)
     app.include_router(verify.router)

@@ -33,6 +33,13 @@ x-core-env: &core-env
   DXOS_ACTOR_HMAC_KEY_FILE: /run/secrets/actor-hmac-key
   DXOS_ANCHOR_REPO_DIR: /var/lib/dxos/anchor-repo
   DXOS_TIMEZONE: ${DXOS_TIMEZONE:-Asia/Ho_Chi_Minh}
+  # Niêm phong (Plan 02 Task 7): chuỗi rỗng = chưa đặt (tên tổ chức rỗng → lõi từ chối niêm phong).
+  DXOS_PUBLIC_BASE_URL: https://${DXOS_DOMAIN:?đặt DXOS_DOMAIN trong .env}
+  DXOS_ORG_NAME: ${DXOS_ORG_NAME:-}
+  DXOS_ORG_ID: ${DXOS_ORG_ID:-}
+  DXOS_SEAL_KEY_VALIDITY_DAYS: ${DXOS_SEAL_KEY_VALIDITY_DAYS:-3650}
+  DXOS_SEAL_PURPOSE: ${DXOS_SEAL_PURPOSE:-}
+  DXOS_KEY_POLICY_URL: ${DXOS_KEY_POLICY_URL:-}
 
 x-core-secrets: &core-secrets [s3-access-key, s3-secret-key, openbao-core-token, actor-hmac-key]
 

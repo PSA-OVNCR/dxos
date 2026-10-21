@@ -6,9 +6,17 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from dxos_core.kms.base import KeyName, KmsUnavailable, SignResult
 
+# Bytes của lần ký thăm dò R-1 (dxos_core.workflow.service.KMS_PROBE).
+KMS_PROBE = b"dxos-kms-probe"
+
 
 class LocalSigner:
-    def __init__(self) -> None:
+    def __init__(self, share_keys_with: "LocalSigner | None" = None) -> None:
+        """``share_keys_with``: dùng chung bộ khóa với signer khác (cùng khóa công khai, cùng tuyên bố
+        khóa)."""
+        if share_keys_with is not None:
+            self._keys = share_keys_with._keys
+            return
         self._keys: dict[str, dict[int, Ed25519PrivateKey]] = {
             "seal-key": {1: Ed25519PrivateKey.generate()}, "sth-key": {1: Ed25519PrivateKey.generate()}}
 
@@ -32,3 +40,21 @@ class FailingSigner(LocalSigner):
 
     async def sign(self, key: KeyName, data: bytes, *, key_version: int | None = None) -> SignResult:
         raise KmsUnavailable("OpenBao sealed (giả lập)")
+
+
+class FlakySigner(LocalSigner):
+    """KMS lỗi theo cờ ``fail`` (bật/tắt giữa chừng); lần ký thăm dò ``b"dxos-kms-probe"`` luôn đạt khi
+    ``probe_ok`` (mặc định), để R-1 cho qua mà lần ký thật sau Flowable lỗi (AT-20b). ``public_keys`` luôn
+    đạt."""
+
+    def __init__(self, share_keys_with: LocalSigner | None = None) -> None:
+        super().__init__(share_keys_with)
+        self.fail = False
+        self.probe_ok = True
+
+    async def sign(self, key: KeyName, data: bytes, *, key_version: int | None = None) -> SignResult:
+        if data == KMS_PROBE and self.probe_ok:
+            return await super().sign(key, data, key_version=key_version)
+        if self.fail:
+            raise KmsUnavailable("OpenBao sealed (giả lập, FlakySigner)")
+        return await super().sign(key, data, key_version=key_version)
