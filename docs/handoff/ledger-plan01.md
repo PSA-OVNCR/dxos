@@ -114,3 +114,7 @@ Task 17: still partial — e2e main flow, pytest -m infra, tag v0.1.0 pending (V
 Docs: BTC answers G14–G17 recorded (Project doc OLP2026-TONG-HOP-DU-AN.md §3, HANDOFF §2.1), commit 56bac6e. Summary docs/progress/2026-10-21-tong-ket-tien-do.md.
 Next: write Plan 02 (M2, 16/11).
 ```
+Plan 02: amended 21/10 after leader approved proposals Đ3/Đ4/Đ5 (doc 10, phương án A): P2-D22..D26, AT-27, AT-28, invariant I5 (commits 8f21386 + next). Independent review of the amendment: 14 findings (2 high), all addressed in the plan. Đ2 OpenTimestamps → Plan 03. Plan 02 still awaiting leader approval before execution.
+Plan 02: Ruling: P2-D14 exception — seal/verify/revoke_roles may change while an app has never had a seal request and no running workflow — cost if wrong: an app could change its seal policy before its first seal (no seal exists to weaken).
+Plan 02: Ruling: pii.erase_roles may widen freely on upgrade — cost if wrong: a new version can grant erasure to more roles (reduces retained data, never reveals it).
+Plan 02: Ruling: legal wording is conditional ("được thiết kế để … khi tổ chức ban hành quy chế sử dụng nội bộ"), team + agent review the law, no lecturer review (leader 21/10) — cost if wrong: wording must be corrected before README/slides.
