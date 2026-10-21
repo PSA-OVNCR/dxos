@@ -1,0 +1,23 @@
+# SPDX-FileCopyrightText: 2026 PSA_OVNCR
+# SPDX-License-Identifier: Apache-2.0
+# Ví dụ của hướng dẫn "Viết app DX-OS trong 30 phút" (docs/tutorial-app-30-phut.md): sổ mượn sách của một thư viện nhỏ.
+apiVersion: dxos/v1
+app: { id: so-muon-sach, version: 1.0.0, name: "Sổ mượn sách", spaces: [P, D] }
+roles: [ban_doc, thu_thu]
+collections:
+  phieu_muon:
+    fields:
+      so_phieu:   { type: sequence, format: "{n}/PM", public: true, label: "Số phiếu" }
+      ten_sach:   { type: string, required: true, public: true, label: "Tên sách" }
+      nguoi_muon: { type: string, required: true, pii: NAME, label: "Người mượn" }
+      ngay_muon:  { type: date, required: true, label: "Ngày mượn" }
+      email:      { type: string, pii: EMAIL, label: "Email" }
+    access: { read: [owner, "role:thu_thu"], create: ["role:ban_doc"] }
+policies:
+  pii:    { reveal_roles: [thu_thu], erase_roles: [thu_thu] }
+  seal:   { on_event: "process.completed:approved", target: [record], public_fields: [so_phieu, ten_sach], revoke_roles: [thu_thu] }
+  verify: { public: true, require_file: false }
+workflow:
+  bpmn: bpmn/duyet-muon.bpmn
+  tasks:
+    duyet_muon: { role: thu_thu, guards: [not_same_actor:creator] }

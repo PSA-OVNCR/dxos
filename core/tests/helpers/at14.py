@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 PSA_OVNCR
 # SPDX-License-Identifier: Apache-2.0
-"""Bộ quét AT-14 duy nhất: mã lõi phát hành không chứa định danh của bất kỳ ``apps/*/manifest.yaml`` nào.
+"""Bộ quét AT-14 duy nhất: mã lõi phát hành không chứa định danh của manifest ở ``apps/*``, ``examples/*``.
 
 Hai test dùng chung (``tests/apps`` và ``core/tests/test_manifest_validator.py``) để không có hai bản lệch.
 """
@@ -17,9 +17,11 @@ _SKIPPED_PARTS = {"tests", "__pycache__"}
 
 
 def identifiers(root: Path) -> set[str]:
-    """App id (gạch nối và gạch dưới), tên collection và tên role của mọi ``apps/*/manifest.yaml``."""
+    """App id (gạch nối và gạch dưới), tên collection và tên role của mọi ``apps/*/manifest.yaml`` và
+    ``examples/*/manifest.yaml`` (ví dụ của hướng dẫn app trong 30 phút, Plan 03 Task 13)."""
     idents: set[str] = set()
-    manifests = sorted((root / "apps").glob("*/manifest.yaml"))
+    manifests = sorted([*(root / "apps").glob("*/manifest.yaml"),
+                        *(root / "examples").glob("*/manifest.yaml")])
     assert len(manifests) >= 2, "không tìm thấy manifest App A/B để lấy định danh"
     for f in manifests:
         m = yaml.safe_load(f.read_text(encoding="utf-8"))

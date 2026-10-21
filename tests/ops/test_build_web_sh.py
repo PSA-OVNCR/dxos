@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """``ops/build_web.sh`` (Plan 03 Task 10) chạy thật trong một bản sao repo tạm, với ``npm`` giả đặt đầu PATH.
 
-Kiểm: ``npm ci`` trước ``npm run build``; chép đúng ba thư mục dist (danh sách cố định); ``BUILD-INFO.json``;
+Kiểm: ``npm ci`` trước ``npm run build``; chép đúng bốn thư mục dist (danh sách cố định); ``BUILD-INFO.json``;
 build vào ``OUT.tmp`` rồi mới thay ``OUT`` (một bước lỗi thì ``OUT`` cũ còn nguyên); chạy được khi ``OUT`` là
 điểm gắn (volume Docker, không đổi tên được).
 """
@@ -19,9 +19,9 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "ops/build_web.sh"
 SHA = "0123456789abcdef0123456789abcdef01234567"
-ALL_OUT = ["BUILD-INFO.json", "chung-nhan", "phong-ho-so", "verify"]
+ALL_OUT = ["BUILD-INFO.json", "chung-nhan", "phong-ho-so", "so-muon-sach", "verify"]
 DISTS = {"phong-ho-so": "apps/phong-ho-so/web/dist", "chung-nhan": "apps/chung-nhan/web/dist",
-         "verify": "verify-portal/app/dist"}
+         "so-muon-sach": "examples/so-muon-sach/web/dist", "verify": "verify-portal/app/dist"}
 
 # npm giả: ghi lời gọi vào $FAKE_LOG; `run build` tạo dist cho từng workspace (trừ FAKE_SKIP_DIST/FAKE_FAIL).
 FAKE_NPM = r"""#!/bin/sh
@@ -30,7 +30,7 @@ case "$1" in
   ci) [ "${FAKE_FAIL:-}" = ci ] && { echo "npm ci lỗi" >&2; exit 7; } ; exit 0 ;;
   run)
     [ "${FAKE_FAIL:-}" = build ] && { echo "build lỗi" >&2; exit 9; }
-    for d in apps/phong-ho-so/web apps/chung-nhan/web verify-portal/app; do
+    for d in apps/phong-ho-so/web apps/chung-nhan/web examples/so-muon-sach/web verify-portal/app; do
       [ "${FAKE_SKIP_DIST:-}" = "$d" ] && continue
       mkdir -p "$d/dist/assets"
       echo "<!doctype html><title>$d</title>" > "$d/dist/index.html"
@@ -129,9 +129,10 @@ def test_failing_step_exits_non_zero_and_leaves_previous_output_untouched(env, t
     assert not (tmp_path / "out.tmp").exists()
 
 
-def test_missing_dist_folder_fails_without_creating_output(env, tmp_path):
-    r = _run(env, tmp_path / "out", FAKE_SKIP_DIST="verify-portal/app")
-    assert r.returncode != 0 and "verify-portal/app/dist" in r.stderr
+@pytest.mark.parametrize("workspace", ["verify-portal/app", "examples/so-muon-sach/web"])
+def test_missing_dist_folder_fails_without_creating_output(env, tmp_path, workspace):
+    r = _run(env, tmp_path / "out", FAKE_SKIP_DIST=workspace)
+    assert r.returncode != 0 and f"{workspace}/dist" in r.stderr
     assert not (tmp_path / "out").exists() and not (tmp_path / "out.tmp").exists()
 
 

@@ -1,0 +1,109 @@
+{
+  "app": {
+    "id": "so-muon-sach",
+    "version": "1.0.0",
+    "name": "Sổ mượn sách"
+  },
+  "roles": [
+    "ban_doc",
+    "thu_thu"
+  ],
+  "collections": {
+    "phieu_muon": {
+      "fields": {
+        "so_phieu": {
+          "type": "sequence",
+          "required": false,
+          "public": true,
+          "pii": null,
+          "format": "{n}/PM",
+          "label": "Số phiếu"
+        },
+        "ten_sach": {
+          "type": "string",
+          "required": true,
+          "public": true,
+          "pii": null,
+          "format": null,
+          "label": "Tên sách"
+        },
+        "nguoi_muon": {
+          "type": "string",
+          "required": true,
+          "public": false,
+          "pii": "NAME",
+          "format": null,
+          "label": "Người mượn"
+        },
+        "ngay_muon": {
+          "type": "date",
+          "required": true,
+          "public": false,
+          "pii": null,
+          "format": null,
+          "label": "Ngày mượn"
+        },
+        "email": {
+          "type": "string",
+          "required": false,
+          "public": false,
+          "pii": "EMAIL",
+          "format": null,
+          "label": "Email"
+        }
+      },
+      "attachments": null,
+      "access": {
+        "read": [
+          "owner",
+          "role:thu_thu"
+        ],
+        "create": [
+          "role:ban_doc"
+        ],
+        "update": [
+          "owner"
+        ]
+      }
+    }
+  },
+  "workflow": {
+    "tasks": {
+      "duyet_muon": {
+        "role": "thu_thu",
+        "guards": [
+          "not_same_actor:creator"
+        ]
+      }
+    },
+    "decisions": {
+      "duyet_muon": [
+        "approve",
+        "reject"
+      ]
+    }
+  },
+  "policies": {
+    "pii": {
+      "reveal_roles": [
+        "thu_thu"
+      ],
+      "erase_roles": [
+        "thu_thu"
+      ]
+    },
+    "seal": {
+      "public_fields": [
+        "so_phieu",
+        "ten_sach"
+      ],
+      "revoke_roles": [
+        "thu_thu"
+      ]
+    },
+    "verify": {
+      "public": true,
+      "require_file": false
+    }
+  }
+}

@@ -25,6 +25,8 @@ make check
 ```
 See [BUILD.md](BUILD.md).
 
+**Write a new app in 30 minutes without touching `core/`** (the guide is in Vietnamese): [docs/tutorial-app-30-phut.md](docs/tutorial-app-30-phut.md). It uses the runnable example [examples/so-muon-sach/](examples/so-muon-sach/); the checklist for an outside tester is [docs/at26-checklist.md](docs/at26-checklist.md).
+
 ## License
 Apache License 2.0 (see [LICENSE](LICENSE)). Every source file carries an SPDX header, checked with `reuse lint`.
 

@@ -2,11 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 """Test tĩnh của hai ứng dụng Tầng 2 (Plan 02 Task 14): manifest 1.1.0 khớp BPMN, nâng cấp từ 1.0.0, AT-14."""
 
+import json
 from pathlib import Path
 
 import pytest
 import yaml
 from dxos_core.registry.bpmn import check_against_manifest, parse_bpmn
+from dxos_core.registry.client_view import client_view
 from dxos_core.registry.upgrade import check_upgrade
 from dxos_core.registry.validator import ManifestError, validate_manifest
 from helpers import at14
@@ -126,3 +128,87 @@ def test_bpmn_gateway_branches(app):
     assert pm.user_tasks == want["user_tasks"]
     assert set(pm.flows) == want["flows"] and len(pm.flows) == len(want["flows"])
     assert pm.decisions_by_task == {t: frozenset({"approve", "reject"}) for t in want["user_tasks"]}
+
+
+# ---------- Ví dụ của hướng dẫn "app trong 30 phút" (Plan 03 Task 13, P2-D2, AT-14, AT-26) ----------
+
+EXAMPLES = ["so-muon-sach"]
+EXAMPLE = ROOT / "examples/so-muon-sach"
+
+
+def _example_doc(name: str) -> dict:
+    return yaml.safe_load((ROOT / f"examples/{name}/manifest.yaml").read_text(encoding="utf-8"))
+
+
+def _example(name: str):
+    return validate_manifest(_example_doc(name))
+
+
+def _example_pm(name: str):
+    m = _example(name)
+    return m, check_against_manifest((ROOT / f"examples/{name}" / m.workflow.bpmn).read_bytes(), m)
+
+
+@pytest.mark.parametrize("name", EXAMPLES)
+def test_example_manifest_and_bpmn_pass_the_same_allow_list_checker(name):
+    m, pm = _example_pm(name)
+    xml = (ROOT / f"examples/{name}" / m.workflow.bpmn).read_bytes()
+    seal_end = m.policies.seal.on_event.split(":", 1)[1]
+    assert pm == parse_bpmn(xml, app_id=m.app.id, seal_end=seal_end)
+    assert pm.end_events == {"approved", "rejected"}
+
+
+def test_so_muon_sach_manifest_content():
+    m = _example("so-muon-sach")
+    f = m.collections["phieu_muon"].fields
+    assert (m.app.id, m.app.version, m.roles) == ("so-muon-sach", "1.0.0", ["ban_doc", "thu_thu"])
+    assert list(f) == ["so_phieu", "ten_sach", "nguoi_muon", "ngay_muon", "email"]
+    assert f["so_phieu"].type == "sequence" and f["so_phieu"].format == "{n}/PM" and f["so_phieu"].public
+    assert f["ten_sach"].required and f["ten_sach"].public
+    assert f["nguoi_muon"].required and f["nguoi_muon"].pii == "NAME" and not f["nguoi_muon"].public
+    assert f["ngay_muon"].type == "date" and f["ngay_muon"].required
+    assert f["email"].pii == "EMAIL" and not f["email"].required and not f["email"].public
+    assert all(x.label for x in f.values())
+    assert m.policies.seal.on_event == "process.completed:approved"
+    assert m.policies.verify.public is True and m.policies.verify.require_file is False
+    assert set(m.policies.seal.public_fields) <= {k for k, x in f.items() if x.public and not x.pii}
+    task = m.workflow.tasks["duyet_muon"]
+    assert (task.role, task.guards) == ("thu_thu", ["not_same_actor:creator"])
+    assert list(m.workflow.tasks) == ["duyet_muon"]
+
+
+def test_so_muon_sach_bpmn_is_one_step_with_approve_and_reject_branches():
+    _, pm = _example_pm("so-muon-sach")
+    assert pm.process_key == "so-muon-sach.duyet-muon"
+    assert pm.user_tasks == {"duyet_muon": "thu_thu"} and pm.seal_tasks == {"duyet_muon"}
+    assert set(pm.flows) == {
+        ("start", "duyet_muon", None), ("duyet_muon", "gw_duyet_muon", None),
+        ("gw_duyet_muon", "approved", "approve"), ("gw_duyet_muon", "rejected", "reject")}
+    assert pm.decisions_by_task == {"duyet_muon": frozenset({"approve", "reject"})}
+
+
+def test_so_muon_sach_is_in_the_at14_scan_list_and_absent_from_core():
+    assert {"so-muon-sach", "so_muon_sach", "phieu_muon", "ban_doc", "thu_thu"} <= at14.identifiers(ROOT)
+    assert at14.scan(ROOT) == []
+    core_text = "\n".join(
+        p.read_text(encoding="utf-8", errors="ignore") for p in (ROOT / "core/src").rglob("*")
+        if p.is_file() and p.suffix in {".py", ".json", ".sql", ".md"})
+    assert all(x not in core_text for x in ("so-muon-sach", "so_muon_sach", "phieu_muon"))
+
+
+def test_example_floor_cannot_be_weakened():                          # ví dụ FLOOR_WEAKENED trong hướng dẫn
+    doc = _example_doc("so-muon-sach")
+    doc["collections"]["phieu_muon"]["attachments"] = {
+        "kinds": ["pdf"], "max_mb": 5, "min": 0, "quarantine": "optional"}
+    with pytest.raises(ManifestError) as e:
+        validate_manifest(doc)
+    assert e.value.code == "FLOOR_WEAKENED"
+    assert e.value.path == "/collections/phieu_muon/attachments/quarantine"
+
+
+def test_example_web_fixture_is_exactly_what_the_core_would_serve():
+    """Fixture của test web = đúng thân `GET /api/v1/apps/so-muon-sach/manifest` (không chép tay schema)."""
+    m, pm = _example_pm("so-muon-sach")
+    want = client_view(m, {t: sorted(v) for t, v in pm.decisions_by_task.items()})
+    got = json.loads((EXAMPLE / "web/test/fixtures/manifest-view.json").read_text(encoding="utf-8"))
+    assert got == want, "fixture lệch manifest: sinh lại theo lệnh ở examples/so-muon-sach/README.md"

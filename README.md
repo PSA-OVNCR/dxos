@@ -46,6 +46,8 @@ make check         # lint + kiểm tra giấy phép REUSE + test đơn vị
 ```
 Hướng dẫn build đầy đủ: [BUILD.md](BUILD.md).
 
+**Viết một app mới trong 30 phút, không sửa `core/`:** [docs/tutorial-app-30-phut.md](docs/tutorial-app-30-phut.md) (ví dụ chạy được: [examples/so-muon-sach/](examples/so-muon-sach/); checklist cho người thử ngoài đội: [docs/at26-checklist.md](docs/at26-checklist.md)).
+
 ## Giấy phép
 Mã nguồn của dự án phát hành theo **Giấy phép Apache 2.0** (xem [LICENSE](LICENSE)). Bạn được tự do sử dụng, sửa đổi và phân phối lại, kể cả cho mục đích thương mại, với điều kiện giữ nguyên thông báo bản quyền và giấy phép.
 

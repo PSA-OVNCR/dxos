@@ -121,7 +121,7 @@ Chi tiết manifest, guard, BPMN, luật nâng phiên bản: [docs/manifest-guid
 6. AT-20 (khóa OpenBao) cần `docker` nên chạy trên máy chủ, ngoài container: xem đầu tệp `tests/e2e/test_m2_attacks.py`.
 
 ## Dựng SPA Tầng 2 và kiểm trên trình duyệt thật
-Ba SPA (App A `/apps/phong-ho-so/`, App B `/apps/chung-nhan/`, cổng đối soát `/apps/verify/`) nằm trong volume `apps-static`
+Bốn SPA (App A `/apps/phong-ho-so/`, App B `/apps/chung-nhan/`, cổng đối soát `/apps/verify/` và ví dụ của hướng dẫn 30 phút `/apps/so-muon-sach/`) nằm trong volume `apps-static`
 (`dxos_apps-static`, Caddy mount chỉ đọc ở `/srv/apps`). Stack không có dịch vụ build; `make web-build` chạy MỘT
 container Node dùng một lần (image ghim digest ở đầu `ops/web_build_docker.sh`, ghim bằng `make pin-images`):
 
