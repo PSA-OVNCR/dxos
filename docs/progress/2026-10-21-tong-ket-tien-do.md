@@ -16,6 +16,8 @@ SPDX-License-Identifier: Apache-2.0
   CI 5 job xanh.
 - Chạy thật trên Docker Desktop: Task 8 đạt; E2E Task 17 đạt **4/5**, test luồng chính chưa chạy được vì Windows Defender
   (`docs/progress/2026-10-20-task17-e2e.md`).
+- **22/10, máy trưởng nhóm (Docker Desktop, p16 + `compose.e2e.yaml`, commit `ea96323`): E2E M1 + M2 đạt 13/13, AT-20 bỏ qua**,
+  gồm cả luồng chính M1 (EICAR → neo → witness) (`docs/progress/2026-10-22-e2e-m2-docker-desktop.md`).
 
 ## 2. Mốc thời gian
 | Mốc | Ngày | Nội dung chính | Trạng thái |
@@ -165,8 +167,8 @@ Test gần nhất (`2b78542`): `make check` 1125 passed (không cảnh báo), in
 | V12 | Đồng bộ `witness/template/README.md` sang repo `PSA-OVNCR/dxos-witness-kit` | GitHub | Repo riêng, chưa gắn vào phiên |
 | V14 | Kiểm `dxos login` (device flow) và tự làm mới token với Keycloak thật | VPS / dev-lite | Chỉ test bằng server giả |
 | V15 | Quyết định: E2E trên VPS cần tạm thêm user dev (mật khẩu đã biết, có 2 admin) + client `dxos-test`; lệnh thêm/gỡ ở `docs/evidence/README.md` (lệnh gỡ chưa chạy thử) | Trưởng nhóm | Rủi ro bảo mật trên host công khai |
-| V16 | Chạy lại `ops/keycloak_upgrade.py --profile dev-lite` trên dev stack để có `admin2`, `chuyen_vien_tp1` | dev stack | User dev mới cho AT-07 |
-| V17 | E2E M2 trên dev-lite (A) và VPS p16 (B, gồm AT-19, AT-20 — cần root token tạm của OpenBao) | dev-lite / VPS | Cần Docker + APISIX thật; lệnh đầy đủ ở `docs/handoff/vps-checklist-plan02.md` |
+| V16 | ~~Chạy lại `ops/keycloak_upgrade.py --profile dev-lite` trên dev stack~~ — đã chạy 22/10 trên máy trưởng nhóm, lần 2 "không thay đổi gì" | — | Xong |
+| V17 | E2E M2: **phần A xong 22/10** trên Docker Desktop (13 passed, `docs/progress/2026-10-22-e2e-m2-docker-desktop.md`); còn phần B trên VPS p16 (AT-19, AT-20 — cần root token tạm của OpenBao) | VPS | Lệnh đầy đủ ở `docs/handoff/vps-checklist-plan02.md` |
 | V18 | Gắn tag v0.2.0: nâng version 4 gói lên 0.2.0, `make openapi`, điền ngày CHANGELOG, rồi tag (job `check` chặn nếu thiếu) | Trưởng nhóm | Hành động công khai; sau v0.1.0 |
 | V19 | Sau lần đẩy image đầu: đặt package `trust-core` trên GHCR là public (hoặc `docker login ghcr.io` trên VPS); ghi digest vào `LICENSES-THIRD-PARTY.md` | GitHub / VPS | Hành động công khai |
 | V20 | AT-13 trên VPS với image đã phát hành (`ops/at13_reuse.sh`), hai thành viên khác nhau nộp/duyệt, `DXOS_ALLOW_SELF_APPROVAL=false` | VPS | Cần image GHCR |
