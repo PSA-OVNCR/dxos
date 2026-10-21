@@ -3,6 +3,16 @@
 Mọi thay đổi đáng kể được ghi tại đây, theo định dạng [Keep a Changelog](https://keepachangelog.com/vi/1.1.0/) và [Semantic Versioning](https://semver.org/lang/vi/).
 
 ## [Unreleased]
+
+## [0.1.0] - 2026-10-22
+Mốc M1 (lõi Tier-0 phần 1). Tag gắn trên mã cuối Plan 01 (commit `5b14e7c`) cộng một commit chỉ ghi ngày phát hành.
+
+### Lỗi đã biết (đã sửa ở 0.2.0)
+- Danh sách IP của host quản trị trong Caddy (`@blocked`) không có hiệu lực; ở bản này host quản trị không giới hạn IP.
+- E2E đầu-cuối của M1 (EICAR → cách ly, PDF sạch → kho, STH → neo → witness) chưa chạy trọn trên mã của bản này
+  (4/5 test đạt trên Docker Desktop; test luồng chính bị Windows Defender chặn). Test này đạt trên mã 0.2.0 đang phát
+  triển (commit `ea96323`, 22/10/2026).
+
 ### Added
 - Khung kho mã: LICENSE (Apache-2.0), NOTICE, REUSE, CI (reuse, ruff, pytest, gitleaks), mẫu issue.
 - Thư viện `dxos-proof`: JSON chuẩn hóa (NFC, UTC, cấm số thực) và cây Merkle RFC 6962 (inclusion proof, consistency proof).
