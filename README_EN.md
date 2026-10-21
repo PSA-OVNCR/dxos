@@ -4,11 +4,39 @@ A **headless core platform (Layer 1) for the DX-OS Open-Core model**. Applicatio
 
 Entry for the **Vietnam Student Informatics Olympiad – Open Source Software 2026** (theme: *DX-OS Open-Core*).
 
-## Status: v0.2.0
-**In progress; not tagged yet.** The code of milestone M2 (Tier-0: workflow, sealing, verification, installer) is in
-place with unit and integration tests. The M2 end-to-end tests and the evidence for AT-13, AT-18, AT-19 and AT-20 have
-not been run on a real stack yet (they need Docker and the VPS); v0.1.0 is not tagged either. Progress notes
-(Vietnamese): `docs/progress/`.
+## Status
+- **v0.2.0 (M2): in progress; not tagged yet.** The Tier-0 code (workflow, sealing, verification, installer) is in place
+  with unit and integration tests. The M2 end-to-end tests passed 13/13 on Docker Desktop (22 Oct, AT-20 skipped); the
+  parts that need the VPS (AT-13, AT-18, AT-19, AT-20) have not been run. v0.1.0 is tagged (22 Oct).
+- **v0.3.0 (M3): code done in the cloud; not tagged yet.** The SDK, the App A and App B user interfaces, the Vue
+  verification portal, tag-based deployment and the 30-minute tutorial exist, with unit tests and Playwright tests
+  against a mocked API. **Not run on a real stack yet:** the SPA build in Docker (`make web-build`), the Playwright suite
+  on a real browser (V27), the attack board (V28), `ops/deploy.sh` on the VPS (V29) and OpenTimestamps receipts (V32).
+  The to-do list (Vietnamese) is in section 13 of `docs/progress/2026-10-21-tong-ket-tien-do.md`.
+
+## Layer 2: SDK, applications and verification portal
+The user interfaces are static Vue 3 single-page apps built with Vite and served by Caddy from the `apps-static` volume.
+They are clients of the core API only; every security decision stays in the core.
+
+| Path | What it is | Source |
+|---|---|---|
+| `/apps/phong-ho-so/` | App A "Digital Records Room": documents, attachments with quarantine status, task inbox, PII review and erasure, seal with QR code, revocation, outgoing-document register | `apps/phong-ho-so/web` |
+| `/apps/chung-nhan/` | App B "Digital Certificates": CSV import (including Excel CSV in UTF-8 BOM, CP1258, UTF-16), batch approval, certificate and print page | `apps/chung-nhan/web` |
+| `/apps/verify/` | Verification portal: hashes the file and checks the proof bundle in the browser (the file never leaves the machine); compares against the anchor repository when built with `VITE_ANCHOR_RAW_BASE` | `verify-portal/app` |
+| `/apps/verify-lite/` | The earlier minimal verification page (static HTML, no build), kept as a fallback | `verify-portal/minimal` |
+| `/apps/so-muon-sach/` | Example app of the 30-minute tutorial | `examples/so-muon-sach` |
+
+```bash
+npm ci && make web-check     # needs Node 22 and npm 11.6.2 (see BUILD.md)
+make web-build               # builds in a one-shot Node container into the apps-static volume
+```
+`make web-build` needs Docker and a digest-pinned Node image. The repository does not pin it yet, so the command exits
+with code 3 until `make pin-images` has been run (V35). The portal compares against the anchor repository only when the
+build has `VITE_ANCHOR_RAW_BASE` and `.env` has a matching `DXOS_ANCHOR_RAW_ORIGIN` (needs the real anchor repository,
+V34); otherwise it says plainly that no comparison was made. Tag-based VPS deployment:
+[docs/runbook-deploy.md](docs/runbook-deploy.md) (Vietnamese). The SDK for Layer-2 developers:
+[sdk/js/README.md](sdk/js/README.md) (Vietnamese). Acceptance matrix AT-01..AT-28:
+[docs/acceptance.md](docs/acceptance.md).
 
 ## Legal nature of the seal
 Close translation of the team's agreed statement (the Vietnamese original in [README.md](README.md) is authoritative):

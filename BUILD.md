@@ -1,6 +1,6 @@
 # Hướng dẫn build từ mã nguồn
 
-> Tài liệu này được cập nhật theo từng mốc (bản này: M2, Plan 02). Phần đánh dấu *(sắp có)* sẽ được bổ sung ở Plan 03.
+> Tài liệu này được cập nhật theo từng mốc (bản này: M3, Plan 03). Phần web (Node) ở các mục "Công cụ web" và "Dựng SPA Tầng 2" bên dưới; những bước chưa chạy trên máy thật được đánh dấu rõ.
 
 ## Yêu cầu
 | Công cụ | Phiên bản | Ghi chú |
@@ -9,7 +9,8 @@
 | GNU Make | bất kỳ | |
 | Git | bất kỳ | |
 | Docker + Docker Compose v2 (≥ 2.24) | Docker Desktop hoặc Docker Engine | Cần cho `make up`; Windows nên chạy lệnh trong WSL2 |
-| Node.js | *(sắp có)* | Cần cho SDK và ứng dụng Tầng 2 |
+| Node.js 22 LTS | `>=22 <23` (CI dùng 22; đã thử 22.22.0) | Cần cho SDK, cổng đối soát và ứng dụng Tầng 2; không cần để chạy lõi hay `make check` |
+| npm | **đúng 11.6.2** (`npm@11.6.2`) | npm 10.9 (đi kèm Node 22) không cài được bộ phụ thuộc này; `engine-strict` bật nên phiên bản khác bị từ chối |
 
 Toàn bộ công cụ build đều là phần mềm nguồn mở.
 
@@ -28,6 +29,29 @@ make test-db-up            # PostgreSQL :55432, SeaweedFS :58333, OpenBao dev :5
 make test-integration
 ```
 Dùng PostgreSQL có sẵn: đặt `DXOS_TEST_OWNER_DSN=postgresql://<role có quyền tạo DB>:<mật khẩu>@<host>:<cổng>/<db>`.
+
+## Công cụ web (SDK, cổng đối soát, App A và B)
+Mã web nằm trong một npm workspace ở thư mục gốc (`package.json`: `sdk/js`, `verify-portal/app`, `apps/phong-ho-so/web`,
+`apps/chung-nhan/web`, `examples/so-muon-sach/web`). Cần Node.js 22 và `npm@11.6.2`; `.npmrc` bật `engine-strict` nên Node
+hoặc npm sai phiên bản thì `npm ci` dừng ngay:
+```bash
+node --version                       # v22.x
+npm install -g npm@11.6.2            # nếu npm --version khác 11.6.2
+npm ci                               # cài đúng theo package-lock.json (không dùng npm install)
+make web-check                       # = npm run check: typecheck + test + build của mọi workspace
+```
+`make web-check` không cần Docker hay mạng sau `npm ci`; kết quả mong đợi là mã thoát 0. Chạy một workspace:
+`npm run test -w dxos-sdk-js` (đổi tên gói cho workspace khác), `npm run typecheck -w dxos-verify-portal`.
+
+Phiên bản ghim chính xác (không `^`, `~`; `tests/repo/test_web_hygiene.py` kiểm). Hai ghi chú vì Node 22.22.0:
+- `jsdom` ghim **29.1.1**: jsdom 30.x đòi Node `>=22.22.2`.
+- `overrides` trong `package.json` gốc: `@vue/*` ghim 3.5.43 (cho `vue-tsc` không kéo bản 3.5.44) và `nopt` 9.0.0 (cho
+  `js-beautify` của `@vue/test-utils`, vì nopt 10.0.1 đòi Node `>=22.22.2`). Nâng Vue hay Node thì rà lại các `overrides` này.
+Công cụ chỉ dùng lúc build/test (Vite, Vitest, jsdom, Playwright...) và giấy phép của chúng: `LICENSES-THIRD-PARTY.md`.
+
+Test trình duyệt của cổng đối soát (AT-25) dùng Playwright với API giả: `npx playwright install --with-deps chromium`
+rồi `npx -w dxos-verify-portal playwright test` (đây là bước của job `web` trong CI). Bộ Playwright "live" trên stack thật
+là bộ khác, xem mục "Dựng SPA Tầng 2".
 
 ## Cấu hình
 Mọi cấu hình đặt qua biến môi trường (xem `.env.example`). Không cần sửa mã nguồn để cấu hình.
@@ -158,14 +182,17 @@ Build wheel: `python -m pip install build && python -m build --wheel --outdir di
 Test (không cần dịch vụ, dùng respx): `python -m pytest cli -q`. Cách dùng: `cli/README.md`.
 
 ## Phát hành
-Chỉ trưởng nhóm gắn tag (hành động công khai). Trước khi gắn tag `vX.Y.Z`:
+Chỉ trưởng nhóm gắn tag (hành động công khai). Trước khi gắn tag `vX.Y.Z` (thứ tự: `v0.2.0` rồi `v0.3.0`):
 1. Đổi phiên bản trong `libs/dxos-proof/pyproject.toml`, `core/pyproject.toml`, `witness/pyproject.toml`,
    `cli/pyproject.toml` và `__version__` của `core/src/dxos_core/__init__.py`, `witness/src/dxos_witness/__init__.py`,
-   `cli/src/dxos_cli/__init__.py`; chạy `make openapi`.
+   `cli/src/dxos_cli/__init__.py`; chạy `make openapi`. Các gói web (`package.json` gốc và các workspace) đã ghi `0.3.0`
+   sẵn từ Plan 03, bản kiểm của workflow không đọc chúng.
 2. Đổi tiêu đề `## [X.Y.Z] - Chưa phát hành` trong `CHANGELOG.md` thành `## [X.Y.Z] - YYYY-MM-DD`.
 3. `make check`, commit, rồi `git tag -a vX.Y.Z -m "…"` và `git push origin vX.Y.Z`.
 
 Workflow `release` dừng ngay nếu phiên bản gói khác tag hoặc mục CHANGELOG chưa có ngày. Nếu đạt, nó build image
 `trust-core` từ commit của tag, đẩy lên `ghcr.io/psa-ovncr/trust-core:X.Y.Z` (bằng `GITHUB_TOKEN`), rồi tạo Release
-đính kèm `dxos-X.Y.Z.tar.gz`, `sbom-X.Y.Z.cdx.json`, `trust-core-image-X.Y.Z.txt` và wheel của `dxos-proof`,
-`dxos-core`, `dxos-witness`, `dxos-cli`; digest image ghi trong mô tả Release.
+đính kèm `dxos-X.Y.Z.tar.gz`, `sbom-X.Y.Z.cdx.json`, `trust-core-image-X.Y.Z.txt`, `dxos-web-X.Y.Z.tar.gz` (các SPA do
+`ops/build_web.sh` dựng) và wheel của `dxos-proof`, `dxos-core`, `dxos-witness`, `dxos-cli`; digest image ghi trong mô tả Release.
+
+Triển khai lên VPS theo tag: `ops/deploy.sh vX.Y.Z` (`docs/runbook-deploy.md`).

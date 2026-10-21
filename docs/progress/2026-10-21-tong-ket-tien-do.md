@@ -6,6 +6,7 @@ SPDX-License-Identifier: Apache-2.0
 
 *Đội PSA_OVNCR · Kho mã: https://github.com/PSA-OVNCR/dxos (public, Apache-2.0) · Cập nhật đến commit `56bac6e`.*
 *Thay cho bản 20/10 (`2026-10-20-tong-ket-tien-do.md`, giữ lại làm lịch sử).*
+*Mục 13 (Plan 03, M3) cập nhật 22/10/2026 đến commit `59758be` (Task 14) và commit tài liệu của Task 15.*
 
 ## 1. Tóm tắt trong 30 giây
 - **Plan 01 (M0 → M1): xong phần mã của cả 17 task.** Task 1–6 và 8–16 đã xong; Task 7 (đo RAM) dời sang VPS;
@@ -25,7 +26,7 @@ SPDX-License-Identifier: Apache-2.0
 | M0 | 26/10 | Hạ tầng chạy được, đo RAM, spike Flowable | Gần xong: thiếu đo RAM và chạy trên VPS |
 | **M1** | **09/11** | Lõi Tier-0 phần 1, release **v0.1.0** | **Đã phát hành v0.1.0 (22/10)**; còn E2E trên VPS |
 | M2 | 16/11 | v0.2.0: guard + BPMN, niêm phong, installer, App A và B cài bằng manifest, witness độc lập | **Mã xong (cloud)**: Plan 02 15/15 task + review toàn nhánh; còn việc VPS và tag v0.2.0 (mục 12) |
-| M3 | 23/11 | v0.3.0: SDK, SPA A và B, cổng đối soát, triển khai VPS theo tag | Chưa bắt đầu |
+| M3 | 23/11 | v0.3.0: SDK, SPA A và B, cổng đối soát, triển khai VPS theo tag | **Mã xong (cloud)**: Plan 03 15/15 task, mỗi task đã qua review; **chưa gắn tag**; còn việc máy thật V27–V36 (mục 13) và tag `v0.3.0` sau `v0.2.0` (V33) |
 | M4 | 30/11 | v0.9.0: SHOULD, chạy thử với người dùng, tài liệu + SBOM | Chưa bắt đầu |
 | M5 | 04/12 | v1.0.0, máy sạch, đóng băng mã | Chưa bắt đầu |
 | Nộp bài | 17:00 06/12 | Điểm PoF chấm theo hiện trạng kho lúc gửi (G16) | |
@@ -179,3 +180,72 @@ Test gần nhất (`2b78542`): `make check` 1125 passed (không cảnh báo), in
 | V25 | Viết runbook xử lý bản ghi bị chặn `workflow-inconsistent` (task bị xóa/hoàn thành ngoài lõi trên Flowable) | Trưởng nhóm | Cần quyết định nghiệp vụ |
 | V26 | Chụp lại minh chứng trang `/apps/verify/`: tiêu đề giờ là "Hợp lệ — chưa neo công khai" cho tới khi STH được neo; kịch bản demo phải tính tới | dev-lite / VPS | Tài liệu minh chứng cũ còn tiêu đề "Hợp lệ" |
 | V13 | (Từ Plan 01) Task 7 đo RAM; E2E Task 17 trên VPS; ~~tag `v0.1.0`~~ (trưởng nhóm gắn 22/10 trên `5b14e7c`+`7247fe8`, Release có tar.gz, SBOM, 3 wheel); repo neo + ruleset + khóa deploy + ảnh AT-18; witness độc lập; duyệt giấy phép pypdfium2; duyệt push GHCR | VPS / trưởng nhóm | Hành động công khai hoặc cần máy thật |
+
+---
+
+## 13. Plan 03 (M3) — cập nhật 22/10/2026
+
+*Chạy bằng subagent trên main, mỗi task qua review (spec + chất lượng) rồi sửa xong mới đóng. Sổ điều phối từng quyết định: `.superpowers/sdd/2026-10-22-dxos-03-tier1-m3/progress.md`; báo cáo từng task cùng thư mục (`task-N-report.md`). Dựng ở cloud không có Docker, VPS hay Keycloak thật: mọi thứ cần chúng nằm ở bảng V-việc bên dưới, **không** tính là đã kiểm.*
+
+### 13.1. Từng task
+Cột "Review" ghi kết quả vòng đầu và số vòng sửa. "Test" là số liệu do chính task báo lúc đóng, không phải số cuối (số cuối ở 13.2).
+
+| Task | Nội dung | Commit | Bằng chứng (test) | Review |
+|---|---|---|---|---|
+| 1 | Lõi: xem manifest cho client, liệt kê tệp đính kèm, `GET /admin/v1/ledger/entries`; `contract-tier2.md` | `552bbc9` | 4 unit + 21 integration mới (RED rồi GREEN) | Duyệt, không phải sửa |
+| 2 | npm workspace, job CI `web`, SDK `DxosClient` (`If-Match`, không tự thử lại) | `7969a5c` | 32 test client | Duyệt, không phải sửa |
+| 3 | SDK: đăng nhập OIDC PKCE, làm mới single-flight; ghim jsdom 29.1.1 | `ab2c862`, `854cc3e` | 20 test auth | Duyệt, không phải sửa |
+| 4 | SDK: tự kiểm gói bằng chứng trên trình duyệt, vector dùng chung Python/JS | `c39d25c` | JS 111 test + Python (`witness/tests/test_web_vectors.py`) cùng một bộ vector | Duyệt (model mạnh), không phải sửa |
+| 5 | SDK: thành phần Vue (trạng thái kiểm dịch, QR, liên kết đối soát, biểu mẫu, thông báo lỗi) | `927c324` | 224 test SDK lúc đóng; test đối chiếu `CORE_SLUGS` với mã lõi | Duyệt, không phải sửa |
+| 6 | Cổng đối soát Vue `/apps/verify/` (AT-25); trang tối giản chuyển sang `/apps/verify-lite/` | `9956cf9`, `1b908dc` | 39 test cổng; Playwright (API giả) 15 passed | Vòng đầu **Critical**: lỗi repo neo hạ gói giả xuống "chưa đối chiếu"; **1 vòng sửa** (thăm dò khóa cố định trước khi rơi về không ghim; kiểm tệp khi chờ STH) rồi duyệt |
+| 7 | App A: danh sách, tạo, tệp kèm có trạng thái kiểm dịch, nộp duyệt | `1797f1b`, `ed906c6`, `9839fca`, `55e65b9` | 48 test App A lúc đóng | Vòng đầu **Important**: trang trắng khi không bắt đầu được đăng nhập; **1 vòng sửa** rồi duyệt |
+| 8 | App A: hộp việc, rà soát và xóa PII, niêm phong có QR, thu hồi, Sổ đăng ký văn bản đi | `fd2803d` | 109 test App A | Duyệt, không phải sửa |
+| 9 | App B: nhập CSV (BOM, CP1258, UTF-16, `;`), duyệt lô, giấy chứng nhận, trang in; chuyển phần dùng chung vào SDK | `c73200f`, `7f91890`, `1c9853e` | App B 101 test, SDK 249, App A 100 | Duyệt (model mạnh), không phải sửa |
+| 10 | `build_web.sh`, `make web-build`, CSP cho `/apps/*`, bộ Playwright live (mặc định bỏ qua) | `eb41734` | 13 + 8 + 8 test script/Caddy; 1 test Caddy 2.10.0 thật; `test:live` bỏ qua 10 test khi không có stack | Duyệt, không phải sửa |
+| 11 | `ops/vuot_rao.py` (10 kịch bản) và ma trận `docs/acceptance.md` | `ac17a26`, `9f09d9a` | 54 test `vuot_rao`; `test_at_matrix.py` | Vòng đầu **Important**: nhận mọi 404 là "bị chặn" (✅ giả); **1 vòng sửa** (đòi đúng slug, V8 chờ thì ⚠️) rồi duyệt |
+| 12 | `ops/deploy.sh`, `docs/runbook-deploy.md`, tar SPA trong release | `c387591`, `7866088` | 51 test với `git`/`docker`/`curl` giả | Duyệt (không có Critical/Important); **1 vòng sửa** do điều phối quyết định: thiếu `compose pull` (spec 16.3) và biến môi trường kế thừa lấn digest |
+| 13 | Hướng dẫn 30 phút, `examples/so-muon-sach`, `docs/at26-checklist.md` | `15c489d`, `aa2ae6c` | 10 test ví dụ; `test_tutorial_docs.py`; tutorial + `tests/apps` 34 passed | Vòng đầu **Important**: lệnh `dxos` thiếu `--ca-file`; **1 vòng sửa** rồi duyệt |
+| 14 | Biên nhận OpenTimestamps cho STH đã neo (mặc định tắt) | `1fe265f`, `eeb8af6`, `59758be` | 36 passed + 1 skipped (`core/tests/test_ots.py`), 10 integration, witness 146 | Vòng đầu 2 **Important** (không có hạn tổng với calendar; bộ đọc lỏng hơn bản chính thức); **2 vòng sửa** rồi duyệt |
+| 15 | Tài liệu: README (VI, EN), BUILD.md, CHANGELOG `[0.3.0]`, `sdk/js/README.md`, mục này, `tests/repo/test_docs_m3.py` | commit `docs(m3)` ngay sau `59758be` | `test_docs_m3.py` (RED rồi GREEN) | Chưa review |
+
+### 13.2. Số test cuối (do Task 15 chạy trên commit này, 22/10/2026, cloud không Docker)
+- `make check PYTHON=python`: **1508 passed, 6 skipped, 483 deselected** (mã thoát 0; ruff sạch; 5 test Caddy sống bỏ qua vì không có binary `caddy`, 1 test `ots` chính thức bỏ qua).
+- `npm run check`: mã thoát 0. SDK **251**, cổng đối soát **39**, App A **100**, App B **101**, ví dụ `so-muon-sach` **10** test (tổng 501); typecheck và build cả 5 workspace đạt.
+- `reuse lint`: mã thoát 0, 565/565 tệp có bản quyền và giấy phép.
+- Integration (PostgreSQL 16 chạy tại chỗ, `DXOS_TEST_REQUIRE_DB=1 python -m pytest -m integration core/tests/integration`): **445 passed, 1 skipped** (bỏ qua: test trình duyệt cần `DXOS_TEST_BROWSER=1`). Bộ này không gồm test cần Docker (`-m infra`, `-m e2e`).
+- Playwright của cổng đối soát (API giả, chạy ở Task 6 với `PW_CHROMIUM` trỏ Chromium có sẵn): 15 passed. Task 15 không chạy lại.
+- **Chưa chạy ở bất kỳ nơi nào**: bộ Playwright live (`make web-live`), `make web-build`, `ops/vuot_rao.py`, `ops/deploy.sh`, `release.yml` bước dựng SPA, gọi calendar OpenTimestamps thật, test đối chiếu `ots` chính thức (`DXOS_OTS_CLIENT=ots`).
+
+### 13.3. Việc cần máy thật hoặc trưởng nhóm (gom từ Plan 03)
+| # | Việc | Ở đâu | Ghi chú |
+|---|---|---|---|
+| V27 | Chạy `make web-build` và bộ Playwright live (`make web-live` hoặc `ops/web_live.sh`) cho App A, App B và cổng đối soát; chụp ảnh minh chứng; ghi `docs/progress/<ngày>-web-live.md` | Máy trưởng nhóm / VPS | Cần V35 trước. Bộ live chưa từng chạy; giả định về realm dev, `ignoreHTTPSErrors` và host-resolver-rules chưa kiểm. Lệnh Windows: `docs/evidence/README.md` |
+| V28 | Chạy `python ops/vuot_rao.py` (hoặc `make vuot-rao`) trên stack dev; dán bảng kết quả vào `docs/progress/` | Máy trưởng nhóm | Kịch bản V5 (ban hành đủ luồng niêm phong) dễ lỗi nhất; mã thoát 2 = bước chuẩn bị hỏng, không phải "bị chặn" |
+| V29 | Chạy `ops/deploy.sh v0.3.0` trên VPS sau khi có tag và image GHCR | VPS | Cần Docker Compose ≥ 2.24 (V22), NTP (V24), package GHCR công khai (V19). `docs/runbook-deploy.md` |
+| V30 | Xác nhận công cụ build/test có giấy phép MPL-2.0 (lightningcss), BlueOak-1.0.0, MIT-0, CC0-1.0 (`mdn-data`) chỉ nằm ngoài bundle | Trưởng nhóm | `LICENSES-THIRD-PARTY.md`. Không chấp nhận thì phải bỏ jsdom và đổi cách test |
+| V31 | Tổ chức AT-26 theo `docs/at26-checklist.md` (người ngoài đội làm hướng dẫn 30 phút) | Trưởng nhóm | Mọi lệnh trong hướng dẫn chưa chạy thật, ghi "chưa kiểm ở cloud — kiểm trong AT-26" |
+| V32 | Bật `DXOS_OTS_CALENDARS` trên VPS; sau vài giờ `ots upgrade` rồi `ots verify` tệp `ots/<n>.ots`; tùy chọn chạy `DXOS_OTS_CLIENT=ots python -m pytest core/tests/test_ots.py -k official` | VPS | `docs/runbook-anchor.md` mục 6. Mặc định tắt; cắt được nếu thiếu thời gian |
+| V33 | Gắn tag `v0.3.0` sau `v0.2.0` (xem 13.4) | Trưởng nhóm | Hành động công khai |
+| V34 | Đặt `VITE_ANCHOR_RAW_BASE` (lúc build) và `DXOS_ANCHOR_RAW_ORIGIN` (`.env`, hai giá trị phải khớp) theo repo neo thật khi repo đó có trên GitHub | VPS | Chưa đặt thì cổng đối soát nói rõ là chưa đối chiếu repo neo |
+| V35 | Chạy `make pin-images` trên máy có Docker để ghim digest `NODE_IMAGE` (`ops/web_build_docker.sh`) và `PLAYWRIGHT_IMAGE` (`ops/web_live.sh`), rồi commit | Máy có Docker | Registry bị chặn (403) khi viết; tới lúc đó cả hai script thoát mã 3 và `deploy.sh` dừng ở bước dựng SPA. **Làm trước V27, V29, V33** |
+| V36 | Chạy lại AT-20 trên máy trưởng nhóm sau bản sửa bước mở khóa OpenBao của test (`40d6d64`) | Máy trưởng nhóm | Thay phần "chưa chạy lại" của V17; AT-20 cần `docker` ngoài container |
+
+Các việc V1–V26 của mục 12 vẫn còn hiệu lực (ví dụ V18 tag `v0.2.0`, V21, V22, V24).
+
+### 13.4. Thủ tục gắn tag (việc của trưởng nhóm; Task 15 không gắn và không đổi phiên bản)
+Thứ tự: `v0.2.0` (V18) rồi `v0.3.0` (V33). Mỗi tag:
+1. `make pin-images` (V35) và commit nếu chưa ghim; image Node phải ghim trước khi chạy `ops/deploy.sh` (V29), vì script dựng SPA bằng Docker. (`release.yml` dựng tar SPA bằng Node trên Actions, không dùng image ghim.)
+2. Nâng phiên bản 4 gói Python và 3 tệp `__init__.py` (hiện vẫn `0.1.0`, danh sách ở `BUILD.md` mục "Phát hành"), chạy `make openapi`. Các gói web (`package.json` gốc và các workspace) đã ghi `0.3.0` từ Plan 03; workflow không kiểm chúng, nên khi gắn `v0.2.0` chúng vẫn là `0.3.0` (không ảnh hưởng release).
+3. Đổi `## [X.Y.Z] - Chưa phát hành` trong `CHANGELOG.md` thành ngày thật (mục `[0.3.0]` đã viết sẵn, mục `[Unreleased]` để trống).
+4. `make check PYTHON=python && npm run check && reuse lint`, commit, `git tag -a vX.Y.Z -m "…"`, `git push origin vX.Y.Z`.
+5. Sau khi Release có: V29 (`ops/deploy.sh vX.Y.Z` trên VPS).
+
+### 13.5. Điểm kỹ thuật còn mở (ghi từ review từng task, chưa sửa; để review toàn nhánh Plan 03 xem)
+- **Nhập CSV (Task 9)**: regex "ký tự lỗi" của App B không bắt ký tự điều khiển C0 và NUL, mà lõi không có bộ lọc C0 và `jsonb` của PostgreSQL từ chối `\u0000`, nên một dòng như vậy có thể gây lỗi 500 giữa lô. Cần kiểm phía lõi (cùng loại lỗi với surrogate đơn lẻ đã ghi ở Plan 02).
+- **`build_web.sh` (Task 10)**: `OUT=/` không bị chặn (nhánh dự phòng chạy `find / -mindepth 1 -exec rm -rf`); cần chặn `/`, `.`, `$HOME`, `$REPO`. Bộ live dùng `ignoreHTTPSErrors`; nên ghim SPKI của CA Caddy.
+- **Sổ đăng ký (Task 8)**: năm của sổ lấy từ `issued_at` còn bộ đếm `so_hieu` theo năm tạo bản ghi; cần ghi vào runbook.
+- **Ma trận AT (Task 11)**: `2026-10-22-e2e-m2-docker-desktop.md` tự mâu thuẫn về AT-19 (bảng ghi PASSED, mục "Chưa làm" ghi chưa); ma trận ghi cả hai, trưởng nhóm cần xác nhận.
+- **OpenTimestamps (Task 14)**: thứ tự nhánh khi nhiều biên nhận cùng nút là tất định nhưng không cam kết trùng từng byte với `ots` chính thức (không ảnh hưởng tính hợp lệ).
+- Cổng đối soát: nếu GitHub trả được `v1.pub` nhưng lỗi tạm thời ở tệp khác, người dùng thấy "Không hợp lệ" thay vì "chưa đối chiếu" (đánh đổi đã chấp nhận ở Task 6).
+- Trên stack dev đang chạy, `/apps/verify/` trả 404 cho tới khi `make web-build` (trang cũ ở `/apps/verify-lite/`).
+- Ảnh minh chứng trong `docs/evidence/verify-page-*.png` chụp từ trang tối giản; ảnh của cổng Vue chưa có (nằm trong V27).
