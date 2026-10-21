@@ -5,6 +5,7 @@
 - Không theo redirect (token không bao giờ bị chuyển sang host khác).
 - ``409 install-in-progress`` được thử lại tối đa 5 lần, cách nhau 2 giây (khóa cài của Task 12 không chờ).
 - Mã thoát: 4xx là 1, lỗi mạng và 5xx là 2, 401 là 3 (kèm gợi ý ``dxos login``).
+- 401 với token đã lưu: làm mới bằng refresh token một lần rồi thử lại; ``DXOS_TOKEN`` không làm mới.
 """
 
 import ssl
@@ -15,7 +16,7 @@ from typing import Any
 
 import httpx
 
-from dxos_cli.auth import resolve_token
+from dxos_cli.auth import refresh_session, resolve_credentials
 from dxos_cli.errors import EXIT_CLIENT, EXIT_LOGIN, EXIT_SERVER, CliError
 from dxos_cli.urls import normalize_server
 
@@ -34,7 +35,7 @@ def clean(text: Any) -> str:
 
 
 def make_verify(ca_file: str | None) -> ssl.SSLContext | bool:
-    """``--ca-file`` thành ngữ cảnh TLS (thêm CA riêng của dev/VPS); không có thì dùng kho CA mặc định."""
+    """``--ca-file`` thành ngữ cảnh TLS **thay thế** kho CA mặc định (chỉ tin CA trong tệp)."""
     if not ca_file:
         return True
     try:
@@ -64,8 +65,10 @@ class ApiError(CliError):
 class AdminClient:
     def __init__(self, server: str, *, ca_file: str | None = None) -> None:
         self.server = normalize_server(server)
-        verify = make_verify(ca_file)
-        self._token = resolve_token(self.server)
+        self._verify = make_verify(ca_file)
+        verify = self._verify
+        creds = resolve_credentials(self.server, verify)
+        self._token, self._record = creds.token, creds.record
         loopback_http = self.server.startswith("http://")  # normalize_server chỉ cho phép http với loopback
         self._http = httpx.Client(
             base_url=self.server,
@@ -95,6 +98,7 @@ class AdminClient:
         """Gọi API, trả JSON khi 2xx. Lỗi: ``CliError`` (mạng, 401, 3xx) hoặc ``ApiError`` (4xx, 5xx)."""
         headers = {"Content-Type": "application/json"} if content is not None else None
         attempt = 0
+        refreshed = False
         while True:
             try:
                 resp = self._http.request(method, path, content=content, params=params, headers=headers)
@@ -112,6 +116,12 @@ class AdminClient:
                         f"Phản hồi {resp.status_code} không phải JSON (qua proxy chăng?)", EXIT_SERVER
                     ) from exc
             if resp.status_code == 401:
+                if self._record is not None and not refreshed:  # token đã lưu: làm mới một lần rồi thử lại
+                    refreshed = True
+                    self._record = refresh_session(self._record, self._verify)
+                    self._token = self._record["access_token"]
+                    self._http.headers["Authorization"] = f"Bearer {self._token}"
+                    continue
                 raise CliError(
                     f"Máy chủ từ chối token (401): chạy lại dxos login --server {self.server}", EXIT_LOGIN
                 )

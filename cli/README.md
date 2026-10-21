@@ -26,7 +26,8 @@ dxos anchor run
 Tùy chọn chung (đặt trước hoặc sau lệnh): `--server URL`, `--ca-file PEM`, `--json`.
 - `--server` bắt buộc là `https://…` (`http://` chỉ cho `127.0.0.1`, `localhost`, `::1`). Bỏ `--server` thì dùng server
   của token đã lưu.
-- `--ca-file` thêm CA riêng (ví dụ CA nội bộ của Caddy khi chạy trên `localhost`).
+- `--ca-file` **thay thế** kho CA mặc định: chỉ tin các CA trong tệp PEM (ví dụ CA nội bộ của Caddy khi chạy trên
+  `localhost`). Dùng cho cả máy chủ định danh lẫn API quản trị.
 - `--json` in JSON thô của API thay cho văn bản.
 - `login`: nếu bỏ `--issuer`, issuer được suy từ host `admin.<miền>` thành `https://<miền>/auth/realms/dxos`; host khác
   phải truyền `--issuer`.
@@ -36,7 +37,12 @@ Tùy chọn chung (đặt trước hoặc sau lệnh): `--server URL`, `--ca-fil
   `$XDG_CONFIG_HOME/dxos/token.json` (mặc định `~/.config/dxos/token.json`).
 - Tệp token quyền `0600`, thư mục `0700`, ghi nguyên tử; có kèm `server` và `issuer` nơi token được cấp.
   **Token đã lưu không bao giờ được gửi tới server khác**: dùng sai `--server` thì thoát mã 3.
-- Không lưu refresh token. Token hết hạn: chạy lại `dxos login` (CLI thoát mã 3 mà không gọi mạng).
+- Refresh token (và hạn của nó) nằm cùng tệp. Access token hết hạn, hoặc server trả 401 một lần, thì CLI tự làm mới
+  qua token endpoint của đúng issuer đã lưu (tìm lại bằng discovery, `issuer` trong tài liệu phải khớp), ghi lại
+  nguyên tử rồi thử lại yêu cầu đúng một lần. Làm mới bị từ chối: thoát mã 3 "chạy lại dxos login"; lỗi mạng/5xx khi làm
+  mới: mã 2. Không có refresh token còn hạn thì thoát mã 3 mà không gọi mạng. `DXOS_TOKEN` không bao giờ được làm mới.
+- Thư mục `dxos` mà là symlink thì CLI từ chối ghi/đọc (không bị chuyển hướng ghi hay `chmod`); `token.json` là symlink
+  thì bị thay bằng tệp thường. `$XDG_CONFIG_HOME` bản thân có thể là symlink.
 - CLI không in và không ghi log token.
 
 ## `app install`
@@ -53,7 +59,8 @@ Tùy chọn chung (đặt trước hoặc sau lệnh): `--server URL`, `--ca-fil
 | 0 | thành công (`dxos health` cũng 0 khi yêu cầu thành công, dù có thành phần `down: …`; dòng bắt đầu bằng `!`) |
 | 1 | API trả 4xx (in `type`, `title`, `detail`, `code`, `path`…), đầu vào hoặc cách dùng sai |
 | 2 | lỗi mạng hoặc API trả 5xx |
-| 3 | chưa đăng nhập, token hết hạn, token không dành cho server này, hoặc server trả 401 |
+| 3 | chưa đăng nhập, token (và refresh) hết hạn hoặc bị từ chối, token không dành cho server này |
+| 130 | bị ngắt bằng Ctrl-C |
 
 ## Test
 ```bash

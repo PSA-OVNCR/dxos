@@ -30,7 +30,7 @@ def _common(default) -> argparse.ArgumentParser:
         metavar="PEM",
         dest="ca_file",
         default=default,
-        help="tệp CA bổ sung để kiểm chứng TLS (CA nội bộ của Caddy khi dev)",
+        help="tệp CA thay thế kho CA mặc định (chỉ tin CA trong tệp; vd CA nội bộ của Caddy)",
     )
     p.add_argument("--json", action="store_true", default=default, help="in JSON thô thay cho bảng/văn bản")
     return p

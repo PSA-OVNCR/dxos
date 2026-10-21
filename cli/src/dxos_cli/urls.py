@@ -11,21 +11,25 @@ _DEFAULT_PORTS = {"https": 443, "http": 80}
 
 
 def check_endpoint(url: str, *, what: str) -> str:
-    """Kiểm tra URL đầy đủ: https, hoặc http tới loopback; không userinfo/query/fragment."""
+    """Kiểm tra URL đầy đủ: https, hoặc http tới loopback; không userinfo/query/fragment.
+
+    Userinfo, query và fragment được kiểm **trước** mọi thông báo có in lại URL, để không bao giờ in mật khẩu
+    hay token nhúng trong URL (kể cả khi URL sai ở chỗ khác).
+    """
+    url = url.strip()
     try:
-        parts = urlsplit(url.strip())
+        parts = urlsplit(url)
         host = parts.hostname
         _ = parts.port  # đọc để bắt cổng sai
-    except ValueError as exc:
-        raise CliError(f"{what} không hợp lệ: {exc}") from exc
+    except ValueError:
+        raise CliError(f"{what} không phải URL hợp lệ") from None  # không in lại URL hay chi tiết lỗi
+    if "@" in url or "?" in url or "#" in url or parts.query or parts.fragment:
+        raise CliError(f"{what} không được chứa thông tin đăng nhập, query hay fragment")
     if parts.scheme not in ("https", "http") or not host:
         raise CliError(f"{what} phải là URL https://… (nhận được: {_show(url)})")
     if parts.scheme == "http" and host not in LOOPBACK_HOSTS:
         raise CliError(f"{what} phải dùng HTTPS (http chỉ được phép với 127.0.0.1/localhost): {_show(url)}")
-    if parts.username is not None or parts.password is not None or parts.query or parts.fragment:
-        # Không in lại URL: nó có thể chứa mật khẩu.
-        raise CliError(f"{what} không được chứa thông tin đăng nhập, query hay fragment")
-    return url.strip()
+    return url
 
 
 def normalize_server(url: str) -> str:

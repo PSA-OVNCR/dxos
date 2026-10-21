@@ -118,6 +118,13 @@ def _client(args) -> AdminClient:
     return AdminClient(server, ca_file=args.ca_file)
 
 
+def _obj(res: Any, what: str) -> dict:
+    """Phản hồi 2xx phải là JSON object; không thì mã thoát 2 (qua proxy hỏng, server lỗi) thay vì lỗi lạ."""
+    if not isinstance(res, dict):
+        raise CliError(f"Phản hồi {what} không phải JSON object", EXIT_SERVER)
+    return res
+
+
 def _seg(value: str) -> str:
     return quote(value, safe="")
 
@@ -264,9 +271,9 @@ def load_app(app_dir: str) -> bytes:
 def app_install(args) -> int:
     body = load_app(args.app_dir)
     with _client(args) as c:
-        submitted = c.request("POST", "/admin/v1/apps", content=body)
+        submitted = _obj(c.request("POST", "/admin/v1/apps", content=body), "nộp app")
         app_id, version = _server_ids(submitted)
-        diff = c.request("GET", f"/admin/v1/apps/{_seg(app_id)}/versions/{_seg(version)}/diff")
+        diff = _obj(c.request("GET", f"/admin/v1/apps/{_seg(app_id)}/versions/{_seg(version)}/diff"), "diff")
     if args.json:
         out(dump_json({"submitted": submitted, "diff": diff}))
         return EXIT_OK
@@ -277,7 +284,7 @@ def app_install(args) -> int:
         out(f"  tệp {clean(path)}: sha256 {clean(digest)}")
     out()
     out("Thay đổi cần duyệt:")
-    for ln in format_diff(diff if isinstance(diff, dict) else {}):
+    for ln in format_diff(diff):
         out("  " + ln)
     out()
     out(f"Người duyệt (khác người nộp) chạy: dxos app approve {app_id} {version}")
@@ -315,12 +322,14 @@ def app_list(args) -> int:
 
 def app_diff(args) -> int:
     with _client(args) as c:
-        diff = c.request("GET", f"/admin/v1/apps/{_seg(args.app_id)}/versions/{_seg(args.version)}/diff")
+        diff = _obj(
+            c.request("GET", f"/admin/v1/apps/{_seg(args.app_id)}/versions/{_seg(args.version)}/diff"), "diff"
+        )
     if args.json:
         out(dump_json(diff))
         return EXIT_OK
     out(f"Diff {clean(args.app_id)} {clean(args.version)}:")
-    for ln in format_diff(diff if isinstance(diff, dict) else {}):
+    for ln in format_diff(diff):
         out("  " + ln)
     return EXIT_OK
 
@@ -328,7 +337,7 @@ def app_diff(args) -> int:
 def app_approve(args) -> int:
     body = json.dumps({"version": args.version}).encode("utf-8")
     with _client(args) as c:
-        res = c.request("POST", f"/admin/v1/apps/{_seg(args.app_id)}:approve", content=body)
+        res = _obj(c.request("POST", f"/admin/v1/apps/{_seg(args.app_id)}:approve", content=body), "approve")
     if args.json:
         out(dump_json(res))
         return EXIT_OK
@@ -342,7 +351,7 @@ def app_approve(args) -> int:
 
 def app_disable(args) -> int:
     with _client(args) as c:
-        res = c.request("POST", f"/admin/v1/apps/{_seg(args.app_id)}:disable")
+        res = _obj(c.request("POST", f"/admin/v1/apps/{_seg(args.app_id)}:disable"), "disable")
     if args.json:
         out(dump_json(res))
         return EXIT_OK
@@ -437,7 +446,7 @@ def ledger_status(args) -> int:
 
 def anchor_run(args) -> int:
     with _client(args) as c:
-        res = c.request("POST", "/admin/v1/anchor:run")
+        res = _obj(c.request("POST", "/admin/v1/anchor:run"), "anchor run")
     if args.json:
         out(dump_json(res))
         return EXIT_OK

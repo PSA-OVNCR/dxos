@@ -769,7 +769,7 @@ def test_device_flow_polls_until_token(monkeypatch, tmp_path, capsys):
     stored = json.loads((tmp_path / "dxos/token.json").read_text())
     assert stored["access_token"] == "secret-access" and stored["server"] == SRV and stored["issuer"] == ISS
     assert stored["expires_at"] > time.time() + 200
-    assert "refresh_token" not in stored
+    assert stored["refresh_token"] == "secret-refresh"
     assert stat.S_IMODE((tmp_path / "dxos/token.json").stat().st_mode) == 0o600
 
 
@@ -893,7 +893,7 @@ def test_issuer_is_derived_from_admin_host(monkeypatch, tmp_path):
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     disc = respx.get(DISCOVERY).mock(
         return_value=httpx.Response(
-            200, json={"device_authorization_endpoint": DEVICE, "token_endpoint": TOKEN}
+            200, json={"issuer": ISS, "device_authorization_endpoint": DEVICE, "token_endpoint": TOKEN}
         )
     )
     _mock_device()
