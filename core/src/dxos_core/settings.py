@@ -87,6 +87,17 @@ class Settings(BaseSettings):
         return v
 
 
+def org_configured(settings: Settings) -> bool:
+    """Tên tổ chức đã được đặt thật: không phải ``ORG_NAME_DEFAULT``, không rỗng, không bắt đầu bằng
+    ``changeme`` (giá trị giữ chỗ của ``.env.example``; không phân biệt hoa thường, sau khi bỏ khoảng trắng).
+
+    Một chỗ kiểm duy nhất cho R-1, tuyên bố khóa và trạng thái quản trị: tên đã vào tuyên bố khóa (chỉ-thêm,
+    đã neo) thì không sửa được.
+    """
+    name = settings.org_name.strip()
+    return bool(name) and name != ORG_NAME_DEFAULT and not name.casefold().startswith("changeme")
+
+
 def read_secret(path: Path) -> str:
     """Đọc một bí mật từ tệp, bỏ khoảng trắng/xuống dòng ở hai đầu. Tệp rỗng là lỗi."""
     value = path.read_text(encoding="utf-8").strip()

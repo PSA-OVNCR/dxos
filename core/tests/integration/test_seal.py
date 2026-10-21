@@ -7,12 +7,20 @@ Fixture ``flow`` (conftest): API thật + ``test-flow`` 0.1.0, ``SealHooks`` th�
 """
 
 import asyncio
+import json
 from base64 import b64decode
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
-from dxos_core.seal.keys import ORG_NAME_DEFAULT, parse_rfc3339
+from dxos_core.seal.keys import (
+    LOCK_KEYSTMT,
+    ORG_NAME_DEFAULT,
+    OrgNotConfigured,
+    SealKeyExpired,
+    build_statement,
+    parse_rfc3339,
+)
 from dxos_core.seal.service import SealStateError, record_digest, seal_signing_bytes, sealed_leaf_body
 from dxos_proof.canonical import canonical_bytes, sha256_hex
 from helpers.flow import URL, headers_for
@@ -69,7 +77,8 @@ async def test_seal_still_completes_after_app_disabled(flow, flaky_signer):     
 async def test_job_and_inline_seal_race_produce_one_seal(flow, local_signer):                 # Review Focus 3
     rid = await flow.pending_record()
     sid = await flow.seal_id_of(rid)
-    await asyncio.gather(flow.seal_inline(rid), flow.run_worker_once())
+    _, claimed = await asyncio.gather(flow.seal_inline(rid), flow.run_worker_once())
+    assert claimed and (await flow.seal_job(rid))["state"] == "DONE"          # job thật sự đã chạy (m5)
     assert await flow.count("seals", rid) == 1 and await flow.count_ledger("record.sealed", subject=sid) == 1
 
 
@@ -297,3 +306,149 @@ async def test_seal_record_is_idempotent_and_refuses_other_states(flow):
     open_rid = await flow.new_record("a1")
     with pytest.raises(SealStateError):
         await flow.seal_inline(open_rid)
+
+
+# ---------- Fix vòng 1 ----------
+
+UNCONFIGURED = [ORG_NAME_DEFAULT, "", "  ", "changeme-ten-to-chuc", "ChangeMe x"]
+
+
+@pytest.mark.parametrize("name", UNCONFIGURED)
+async def test_unconfigured_org_name_blocks_r1_and_seal_record(flow, name):     # fix 1
+    bad = flow.settings_with(org_name=name)
+    rid = await flow.reviewed_record(author="a1", reviewer="r1")
+    state = flow.api.app.state
+    good, state.settings = state.settings, bad
+    try:
+        r = await flow.complete_task("approve", rid, "approve", as_="p1")
+    finally:
+        state.settings = good
+    assert r.status_code == 503 and r.json()["type"].endswith("/org-not-configured")
+    pending = await flow.pending_record()
+    with pytest.raises(OrgNotConfigured):                     # bỏ qua R-1: bản ghi đã SEAL_PENDING
+        await flow.seal_inline(pending, settings=bad)
+    assert await flow.count("key_statements") == 0 and await flow.count("seals", pending) == 0
+    state.settings = bad
+    try:
+        assert (await flow.admin_status())["org"] == "down: not configured"
+    finally:
+        state.settings = good
+
+
+async def test_seal_record_raises_seal_key_expired(flow):                       # fix 2 (m1)
+    await flow.sealed_record()
+    [row] = await flow.key_statements()
+    late = parse_rfc3339(row["statement"]["valid_until"]) + timedelta(seconds=1)
+    rid = await flow.pending_record()
+    with pytest.raises(SealKeyExpired):
+        await flow.seal_inline(rid, now=late)
+    assert await flow.seal_state_db(rid) == "SEAL_PENDING" and await flow.count("seals", rid) == 0
+
+
+async def _assert_job_waits(flow, rid: str, exc_name: str) -> None:
+    job = await flow.seal_job(rid)
+    assert job["state"] == "QUEUED" and job["last_error"].startswith(exc_name), dict(job)
+    assert job["run_after"] > datetime.now(UTC)
+    assert await flow.seal_state_db(rid) == "SEAL_PENDING"
+
+
+async def test_job_waits_on_expired_key_statement(flow, local_signer):          # fix 2 (m1)
+    rid = await flow.pending_record()
+    past = datetime.now(UTC) - timedelta(days=2)
+    pk = (await local_signer.public_keys())["seal-key"][1]
+    st = build_statement(flow.settings_with(seal_key_validity_days=1), version=1, public_key=pk,
+                         valid_from=past.strftime("%Y-%m-%dT%H:%M:%SZ"))
+    await flow.conn.execute("INSERT INTO key_statements(key, version, statement, statement_sha256)"
+                            " VALUES ('seal-key', 1, $1, $2)",
+                            json.dumps(st), sha256_hex(canonical_bytes(st)))
+    await flow.run_worker_until_idle()
+    await _assert_job_waits(flow, rid, "SealKeyExpired")
+
+
+async def test_job_waits_on_unconfigured_org(flow):                              # fix 2 (m1)
+    rid = await flow.pending_record()
+    await flow.run_worker_until_idle(settings=flow.settings_with(org_name="changeme-ten-to-chuc"))
+    await _assert_job_waits(flow, rid, "OrgNotConfigured")
+    assert await flow.count("key_statements") == 0
+
+
+class _LedgerLockProbe:
+    """Signer bọc ``local_signer``: lúc ký thật, ghi lại có phiên nào đang giữ khóa advisory của ledger
+    không."""
+
+    def __init__(self, inner, pool) -> None:
+        self.inner, self.pool, self.held_during_sign = inner, pool, []
+
+    async def public_keys(self):
+        return await self.inner.public_keys()
+
+    async def sign(self, key, data, *, key_version=None):
+        from dxos_core.ledger.log import LEDGER_LOCK_KEY
+
+        self.held_during_sign.append(await self.pool.fetchval(
+            "SELECT count(*) FROM pg_locks WHERE locktype='advisory' AND granted AND objid=$1",
+            LEDGER_LOCK_KEY))
+        return await self.inner.sign(key, data, key_version=key_version)
+
+
+async def test_key_published_after_signing_and_before_sealed_leaf(flow, local_signer):   # fix 3 (m2)
+    rid = await flow.pending_record()
+    probe = _LedgerLockProbe(local_signer, flow.db)
+    assert (await flow.seal_inline(rid, signer=probe)).state == "SEALED"
+    assert probe.held_during_sign == [0]                      # không giữ khóa ledger khi gọi KMS
+    [published] = await flow.ledger_entries("key.published")
+    row = await flow.seal_row(rid)
+    assert published.idx + 1 == row["leaf_index"]             # key.published rồi ngay sau là record.sealed
+
+
+async def test_concurrent_first_seal_is_not_misreported_expired(flow, local_signer):     # fix 4 (m3)
+    """Bên tạo tuyên bố (valid_from = T1) commit trong lúc bên kia đã lấy thời điểm T0 < T1 và đang chờ
+    LOCK_KEYSTMT: bên chờ phải lấy lại issued_at sau khi có tuyên bố, không được báo hết hạn."""
+    rid = await flow.pending_record()
+    pk = (await local_signer.public_keys())["seal-key"][1]
+    async with flow.db.acquire() as holder:
+        tx = holder.transaction()
+        await tx.start()
+        await holder.execute("SELECT pg_advisory_xact_lock($1)", LOCK_KEYSTMT)
+        sealing = asyncio.create_task(flow.seal_inline(rid))
+        for _ in range(500):                                  # chờ bên niêm phong xếp hàng ở khóa
+            if await flow.db.fetchval("SELECT count(*) FROM pg_locks WHERE locktype='advisory'"
+                                      " AND NOT granted AND objid=$1", LOCK_KEYSTMT):
+                break
+            await asyncio.sleep(0.01)
+        else:
+            raise AssertionError("bên niêm phong không chờ LOCK_KEYSTMT")
+        await asyncio.sleep(1.2)                              # T1 muộn hơn T0 ít nhất một giây
+        t1 = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        st = build_statement(flow.settings, version=1, public_key=pk, valid_from=t1)
+        await holder.execute("INSERT INTO key_statements(key, version, statement, statement_sha256)"
+                             " VALUES ('seal-key', 1, $1, $2)",
+                             json.dumps(st), sha256_hex(canonical_bytes(st)))
+        await tx.commit()
+    out = await sealing
+    assert out.state == "SEALED"
+    assert parse_rfc3339((await flow.seal_row(rid))["payload"]["issued_at"]) >= parse_rfc3339(t1)
+
+
+async def test_revoke_fails_closed_when_sealed_manifest_is_missing(flow, monkeypatch):  # fix 5 (m4)
+    from dxos_core.seal import service
+
+    rid = await flow.sealed_record()
+
+    async def missing(conn, app_id, version):
+        return None
+
+    monkeypatch.setattr(service, "get_version", missing)
+    assert (await flow.revoke(rid, as_="p1")).status_code == 404
+    assert await flow.last_denied_reason() == "not_revoker"
+    assert await flow.seal_status(rid) == "VALID"
+
+
+async def test_seal_key_status_follows_highest_kms_version(flow, local_signer):          # fix 7 (m7)
+    await flow.sealed_record()
+    assert (await flow.admin_status())["seal_key"] == "ok"
+    local_signer.rotate("seal-key")                           # v2 chưa có tuyên bố
+    assert (await flow.admin_status())["seal_key"] == "none"
+    await flow.sealed_record()                                # lần niêm phong đầu bằng v2 tạo tuyên bố
+    assert (await flow.admin_status())["seal_key"] == "ok"
+    assert [r["version"] for r in await flow.key_statements()] == [1, 2]

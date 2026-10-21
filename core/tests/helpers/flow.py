@@ -343,30 +343,36 @@ class FlowHarness:
         await self.owner.execute("UPDATE records SET wf_state='ended:approved' WHERE id=$1", uuid.UUID(rid))
         return rid
 
-    async def seal_inline(self, rid: str):
-        """Gọi thẳng ``seal_record`` (như lần thử ngay của API) bằng signer của API."""
+    async def seal_inline(self, rid: str, *, signer=None, settings=None, now=None):
+        """Gọi thẳng ``seal_record`` (như lần thử ngay của API); mặc định signer và Settings của API."""
         from dxos_core.seal.service import seal_record
 
         state = self.api.app.state
         async with self.db.acquire() as c:
-            return await seal_record(c, signer=state.signer, hmac_key=state.hmac_key, settings=state.settings,
-                                     record_id=uuid.UUID(rid))
+            return await seal_record(c, signer=signer or state.signer, hmac_key=state.hmac_key,
+                                     settings=settings or state.settings, record_id=uuid.UUID(rid), now=now)
 
     async def run_worker_once(self) -> bool:
         return await worker.run_once(self.worker_ctx)
 
-    async def run_worker_until_idle(self, signer=None) -> None:
-        """Chạy worker tới khi hết việc tới hạn; ``signer`` thay signer của worker trong lúc chạy."""
-        old = self.worker_ctx.signer
+    async def run_worker_until_idle(self, signer=None, *, settings=None) -> None:
+        """Chạy worker tới khi hết việc tới hạn; ``signer``/``settings`` thay của worker trong lúc chạy."""
+        old = self.worker_ctx.signer, self.worker_ctx.settings
         if signer is not None:
             self.worker_ctx.signer = signer
+        if settings is not None:
+            self.worker_ctx.settings = settings
         try:
             for _ in range(100):
                 if not await worker.run_once(self.worker_ctx):
                     return
             raise AssertionError("worker không hết việc sau 100 lần")
         finally:
-            self.worker_ctx.signer = old
+            self.worker_ctx.signer, self.worker_ctx.settings = old
+
+    def settings_with(self, **update):
+        """Bản sao Settings của API với ``update`` (``model_copy``: không qua validator, giữ nguyên chuỗi)."""
+        return self.settings.model_copy(update=update)
 
     async def seal_state_db(self, rid: str) -> str:
         return await self.db.fetchval("SELECT seal_state FROM records WHERE id=$1", uuid.UUID(rid))

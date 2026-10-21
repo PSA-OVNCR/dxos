@@ -10,7 +10,13 @@ import pytest
 from dxos_core import worker
 from dxos_core.records.digest import data_digest
 from dxos_core.seal.job import process_seal_job
-from dxos_core.seal.keys import ORG_NAME_DEFAULT, STATEMENT_FORMAT, build_statement, within_validity
+from dxos_core.seal.keys import (
+    ORG_NAME_DEFAULT,
+    STATEMENT_FORMAT,
+    build_statement,
+    org_configured,
+    within_validity,
+)
 from dxos_core.seal.service import (
     SEAL_JOB,
     new_seal_id,
@@ -107,3 +113,12 @@ def test_seal_settings_defaults(make_settings):
 
 def test_worker_runs_seal_jobs():
     assert worker.HANDLERS[SEAL_JOB] is process_seal_job and SEAL_JOB == "seal"
+
+
+@pytest.mark.parametrize(("name", "ok"), [
+    (ORG_NAME_DEFAULT, False), ("", False), ("  ", False), ("changeme-ten-to-chuc", False),
+    ("ChangeMe x", False), ("  CHANGEME", False),
+    ("Công ty TNHH Sao Mai", True), ("Tổ chức thử nghiệm", True),
+])
+def test_org_configured(make_settings, name, ok):                               # fix vòng 1, mục 1
+    assert org_configured(make_settings().model_copy(update={"org_name": name})) is ok

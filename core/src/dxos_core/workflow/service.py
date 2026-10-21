@@ -39,9 +39,9 @@ from dxos_core.records.service import (
 from dxos_core.registry.model import CollectionSpec, Manifest
 from dxos_core.registry.store import get_active, get_deployment, get_version
 from dxos_core.seal.keys import (
-    ORG_NAME_DEFAULT,
     OrgNotConfigured,
     SealKeyExpired,
+    org_configured,
     statement_for,
     within_validity,
 )
@@ -230,7 +230,7 @@ async def _r1_precheck(ctx: Ctx, deps: WorkflowDeps, m: Manifest, subject: str) 
     statement = await statement_for(ctx.conn, probe.key_version)
     if statement is not None and not within_validity(statement, datetime.now(UTC)):
         raise await refuse("seal_key_expired", "seal-key-expired", "Seal key statement expired")
-    if deps.settings.org_name == ORG_NAME_DEFAULT:
+    if not org_configured(deps.settings):
         raise await refuse("org_not_configured", "org-not-configured", "Organisation name not configured")
 
 

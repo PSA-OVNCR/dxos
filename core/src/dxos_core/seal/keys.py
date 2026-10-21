@@ -21,11 +21,11 @@ from dxos_proof.canonical import canonical_bytes, rfc3339_utc, sha256_hex
 
 from dxos_core.kms.base import Signer
 from dxos_core.ledger.log import append
-from dxos_core.settings import ORG_NAME_DEFAULT, Settings
+from dxos_core.settings import ORG_NAME_DEFAULT, Settings, org_configured
 
 __all__ = ["LOCK_KEYSTMT", "ORG_NAME_DEFAULT", "STATEMENT_FORMAT", "OrgNotConfigured", "SealKeyExpired",
-           "build_statement", "ensure_key_statement", "latest_statement", "parse_rfc3339", "statement_for",
-           "within_validity"]
+           "build_statement", "ensure_key_statement", "insert_statement_once", "latest_statement",
+           "org_configured", "parse_rfc3339", "publish_leaf", "statement_for", "within_validity"]
 
 STATEMENT_FORMAT = "dxos-key-statement/1"
 # Khóa advisory của việc tạo tuyên bố khóa (Task 7). Khác 724000 (migrate), 724001 (ledger), 724100 (LOCK_WF).
@@ -99,36 +99,61 @@ def build_statement(settings: Settings, *, version: int, public_key: bytes,
     }
 
 
-async def ensure_key_statement(conn: asyncpg.Connection, *, signer: Signer, settings: Settings,
-                               key_version: int, issued_at: str, hmac_key: bytes) -> dict[str, Any]:
-    """Tuyên bố của ``seal-key`` phiên bản ``key_version``; chưa có thì tạo với ``valid_from = issued_at``.
+async def insert_statement_once(conn: asyncpg.Connection, *, settings: Settings, key_version: int,
+                                public_key: bytes, issued_at: str) -> tuple[dict[str, Any], bool]:
+    """Tuyên bố của phiên bản ``key_version``; chưa có thì INSERT (``valid_from = issued_at``). Trả
+    ``(tuyên bố, True nếu chính lời gọi này vừa tạo)``. KHÔNG ghi ledger: bên gọi ghi ``key.published``
+    (``publish_leaf``) trong cùng transaction, sau khi ký xong.
 
-    Phải chạy trong transaction của lần niêm phong (rollback cùng nó nếu ký lỗi). ``signer`` chỉ dùng để lấy
-    khóa công khai của phiên bản, không ký. ``OrgNotConfigured`` khi tên tổ chức còn mặc định.
+    Phải chạy trong transaction. ``OrgNotConfigured`` khi tên tổ chức chưa đặt thật (``org_configured``).
     Tuyên bố đã có thì không bao giờ đổi (bảng chỉ-thêm), nên đọc trước khi khóa là an toàn; chỉ đường tạo mới
     mới lấy ``LOCK_KEYSTMT`` và đọc lại dưới khóa.
     """
     if not conn.is_in_transaction():
-        raise RuntimeError("ensure_key_statement phải chạy trong transaction của lần niêm phong")
-    if settings.org_name == ORG_NAME_DEFAULT:
+        raise RuntimeError("tạo tuyên bố khóa phải chạy trong transaction của lần niêm phong")
+    if not org_configured(settings):
         raise OrgNotConfigured("DXOS_ORG_NAME chưa được cấu hình")
     existing = await statement_for(conn, key_version)
     if existing is not None:
-        return existing
+        return existing, False
     await conn.execute("SELECT pg_advisory_xact_lock($1)", LOCK_KEYSTMT)
+    existing = await statement_for(conn, key_version)
+    if existing is not None:
+        return existing, False
+    statement = build_statement(settings, version=key_version, public_key=public_key, valid_from=issued_at)
+    await conn.execute(
+        "INSERT INTO core.key_statements(key, version, statement, statement_sha256)"
+        " VALUES ('seal-key', $1, $2::jsonb, $3)",
+        key_version, json.dumps(statement, ensure_ascii=False), sha256_hex(canonical_bytes(statement)))
+    return statement, True
+
+
+async def publish_leaf(conn: asyncpg.Connection, statement: dict[str, Any], *, hmac_key: bytes) -> None:
+    """Lá ledger ``key.published {key, version, statement_sha256}``, ``subject = "seal-key/v<n>"``."""
+    v = statement["version"]
+    digest = sha256_hex(canonical_bytes(statement))
+    await append(conn, type="key.published", subject=f"seal-key/v{v}",
+                 body={"key": "seal-key", "version": v, "statement_sha256": digest}, hmac_key=hmac_key)
+
+
+async def ensure_key_statement(conn: asyncpg.Connection, *, signer: Signer, settings: Settings,
+                               key_version: int, issued_at: str, hmac_key: bytes) -> dict[str, Any]:
+    """Tuyên bố của ``seal-key`` phiên bản ``key_version``; chưa có thì tạo (``valid_from = issued_at``) và
+    ghi ngay lá ``key.published``. ``signer`` chỉ dùng để lấy khóa công khai, không ký.
+
+    ``seal_record`` không dùng hàm này mà gọi ``insert_statement_once`` + ``publish_leaf`` để lá ledger được
+    ghi SAU khi ký (không giữ khóa ledger trong lúc gọi KMS).
+    """
+    if not org_configured(settings):           # trước khi gọi KMS
+        raise OrgNotConfigured("DXOS_ORG_NAME chưa được cấu hình")
     existing = await statement_for(conn, key_version)
     if existing is not None:
         return existing
     public_key = (await signer.public_keys())["seal-key"].get(key_version)
     if public_key is None:
         raise RuntimeError(f"KMS không có khóa công khai của seal-key phiên bản {key_version}")
-    statement = build_statement(settings, version=key_version, public_key=public_key, valid_from=issued_at)
-    digest = sha256_hex(canonical_bytes(statement))
-    await conn.execute(
-        "INSERT INTO core.key_statements(key, version, statement, statement_sha256)"
-        " VALUES ('seal-key', $1, $2::jsonb, $3)",
-        key_version, json.dumps(statement, ensure_ascii=False), digest)
-    await append(conn, type="key.published", subject=f"seal-key/v{key_version}",
-                 body={"key": "seal-key", "version": key_version, "statement_sha256": digest},
-                 hmac_key=hmac_key)
+    statement, created = await insert_statement_once(conn, settings=settings, key_version=key_version,
+                                                     public_key=public_key, issued_at=issued_at)
+    if created:
+        await publish_leaf(conn, statement, hmac_key=hmac_key)
     return statement

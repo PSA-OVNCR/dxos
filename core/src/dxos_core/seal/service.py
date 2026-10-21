@@ -46,7 +46,7 @@ from dxos_core.records.service import (
 )
 from dxos_core.registry.model import Manifest
 from dxos_core.registry.store import get_version
-from dxos_core.seal.keys import SealKeyExpired, ensure_key_statement, within_validity
+from dxos_core.seal.keys import SealKeyExpired, insert_statement_once, publish_leaf, within_validity
 from dxos_core.settings import Settings
 
 log = logging.getLogger("dxos_core.seal")
@@ -166,16 +166,20 @@ async def seal_record(conn: asyncpg.Connection, *, signer: Signer, hmac_key: byt
         if row["seal_state"] != "SEAL_PENDING" or req is None:
             raise SealStateError(f"bản ghi {record_id}: seal_state={row['seal_state']}, "
                                  f"seal_request={'có' if req else 'không'}")
-        # Bước 3: phiên bản khóa và thời điểm, tính MỘT lần.
+        # Bước 3: phiên bản khóa.
         pubkeys = (await signer.public_keys())["seal-key"]
         if not pubkeys:
             raise RuntimeError("KMS không có phiên bản seal-key nào")
         key_version = max(pubkeys)
-        issued_at = rfc3339_utc(now or datetime.now(UTC))
-        # Tuyên bố khóa trước khi ký (spec 25.3): tạo ở lần đầu, kiểm thời hạn bằng chính issued_at.
-        statement = await ensure_key_statement(conn, signer=signer, settings=settings,
-                                               key_version=key_version, issued_at=issued_at,
-                                               hmac_key=hmac_key)
+        # Thời điểm niêm phong. Thứ tự (fix vòng 1, m3): lấy ``candidate`` rồi mới tới tuyên bố khóa.
+        # - Lời gọi này TẠO tuyên bố → ``issued_at = candidate = valid_from`` (AT-28: cùng chuỗi giây nguyên).
+        # - Tuyên bố đã có, hoặc do transaction khác tạo trong lúc lời gọi này chờ LOCK_KEYSTMT
+        #   (valid_from = T1 có thể muộn hơn candidate T0) → lấy lại thời điểm SAU khi có tuyên bố, nên không
+        #   bao giờ báo hết hạn nhầm vì T0 < T1. Từ đây ``issued_at`` dùng cho cả kiểm thời hạn lẫn payload.
+        candidate = rfc3339_utc(now or datetime.now(UTC))
+        statement, created = await insert_statement_once(conn, settings=settings, key_version=key_version,
+                                                         public_key=pubkeys[key_version], issued_at=candidate)
+        issued_at = candidate if created else rfc3339_utc(now or datetime.now(UTC))
         if base64.b64decode(statement["public_key"]) != pubkeys[key_version]:
             raise RuntimeError(f"tuyên bố seal-key/v{key_version} không khớp khóa công khai của KMS")
         if not within_validity(statement, issued_at):
@@ -188,6 +192,10 @@ async def seal_record(conn: asyncpg.Connection, *, signer: Signer, hmac_key: byt
         signed = await signer.sign("seal-key", seal_signing_bytes(payload), key_version=key_version)
         if signed.key_version != key_version:
             raise RuntimeError(f"KMS ký bằng seal-key/v{signed.key_version}, yêu cầu v{key_version}")
+        # Lá ledger chỉ ghi SAU khi ký (fix vòng 1, m2): khóa advisory của ledger không bị giữ khi gọi KMS.
+        # Cùng transaction nên vẫn nguyên tử; thứ tự lá: key.published (nếu vừa tạo) rồi record.sealed.
+        if created:
+            await publish_leaf(conn, statement, hmac_key=hmac_key)
         entry = await append(conn, type="record.sealed", subject=req["seal_id"],
                              body=sealed_leaf_body(payload), hmac_key=hmac_key, app_id=req["app_id"])
         await conn.execute(
@@ -237,9 +245,13 @@ async def revoke(ctx: Ctx, app: str, col: str, rid: str, body: Any, if_match: st
     await enforce_or_problem(ctx, "read", m, col, row["owner_sub"], str(row["id"]))
     req = await ctx.conn.fetchrow("SELECT seal_id, app_version FROM core.seal_requests WHERE record_id=$1",
                                   row["id"])
-    sealed_m = await get_version(ctx.conn, m.app.id, req["app_version"]) if req is not None else None
-    revoke_roles = set(sealed_m.policies.seal.revoke_roles) if sealed_m and sealed_m.policies.seal else set()
-    if sealed_m is not None and not revoke_roles & app_roles(ctx.principal, m.app.id):
+    if req is not None:
+        # Có yêu cầu niêm phong thì LUÔN kiểm role theo bản đã niêm phong; bản đó mất (hoặc không có
+        # policies.seal) → không ai được thu hồi (fail-closed, fix vòng 1 m4).
+        sealed_m = await get_version(ctx.conn, m.app.id, req["app_version"])
+        seal_policy = sealed_m.policies.seal if sealed_m is not None else None
+        revoke_roles = set(seal_policy.revoke_roles) if seal_policy is not None else set()
+    if req is not None and not revoke_roles & app_roles(ctx.principal, m.app.id):
         await pdp.deny(ctx.conn, ctx.principal, m, action="revoke", reason="not_revoker",
                        subject=str(row["id"]), hmac_key=ctx.hmac_key)
         raise ProblemError(404, "not-found", "Not Found")

@@ -21,7 +21,7 @@ from dxos_core.kms.base import KmsUnavailable
 from dxos_core.ledger.anchor_job import ANCHOR_JOB
 from dxos_core.ledger.log import verify_log
 from dxos_core.ledger.sth import latest_sth, make_sth
-from dxos_core.seal.keys import ORG_NAME_DEFAULT, latest_statement, within_validity
+from dxos_core.seal.keys import latest_statement, org_configured, statement_for, within_validity
 from dxos_core.workflow.flowable import WorkflowUnavailable
 from dxos_core.workflow.reconcile import deps_from_state, reconcile_all, workflow_unavailable
 
@@ -52,12 +52,18 @@ async def ledger_status(request: Request, _: Principal = Depends(require_admin))
             "SELECT count(*) FROM jobs WHERE kind=$1 AND state IN ('QUEUED', 'RUNNING')", ANCHOR_JOB)
         v = await verify_log(conn)
         seal_pending = await conn.fetchval("SELECT count(*) FROM records WHERE seal_state='SEAL_PENDING'")
-        statement = await latest_statement(conn)
+        # seal_key theo phiên bản seal-key lớn nhất KMS biết (phiên bản lần niêm phong sau sẽ dùng): chưa có
+        # tuyên bố → "none" (lần niêm phong đầu bằng nó sẽ tạo). KMS không trả lời → tuyên bố mới nhất đã có.
+        try:
+            versions = (await request.app.state.signer.public_keys())["seal-key"]
+            statement = await statement_for(conn, max(versions)) if versions else None
+        except KmsUnavailable:
+            statement = await latest_statement(conn)
     if statement is None:
         seal_key = "none"
     else:
         seal_key = "ok" if within_validity(statement, datetime.now(UTC)) else "expired"
-    org = "down: not configured" if request.app.state.settings.org_name == ORG_NAME_DEFAULT else "ok"
+    org = "ok" if org_configured(request.app.state.settings) else "down: not configured"
     return {
         "tree_size": size,
         "latest_sth": dataclasses.asdict(th) if th else None,
@@ -66,7 +72,7 @@ async def ledger_status(request: Request, _: Principal = Depends(require_admin))
             "anchored_at": anchor["anchored_at"].isoformat()},
         "pending_anchor_jobs": pending,
         "verify": {"ok": v.ok, "first_bad_idx": v.first_bad_idx},
-        # Niêm phong (spec 25.3): seal_key theo tuyên bố của phiên bản seal-key lớn nhất đã có tuyên bố.
+        # Niêm phong (spec 25.3).
         "seal_pending": seal_pending,
         "seal_key": seal_key,
         "org": org,
