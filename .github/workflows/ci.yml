@@ -41,11 +41,20 @@ jobs:
     runs-on: ubuntu-latest
     env:
       DXOS_TEST_REQUIRE_DB: "1"   # không có DB thì báo lỗi, không bỏ qua
+      DXOS_TEST_FLOWABLE_URL: http://127.0.0.1:58080/flowable-rest/service
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
-      - run: docker compose -f deploy/compose.test.yaml up -d --wait core-db seaweedfs openbao
+      - run: docker compose -f deploy/compose.test.yaml up -d --wait core-db seaweedfs openbao flowable
+      - name: Chờ Flowable REST trả lời (healthcheck compose mới chỉ kiểm cổng)
+        run: |
+          for i in $(seq 1 60); do
+            curl -fsS -u rest-admin:changeme-test "$DXOS_TEST_FLOWABLE_URL/management/engine" && exit 0
+            sleep 2
+          done
+          echo "Flowable không sẵn sàng sau 120 giây" >&2
+          exit 1
       - run: make dev-install
       - run: python -m pytest -m integration -v
 

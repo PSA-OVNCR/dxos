@@ -17,7 +17,7 @@ Bảng kê giấy phép và nguồn gốc mọi mô-đun bên ngoài. Cập nh�
 | Python (thư viện chuẩn) | ≥ 3.12 | PSF-2.0 | Runtime | Chưa |
 | pytest | ≥ 8 | MIT | Công cụ (test) | Chưa |
 | pytest-asyncio | ≥ 0.24 | Apache-2.0 | Công cụ (test) | Chưa |
-| respx | ≥ 0.21 | BSD-3-Clause | Công cụ (test) | Chưa |
+| respx | ≥ 0.21 | BSD-3-Clause | Công cụ (test; dùng cho test client Flowable/OpenBao, đã nằm trong `requirements-dev.txt`) | Có (21/10/2026, metadata + `LICENSE.md` của wheel 0.23.1) |
 | ruff | ≥ 0.6 | MIT | Công cụ (lint) | Chưa |
 | reuse | ≥ 4 | GPL-3.0-or-later | Công cụ (kiểm tra giấy phép, không phân phối) | Chưa |
 | PyYAML | ≥ 6 | MIT | Thư viện (`dxos-core`) và công cụ (test) | Chưa |

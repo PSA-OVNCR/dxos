@@ -109,6 +109,7 @@ def test_settings_has_exactly_planned_fields():
         "actor_hmac_key_file", "anchor_repo_dir", "max_upload_mb_default",
         "anchor_remote", "anchor_git_ssh_command",          # thêm ở Task 16
         "timezone",                                         # Plan 02 Task 2 (spec 25.4)
+        "flowable_url", "flowable_user", "flowable_password_file",   # Plan 02 Task 4
     }
 
 

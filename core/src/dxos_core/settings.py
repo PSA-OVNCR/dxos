@@ -39,6 +39,10 @@ class Settings(BaseSettings):
         "ssh -i /run/secrets/anchor-deploy-key -o IdentitiesOnly=yes -o BatchMode=yes"
         " -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=4"
         " -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/var/lib/dxos/anchor-known-hosts")
+    # Flowable REST (Plan 02 Task 4). Không đặt flowable_password_file thì mọi thao tác workflow trả 503.
+    flowable_url: str = "http://flowable:8080/flowable-rest/service"
+    flowable_user: str = "rest-admin"
+    flowable_password_file: Path | None = None
     # Múi giờ tính năm cho số văn bản đánh lại theo năm (spec 25.4). Biến môi trường DXOS_TIMEZONE.
     timezone: str = "Asia/Ho_Chi_Minh"
 

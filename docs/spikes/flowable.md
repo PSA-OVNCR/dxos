@@ -41,6 +41,34 @@
 
 Sai mật khẩu → 401 (đã kiểm). Toàn bộ chuỗi smoke chạy trong 1,9 s trên stack.
 
+### Kiểm lại Plan 02 Task 4 (21/10/2026, Flowable 7.1.0 bản phát hành, H2)
+
+Mọi dòng dưới đây đã chạy trên Flowable thật rồi mới viết client (`core/src/dxos_core/workflow/flowable.py`); test sống: `core/tests/integration/test_flowable_live.py`.
+
+| Việc | Endpoint và tham số **đã kiểm** | Ghi chú |
+|---|---|---|
+| Deploy có tên | `POST /repository/deployments?deploymentName=<tên>` (multipart, trường `file`, tên tệp `*.bpmn20.xml`) → 201 `{"id","name",…}` | Tên deployment mặc định lấy từ **tên tệp** (bỏ đuôi); trường form `deploymentName`/`name` **bị bỏ qua**, chỉ tham số **query** `deploymentName` có tác dụng. `deploymentCategory` không có tác dụng. |
+| Deploy idempotent | `GET /repository/deployments?name=<tên>&sort=deployTime&order=asc&size=1` | `name` là so khớp đúng; có thì trả id đầu tiên, không POST lại. Flowable tự không loại trùng: POST lại cùng tên tạo deployment mới và tăng `version` của definition. |
+| Definition của deployment | `GET /repository/process-definitions?deploymentId=<id>` → `data[0].id` (dạng `key:phiên-bản:uuid`) | `category` = `targetNamespace` của BPMN. |
+| Start theo definition | `POST /runtime/process-instances` `{"processDefinitionId","businessKey","variables":[{name,value,type:"string"}]}` → 201 | `variables: []` được. definition lạ → 400. |
+| Instance đang chạy theo (definition, business key) | `GET /runtime/process-instances?processDefinitionId=<id>&businessKey=<k>` | Chỉ trả instance chưa kết thúc. |
+| Hủy instance | `DELETE /runtime/process-instances/{id}?deleteReason=<lý do>` → 204; gọi lại hoặc id lạ → 404 | Lịch sử ghi `deleteReason`, **`endActivityId` = null**, có `endTime`. |
+| Task theo nhóm | `GET /runtime/tasks?candidateGroups=<g1,g2>&processDefinitionKeyLike=<prefix>%` | **`candidateGroupIn` bị bỏ qua IM LẶNG** (trả mọi task, kể cả của nhóm khác): đã thử với nhóm không tồn tại vẫn ra task. Tên đúng là `candidateGroups`, phân cách dấu phẩy, nghĩa OR; `candidateGroups=` rỗng ra 0 task; `candidateGroup` (số ít) cũng lọc đúng cho một nhóm. `processDefinitionKeyLike` lọc đúng (LIKE, `_` và `%` là ký tự đại diện nên client lọc lại `startswith`). |
+| Phân trang | `size`, `start`; phản hồi có `total` | **Mặc định `size=10`**: 12 task chỉ ra 10. Client phân trang với `size=100`. |
+| Task đơn | `GET /runtime/tasks/{id}` (404 khi không còn); trường dùng: `taskDefinitionKey`, `processInstanceId`, `processDefinitionId`, `assignee`, `createTime`; `name` là `null` vì bản dựng chuẩn của Task 3 bỏ tên | Không có `processDefinitionKey`: client lấy phần trước dấu `:` của `processDefinitionId`. |
+| Complete | `POST /runtime/tasks/{id}` `{"action":"complete","variables":[…]}` → 200; task không còn → 404 | Biến có `"scope":"local"` gắn vào **chính task** (đã kiểm: `dxos_intent_id` local không xuất hiện ở biến instance, chỉ ở lịch sử của task). Biến không `scope` là toàn cục của instance. |
+| Đua hoàn thành cùng lúc | 6 request song song cùng task: 1 × 200, còn lại 404 **hoặc 500** | Flowable **không** trả 409 như giả định ban đầu. Đo 60 vòng × 6: 60 × 200, 262 × 404, 38 × 500 với 3 thông điệp khác nhau (`… was updated by another transaction concurrently` cho Execution hoặc ProcessInstance, và một `NullPointerException … processInstanceExecution is null`). Client không so khớp thông điệp: gặp 500 thì hỏi `historic_task_done`; task đã xong (bên thắng đã commit) → `TaskGone`, chưa xong → `WorkflowUnavailable`. 404/409 → `TaskGone`. |
+| Complete sai dữ liệu | `decision` không khớp điều kiện cổng, hoặc thiếu biến điều kiện → 500 (`No outgoing sequence flow…` / `Unknown property used in expression`); task **vẫn còn** | Bridge (Task 6) phải kiểm quyết định hợp lệ trước khi gọi Flowable. |
+| Task đã xong | `GET /history/historic-task-instances/{id}` → `endTime` khác null khi đã xong, null khi còn mở; id lạ → 404 | |
+| Biến `dxos_intent_id` lúc hoàn thành | `GET /history/historic-variable-instances?taskId=<id>&variableName=dxos_intent_id` → `data[0].variable.value`, kèm `taskId` | Task chưa hoàn thành hoặc không có biến → `data: []`. |
+| Kết quả | `GET /runtime/process-instances/{id}` (200 = đang chạy; 404 = đã kết thúc) rồi `GET /history/historic-process-instances/{id}` → `endTime`, `endActivityId` (vd. `approved`), `deleteReason`, `businessKey` | Id lạ ở cả hai nơi → 404 cả hai. |
+| Xác thực | Sai mật khẩu hoặc thiếu → 401 (`WWW-Authenticate: Basic`) | Client coi 401 và 403 là `WorkflowUnavailable`. |
+
+Hệ quả cho các task sau:
+- Task 6 (bridge) gửi `dxos_intent_id` bằng `complete(task_id, vars, local_variables={"dxos_intent_id": …})` và đối soát bằng `historic_task_done` + `historic_intent_id`.
+- Không dùng `candidateGroupIn` ở bất kỳ đâu; test sống `test_candidate_group_filter_really_filters` canh việc lọc nhóm có hiệu lực.
+- Mô hình BPMN của app phải đặt `decision` ở mỗi cổng; người gọi `complete` chịu trách nhiệm chỉ gửi giá trị nằm trong `decisions_by_task` (Task 3).
+
 ## 4. Kết nối `flowable-db` bằng tài khoản riêng
 ```yaml
 SPRING_DATASOURCE_URL: jdbc:postgresql://flowable-db:5432/flowable

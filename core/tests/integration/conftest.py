@@ -241,3 +241,29 @@ def s3_settings(make_settings, core_dsn, fake_clamd, s3_buckets, request):
         port = int(p)
     return make_settings(database_url=core_dsn, s3_endpoint=S3_ENDPOINT, clamd_host=host, clamd_port=port,
                          **s3_buckets)
+
+
+# ---------------------------------------------------------------- Flowable (Plan 02 Task 4)
+FLOWABLE_URL = os.environ.get("DXOS_TEST_FLOWABLE_URL", "http://127.0.0.1:58080/flowable-rest/service")
+FLOWABLE_USER = os.environ.get("DXOS_TEST_FLOWABLE_USER", "rest-admin")
+FLOWABLE_PASSWORD = os.environ.get("DXOS_TEST_FLOWABLE_PASSWORD", "changeme-test")
+
+
+@pytest.fixture
+async def flowable_client():
+    """FlowableClient tới Flowable 7.1.0 thật (compose.test, H2, dùng chung giữa các lần chạy test).
+
+    Không với tới được thì bỏ qua, trừ khi DXOS_TEST_REQUIRE_DB=1 (CI) thì báo lỗi.
+    Test phải chịu được dữ liệu cũ: dùng business key riêng mỗi lần và chọn task theo process instance.
+    """
+    from dxos_core.workflow.flowable import FlowableClient, WorkflowUnavailable
+
+    client = FlowableClient(FLOWABLE_URL, FLOWABLE_USER, FLOWABLE_PASSWORD, timeout_s=15.0)
+    try:
+        await client.ping()
+    except WorkflowUnavailable as exc:
+        msg = f"cần Flowable ở {FLOWABLE_URL} cho integration test ({exc})"
+        if os.environ.get("DXOS_TEST_REQUIRE_DB") == "1":
+            pytest.fail(msg)
+        pytest.skip(msg)
+    return client

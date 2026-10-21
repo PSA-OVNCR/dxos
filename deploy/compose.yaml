@@ -138,7 +138,11 @@ services:
       # Chỉ dùng lúc khởi động để chạy migration; entrypoint xóa 2 biến này trước khi exec uvicorn.
       DXOS_MIGRATE_DATABASE_URL: postgresql://dxos_owner:${CORE_DB_OWNER_PASSWORD:?đặt CORE_DB_OWNER_PASSWORD trong .env}@core-db:5432/dxos
       DXOS_CORE_DB_PASSWORD: ${CORE_DB_APP_PASSWORD:?đặt CORE_DB_APP_PASSWORD trong .env}
-    secrets: *core-secrets
+      DXOS_FLOWABLE_URL: http://flowable:8080/flowable-rest/service
+      DXOS_FLOWABLE_USER: ${FLOWABLE_REST_USER:-rest-admin}
+      DXOS_FLOWABLE_PASSWORD_FILE: /run/secrets/flowable-rest-password
+    # Chỉ trust-core-api gọi Flowable (net-wf) nên chỉ nó có flowable-rest-password; worker thì không.
+    secrets: [s3-access-key, s3-secret-key, openbao-core-token, actor-hmac-key, flowable-rest-password]
     depends_on:
       core-db: {condition: service_healthy}
     networks: [net-app, net-idp, net-wf, net-data]
@@ -282,6 +286,8 @@ secrets:
   s3-secret-key:      {environment: S3_SECRET_KEY}
   openbao-core-token: {environment: OPENBAO_CORE_TOKEN}
   actor-hmac-key:     {environment: DXOS_ACTOR_HMAC_KEY}
+  # Cùng giá trị với mật khẩu admin của Flowable (image Flowable chỉ đọc biến môi trường, không đọc tệp).
+  flowable-rest-password: {environment: FLOWABLE_REST_PASSWORD}
 
 volumes:
   anchor-repo:

@@ -19,7 +19,7 @@ help:
 	@echo "make ps / logs    - trạng thái / log các container"
 	@echo "make netcheck     - kiểm tra ma trận mạng AT-01 trên stack đang chạy"
 	@echo "make test-infra   - test sống (marker infra) trên stack đang chạy"
-	@echo "make test-db-up   - dựng PostgreSQL cho integration test (127.0.0.1:55432)"
+	@echo "make test-db-up   - dựng dịch vụ cho integration test (PostgreSQL :55432, OpenBao, SeaweedFS, Flowable :58080)"
 	@echo "make test-integration - integration test (marker integration), cần make test-db-up"
 	@echo "make pin-images   - ghim digest mọi image trong deploy/ (cần Docker có buildx)"
 
@@ -54,7 +54,7 @@ logs:
 	$(COMPOSE) logs --tail=100
 
 test-db-up:
-	docker compose -f deploy/compose.test.yaml up -d --wait core-db seaweedfs openbao
+	docker compose -f deploy/compose.test.yaml up -d --wait core-db seaweedfs openbao flowable
 
 test-integration:
 	$(PYTHON) -m pytest -m integration -v

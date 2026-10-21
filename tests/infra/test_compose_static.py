@@ -113,11 +113,40 @@ def test_matrix_probes_agree_with_membership(matrix):
 def test_integration_compose_binds_only_loopback():
     """compose.test.yaml (integration test) chỉ mở cổng trên 127.0.0.1 và đánh dấu dev-only."""
     cfg = _compose_config("compose.test.yaml")
-    assert {"core-db", "openbao", "clamav", "seaweedfs"} <= set(cfg["services"])
+    assert {"core-db", "openbao", "clamav", "seaweedfs", "flowable"} <= set(cfg["services"])
     for svc, d in cfg["services"].items():
         assert (d.get("labels") or {}).get("dxos.dev-only") == "true", svc
         for p in d.get("ports", []):
             assert p.get("host_ip") == "127.0.0.1", (svc, p)
+
+
+def test_flowable_rest_password_secret_only_for_trust_core_api(compose_cfg):
+    """Secret flowable-rest-password chỉ cấp cho trust-core-api (quyền tối thiểu); worker không gọi."""
+    def has_secret(d: dict) -> bool:
+        secrets = d.get("secrets") or []
+        names = secrets if isinstance(secrets, dict) else [x["source"] if isinstance(x, dict) else x
+                                                           for x in secrets]
+        return "flowable-rest-password" in names
+
+    assert {s for s, d in compose_cfg["services"].items() if has_secret(d)} == {"trust-core-api"}
+    api_env = compose_cfg["services"]["trust-core-api"]["environment"]
+    assert api_env["DXOS_FLOWABLE_PASSWORD_FILE"] == "/run/secrets/flowable-rest-password"
+    assert "DXOS_FLOWABLE_PASSWORD_FILE" not in compose_cfg["services"]["trust-core-worker"]["environment"]
+    # Image Flowable chỉ đọc biến môi trường, nên mật khẩu REST (giá trị mẫu trong .env.example)
+    # chỉ được nằm ở chính Flowable.
+    for svc, d in compose_cfg["services"].items():
+        values = [str(v) for v in (d.get("environment") or {}).values()]
+        assert svc == "flowable" or not any("changeme-flowable-rest" in v for v in values), svc
+
+
+def test_integration_flowable_is_h2_on_loopback_with_healthcheck():
+    cfg = _compose_config("compose.test.yaml")["services"]["flowable"]
+    assert cfg["image"].startswith("flowable/flowable-rest:7.1.0@sha256:")
+    ports = [(p["host_ip"], p["published"], p["target"]) for p in cfg["ports"]]
+    assert ports == [("127.0.0.1", "58080", 8080)]
+    assert cfg["healthcheck"]["test"]
+    env = cfg.get("environment") or {}
+    assert not any("postgres" in str(v).lower() for v in env.values())   # H2, không DB riêng
 
 
 def test_keycloak_served_under_same_path_inside_and_outside(compose_cfg):
