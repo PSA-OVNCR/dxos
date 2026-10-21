@@ -58,6 +58,32 @@ jobs:
       - run: make dev-install
       - run: python -m pytest -m integration -v
 
+  # Kiểm sống Caddyfile thật (danh sách IP host quản trị trả 403, spec 6.2): cần binary Caddy, ghim đúng 2.10.0.
+  caddy-live:
+    runs-on: ubuntu-latest
+    env:
+      CADDY_VERSION: "2.10.0"
+      # sha512 của caddy_2.10.0_linux_amd64.tar.gz theo tệp checksums của bản phát hành (kiểm cả hai nguồn).
+      CADDY_SHA512: 626682d623ca04356ab3c9a93a82386cfde6d8243b11f2d0eea9e97ba630c7ada62373401e96b72c6690c98ae8dd004d61fafe477f5249690d5cb251ebbfd2d9
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Tải Caddy ${CADDY_VERSION} và kiểm sha512 theo tệp checksums của bản phát hành
+        run: |
+          base="https://github.com/caddyserver/caddy/releases/download/v${CADDY_VERSION}"
+          tarball="caddy_${CADDY_VERSION}_linux_amd64.tar.gz"
+          mkdir -p "$RUNNER_TEMP/caddy" && cd "$RUNNER_TEMP/caddy"
+          curl -fsSLO "$base/$tarball"
+          curl -fsSLO "$base/caddy_${CADDY_VERSION}_checksums.txt"
+          grep " $tarball\$" "caddy_${CADDY_VERSION}_checksums.txt" | sha512sum -c -
+          echo "$CADDY_SHA512  $tarball" | sha512sum -c -
+          tar -xzf "$tarball" caddy
+          ./caddy version | grep -F "v${CADDY_VERSION}"
+          echo "CADDY_BIN=$PWD/caddy" >> "$GITHUB_ENV"
+      - run: make dev-install
+      - run: python -m pytest tests/deploy/test_caddy_admin_allowlist_live.py -v
+
   secrets:
     runs-on: ubuntu-latest
     steps:

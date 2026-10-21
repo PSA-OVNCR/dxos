@@ -15,6 +15,8 @@ const OUT = process.env.DXOS_SHOT_DIR;
 const BASE = `${ids.base}/apps/verify/`;
 const log = (...a) => console.log(...a);
 let failed = 0;
+const crypto = require("crypto");
+const sha256File = async (f) => crypto.createHash("sha256").update(fs.readFileSync(f)).digest("hex");
 const check = (name, ok, extra) => { log((ok ? "PASS " : "FAIL ") + name + (extra ? "  " + extra : "")); if (!ok) failed++; };
 
 (async () => {
@@ -126,16 +128,21 @@ const check = (name, ok, extra) => { log((ok ? "PASS " : "FAIL ") + name + (extr
   await page.unroute("**/verify/v1/seals/" + "C".repeat(26));
   // 7) chữ ký sai / inclusion sai -> Không hợp lệ
   await page.route("**/verify/v1/seals/" + "D".repeat(26), (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
-    seal_id: "D".repeat(26), status: "VALID", app_id: "x", issued_at: "2026-10-21T01:00:00Z", key_version: 1, public_fields: {}, require_file: false,
-    attachments_count: 0, signature_valid: false, inclusion: { leaf_index: 1, tree_size: 2, verified: true, anchored: null }, issuer: null, public_labels: {} }) }));
+    seal_id: "D".repeat(26), status: "VALID", app_id: "x", issued_at: "2026-10-21T01:00:00Z", key_version: 1, public_fields: { so_hieu: "BI-LOI-1" }, require_file: true,
+    attachments_count: 1, signature_valid: false, inclusion: { leaf_index: 1, tree_size: 2, verified: true, anchored: { tree_size: 2, repo: "r", commit_sha: "c" } }, issuer: { name: "Cong ty gia mao", id: null }, public_labels: { so_hieu: "So hieu" } }) }));
   await open("D".repeat(26)); await waitBadge(/Không hợp lệ/);
-  check("signature_valid=false → Không hợp lệ, issuer null → (không xác định), không nút gói", /\(không xác định\)/.test(await text("#issuer")) && await page.locator("#bundle").isHidden());
+  const onlyBadgeAndReason = async () =>
+    (await text("#issuer")) === "" && (await page.locator("#fields dt").count()) === 0 && (await text("#ledger-line")) === "" &&
+    (await text("#anchor-line")) === "" && await page.locator("#bundle").isHidden() && await page.locator("#file-check").isHidden() &&
+    (await text("#status-note")).length > 0;
+  check("signature_valid=false → Không hợp lệ chỉ có huy hiệu + lý do (không issuer, trường, sổ cái, ô tệp, gói)", await onlyBadgeAndReason(), await text("#status-note"));
+  check("lý do nêu chữ ký sai", /chữ ký niêm phong không khớp/.test(await text("#status-note")));
   await page.unroute("**/verify/v1/seals/" + "D".repeat(26));
   await page.route("**/verify/v1/seals/" + "E".repeat(26), (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
-    seal_id: "E".repeat(26), status: "VALID", app_id: "x", issued_at: "2026-10-21T01:00:00Z", key_version: 1, public_fields: {}, require_file: false,
-    attachments_count: 0, signature_valid: true, inclusion: { leaf_index: 1, tree_size: 2, verified: false, anchored: null }, issuer: null, public_labels: {} }) }));
+    seal_id: "E".repeat(26), status: "VALID", app_id: "x", issued_at: "2026-10-21T01:00:00Z", key_version: 1, public_fields: { so_hieu: "BI-LOI-2" }, require_file: false,
+    attachments_count: 1, signature_valid: true, inclusion: { leaf_index: 1, tree_size: 2, verified: false, anchored: null }, issuer: { name: "Cong ty gia mao", id: null }, public_labels: { so_hieu: "So hieu" } }) }));
   await open("E".repeat(26)); await waitBadge(/Không hợp lệ/);
-  check("inclusion.verified=false (có STH) → Không hợp lệ", true);
+  check("inclusion.verified=false (có STH) → Không hợp lệ, chỉ huy hiệu + lý do", await onlyBadgeAndReason() && /không kiểm được chứng minh/.test(await text("#status-note")));
   await page.unroute("**/verify/v1/seals/" + "E".repeat(26));
 
   await page.route("**/verify/v1/seals/" + "F".repeat(26), (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
@@ -158,6 +165,25 @@ const check = (name, ok, extra) => { log((ok ? "PASS " : "FAIL ") + name + (extr
   await page.press("#seal-input", "Enter");
   await waitBadge(/Hợp lệ/);
   check("nhập tay mã + Enter → đặt location.hash", page.url().endsWith("#" + ids.nofile));
+
+  // 8b) tệp chọn sau ghi đè tệp chọn trước: phản hồi :check cũ về muộn không được hiện "Khớp"
+  await open(ids.file); await waitBadge(/Hợp lệ/);
+  let held = null, seen = 0, releaseFirst;
+  const firstHeld = new Promise((res) => (releaseFirst = res));
+  await page.route(/:check$/, async (route) => {
+    seen++;
+    if (seen === 1) { held = route; releaseFirst(); } else { await route.continue(); }
+  });
+  await page.setInputFiles("#file-input", path.join(DIR, "original.pdf"));      // :check thứ nhất bị giữ lại
+  await firstHeld;
+  await page.setInputFiles("#file-input", path.join(DIR, "modified.pdf"));      // :check thứ hai chạy bình thường
+  await page.waitForFunction(() => /Không khớp/.test(document.getElementById("file-result").textContent));
+  await held.continue();                                                         // phản hồi cũ (match: true) về muộn
+  await page.waitForTimeout(700);
+  check("pick cũ về muộn không đổi kết quả: vẫn Không khớp, không nút gói, hash của tệp sau",
+    (await text("#file-result")).startsWith("Không khớp") && await page.locator("#bundle-go").isHidden() &&
+    (await text("#file-hash")).includes((await sha256File(path.join(DIR, "modified.pdf")))), await text("#file-result"));
+  await page.unroute(/:check$/);
 
   // 9) CSP
   const csp = await page.evaluate(() => window.__csp || []);

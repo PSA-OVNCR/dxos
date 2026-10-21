@@ -95,11 +95,21 @@ def test_legal_mapping_link_points_to_github():
 
 def test_page_has_no_dangerous_dom_or_eval_apis():
     src = JS.read_text(encoding="utf-8")
-    for banned in ("document.write", "eval(", "new Function", "setTimeout(\"", "setInterval(\"", ".style.",
-                   'setAttribute("style"', "setAttribute('style'", "XMLHttpRequest", "sendBeacon",
-                   "importScripts", "WebSocket", "localStorage", "sessionStorage", "document.cookie"):
+    for banned in ("document.write", "document.writeln", "eval(", "new Function", "Function(",
+                   "setTimeout(\"", "setInterval(\"", ".style.", 'setAttribute("style"',
+                   "setAttribute('style'",
+                   'setAttribute("on', "setAttribute('on", "XMLHttpRequest", "sendBeacon", "importScripts",
+                   "WebSocket", "localStorage", "sessionStorage", "document.cookie", "location.assign",
+                   "location.replace", "window.open"):
         assert banned not in src, banned
     assert "textContent" in src
+    assert not re.search(r"\.src\s*=[^=]", src)                        # không gán src (ảnh, script, iframe)
+    # Chỉ một phép gán .href: URL blob dựng từ phản hồi của máy chủ, trong saveText.
+    hrefs = list(re.finditer(r"\.href\s*=[^=]", src))
+    assert len(hrefs) == 1
+    save = src[src.index("function saveText"):]
+    save = save[:save.index("\n  }\n")]
+    assert "link.href = href;" in save and "URL.createObjectURL(blob)" in save
 
 
 def test_html_has_no_inline_code_style_or_form():
@@ -127,13 +137,74 @@ def test_page_loads_nothing_from_other_origins():
 def test_every_fetch_url_uses_validated_seal_id():
     src = JS.read_text(encoding="utf-8")
     assert re.search(r"/\^\[A-Z2-7\]\{26\}\$/", src), "seal_id phải khớp ^[A-Z2-7]{26}$ trước khi dùng"
-    urls = re.findall(r"fetch\(\s*([^,)]+)", src)
-    assert urls
     assert "/verify/v1/seals/" in src and src.count("encodeURIComponent(sealId)") >= 1
-    for u in urls:
-        assert "location" not in u and "hash" not in u.lower()
     # Đường dẫn tương đối cùng nguồn, không URL tuyệt đối tới nơi khác.
     assert "http://" not in src and "https://" not in src.replace("https://github.com/PSA-OVNCR/dxos", "")
+
+
+def _call_args(src: str, start: int) -> list[str]:
+    """Đối số cấp cao nhất của lời gọi có ngoặc mở ở ``src[start]``."""
+    depth, args, cur = 0, [], []
+    for ch in src[start:]:
+        if ch in "([{":
+            depth += 1
+            if depth == 1:
+                continue
+        elif ch in ")]}":
+            depth -= 1
+            if depth == 0:
+                break
+        elif ch == "," and depth == 1:
+            args.append("".join(cur).strip())
+            cur = []
+            continue
+        cur.append(ch)
+    args.append("".join(cur).strip())
+    return [a for a in args if a]
+
+
+def test_every_api_call_site_sends_only_a_hash_body():
+    """Mọi chỗ gọi ``api(...)``: URL dựng từ ``sealUrl(...)``, init chỉ là ``jsonPost(...)`` (thân {sha256})
+    hoặc vắng (GET cố định). Không đường nào truyền File/Blob/FormData vào ``fetch``."""
+    src = re.sub(r"//[^\n]*", "", JS.read_text(encoding="utf-8"))          # bỏ chú thích
+    sites = [m.end() - 1 for m in re.finditer(r"(?<![\w.])api\(", src)
+             if not src[max(0, m.start() - 15):m.start()].endswith("function ")]
+    assert len(sites) >= 4
+    for pos in sites:
+        args = _call_args(src, pos)
+        assert 1 <= len(args) <= 2, args
+        assert args[0].startswith("sealUrl("), args
+        assert len(args) == 1 or args[1].startswith("jsonPost("), args
+    # Chỗ duy nhất gọi fetch là chính hàm api(), với init lấy từ tham số hoặc hằng GET.
+    assert len(re.findall(r"\bfetch\(", src)) == 1
+    body_of_json_post = src[src.index("function jsonPost"):]
+    body_of_json_post = body_of_json_post[:body_of_json_post.index("\n  }\n")]
+    assert "JSON.stringify({ sha256: hex })" in body_of_json_post
+
+
+def test_stale_file_pick_cannot_set_match():
+    src = JS.read_text(encoding="utf-8")
+    body = src[src.index("async function onFilePicked"):]
+    body = body[:body.index("\n  }\n")]
+    assert body.count("++pickToken") == 1 and "const pick = ++pickToken" in body
+    assert body.count("pick !== pickToken") >= 3                 # sau băm, sau :check, sau resp.json()
+    assert body.index("pick !== pickToken") < body.index("matchedDigest = hex")
+
+
+def test_invalid_seal_shows_only_badge_and_reason():
+    src = JS.read_text(encoding="utf-8")
+    body = src[src.index("function renderView"):]
+    body = body[:body.index("\n  }\n")]
+    invalid = body[body.index("if (isInvalid(v))"):]
+    invalid = invalid[:invalid.index("}")]
+    assert 'showStatus("Không hợp lệ", "bad", invalidReason(v));' in invalid and "return;" in invalid
+    assert body.index("return;", body.index("if (isInvalid(v))")) < body.index("renderIssuer(v)")
+
+
+def test_ci_runs_live_caddy_tests_with_pinned_binary():
+    ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    assert "caddy_2.10.0_linux_amd64.tar.gz" in ci and "sha512sum -c" in ci
+    assert "CADDY_BIN" in ci and "test_caddy_admin_allowlist_live.py" in ci
 
 
 def test_page_text_uses_required_labels_and_states():

@@ -27,6 +27,7 @@
   let view = null;         // thân JSON của GET /verify/v1/seals/{id}
   let matchedDigest = null; // sha256 của tệp đã khớp, dùng cho POST :bundle
   let generation = 0;      // bỏ kết quả của lần tải cũ khi người dùng đổi mã
+  let pickToken = 0;       // tăng mỗi lần chọn tệp; phản hồi của lần chọn cũ không được đổi kết quả
 
   // ---------------------------------------------------------------- tiện ích DOM
   function setText(node, text, tone) {
@@ -69,8 +70,14 @@
     return API + encodeURIComponent(sealId) + suffix;
   }
 
+  // GET cố định, không thân.
+  const GET_INIT = {
+    method: "GET", cache: "no-store", credentials: "omit", headers: { Accept: "application/json" },
+  };
+
+  // Chỉ có hai dạng gọi: api(url) là GET cố định, api(url, jsonPost(hex)) là POST thân {"sha256"}.
   async function api(url, init) {
-    const resp = await fetch(url, init);
+    const resp = await fetch(url, init === undefined ? GET_INIT : init);
     return resp;
   }
 
@@ -219,7 +226,9 @@
       return;
     }
     if (isInvalid(v)) {
+      // Không đáng tin thì không hiển thị gì khác (đơn vị, trường, sổ cái, ô tệp, gói): chỉ huy hiệu và lý do.
       showStatus("Không hợp lệ", "bad", invalidReason(v));
+      return;
     } else if (v.status === "REVOKED") {
       showStatus("Đã thu hồi", "bad", "Niêm phong này đã bị thu hồi: không dùng làm căn cứ xác nhận văn bản.");
     } else if (v.status === "VALID") {
@@ -263,8 +272,7 @@
     showStatus("Đang kiểm tra…", "warn", "");
     let resp;
     try {
-      resp = await api(sealUrl(""), { method: "GET", cache: "no-store", credentials: "omit",
-                                     headers: { Accept: "application/json" } });
+      resp = await api(sealUrl(""));
     } catch (_err) {
       if (mine !== generation) return;
       showStatus("Chưa kiểm được", "warn", "Không kết nối được máy chủ, thử lại sau.");
@@ -312,6 +320,7 @@
 
   async function onFilePicked() {
     const mine = generation;
+    const pick = ++pickToken;
     matchedDigest = null;
     show(el.fileHash, false);
     setText(el.fileResult, "");
@@ -327,10 +336,11 @@
       setText(el.fileResult, "Đang tính mã băm…");
       hex = await sha256Hex(picked);
     } catch (_err) {
+      if (pick !== pickToken) return;
       setText(el.fileResult, "Không đọc được tệp này để tính mã băm.", "bad");
       return;
     }
-    if (mine !== generation) return;
+    if (mine !== generation || pick !== pickToken) return;
     if (!SHA256_HEX.test(hex)) return;
     setText(el.fileHash, "SHA-256: " + hex);
     show(el.fileHash, true);
@@ -338,11 +348,11 @@
     try {
       resp = await api(sealUrl(":check"), jsonPost(hex));
     } catch (_err) {
-      if (mine !== generation) return;
+      if (mine !== generation || pick !== pickToken) return;
       setText(el.fileResult, "Không kết nối được máy chủ, thử lại sau.", "warn");
       return;
     }
-    if (mine !== generation) return;
+    if (mine !== generation || pick !== pickToken) return;
     if (!resp.ok) {
       setText(el.fileResult, resp.status === 429 ? "Quá nhiều lượt kiểm tra, thử lại sau ít phút."
         : "Chưa đối chiếu được (máy chủ trả lỗi " + String(resp.status) + ").", "warn");
@@ -354,7 +364,7 @@
     } catch (_err) {
       body = null;
     }
-    if (mine !== generation) return;
+    if (mine !== generation || pick !== pickToken) return;
     if (body && body.status === "SEAL_PENDING") {
       setText(el.fileResult, "Niêm phong đang chờ hoàn tất: chưa đối chiếu được, thử lại sau.", "warn");
     } else if (body && body.match === true) {
@@ -392,21 +402,15 @@
   async function onBundle() {
     if (view === null || sealId === null) return;
     const mine = generation;
+    const pick = pickToken;
+    const needsFile = view.require_file === true;
+    const digest = matchedDigest;
+    if (needsFile && digest === null) return;
     show(el.bundleError, false);
     el.bundleGo.disabled = true;
     try {
-      let init;
-      let url;
-      if (view.require_file === true) {
-        if (matchedDigest === null) return;
-        url = sealUrl(":bundle");
-        init = jsonPost(matchedDigest);
-      } else {
-        url = sealUrl("/bundle");
-        init = { method: "GET", cache: "no-store", credentials: "omit" };
-      }
-      const resp = await api(url, init);
-      if (mine !== generation) return;
+      const resp = needsFile ? await api(sealUrl(":bundle"), jsonPost(digest)) : await api(sealUrl("/bundle"));
+      if (mine !== generation || pick !== pickToken) return;
       if (!resp.ok) {
         setText(el.bundleError, resp.status === 503 ? "Tạm thời chưa dựng được gói (chưa kiểm được khóa), thử lại sau."
           : "Chưa tải được gói bằng chứng (máy chủ trả lỗi " + String(resp.status) + ").", "bad");
@@ -414,7 +418,7 @@
         return;
       }
       const text = await resp.text();
-      if (mine !== generation) return;
+      if (mine !== generation || pick !== pickToken) return;
       saveText(text, bundleName(resp));
     } catch (_err) {
       setText(el.bundleError, "Không kết nối được máy chủ, thử lại sau.", "bad");

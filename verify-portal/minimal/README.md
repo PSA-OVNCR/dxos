@@ -11,6 +11,7 @@ Trang tĩnh (HTML + JS thuần + CSS, không build, không thư viện ngoài) d
 ## Quy tắc bất biến
 
 - **Tệp không rời trình duyệt (R-2).** `crypto.subtle.digest("SHA-256", ...)` tính tại máy người dùng; chỉ `{"sha256": "<hex>"}` (JSON) được gửi tới `:check` và `:bundle`. Không có `<form>`, không `FormData`, không đưa `File`/`Blob` của người dùng vào `fetch`.
+- **Giới hạn đã biết:** `file.arrayBuffer()` nạp cả tệp vào bộ nhớ để băm (WebCrypto không băm theo luồng), nên tệp rất lớn có thể không băm được trên máy yếu; khi đó trang báo "Không đọc được tệp này" và không gửi gì.
 - **Mọi giá trị từ API gán bằng `textContent`.** Nhãn đến từ manifest, giá trị do người dùng nhập, nên cả hai không đáng tin. Không dùng `innerHTML`, `insertAdjacentHTML`, `outerHTML`, `eval`.
 - **`seal_id` chỉ từ fragment** (không từ query), phải khớp `^[A-Z2-7]{26}$` trước khi đưa vào URL (`encodeURIComponent`).
 - **CSP** (Caddyfile, `handle_path /apps/verify/*`): `default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`.
@@ -26,6 +27,8 @@ Trang tĩnh (HTML + JS thuần + CSS, không build, không thư viện ngoài) d
 | `REVOKED` | Đã thu hồi |
 | `VALID`, `signature_valid: true` và `inclusion.verified: true` | Hợp lệ |
 | `VALID`, `signature_valid: true`, chưa có STH phủ lá (`inclusion.tree_size` null) | "Chữ ký hợp lệ — đang chờ công bố vào sổ cái" (lớp CSS `wait`, không phải "Hợp lệ") |
+
+Với "Không hợp lệ" trang chỉ hiện huy hiệu và lý do (chữ ký sai, hoặc không thuộc sổ cái); không hiện đơn vị, trường công khai, chi tiết sổ cái, ô chọn tệp hay nút gói.
 
 Ngay sau khi niêm phong, `inclusion.verified` là `false` vì chưa có STH nào phủ lá (`inclusion.tree_size` là `null`). Trang không báo "Không hợp lệ" cũng không báo "Hợp lệ" trần: hiện trạng thái chờ ở trên, dòng "Gói bằng chứng sẵn sàng sau lần công bố STH kế tiếp" và **không** có nút tải gói. Thiếu `inclusion` hoặc `signature_valid` khác `true` đều là "Không hợp lệ".
 

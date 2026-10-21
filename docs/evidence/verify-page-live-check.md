@@ -1,6 +1,6 @@
 # Kiểm sống trang đối soát tối giản (Plan 02 Task 10, Step 3)
 
-Ngày: 2026-10-21. Commit nền: `d7e06b2` (cộng thay đổi của Task 10). Không có Docker trong môi trường này, nên không chạy được `https://localhost/` của stack dev-lite; thay bằng:
+Ngày: 2026-10-21. Commit nền: `d7e06b2` (cộng thay đổi của Task 10). Phần curl bên dưới là lần chạy đầu; danh sách IP host quản trị và Playwright được chạy lại ở các fix round cuối tệp. Không có Docker trong môi trường này, nên không chạy được `https://localhost/` của stack dev-lite; thay bằng:
 
 - Caddy 2.10.0 (cùng minor với image compose) chạy **Caddyfile thật** của repo, chỉ thay `apisix:9080` bằng uvicorn của API thật, `root * /srv/verify` bằng `verify-portal/minimal`, `root * /srv` bằng một thư mục thử; địa chỉ site `localhost:58444` (TLS nội bộ của Caddy), host admin `admin.localhost:58444` với `DXOS_ADMIN_ALLOWED_IPS=203.0.113.7/32`.
 - uvicorn chạy `create_app` của lõi với DB test, signer cục bộ, niêm phong thật do harness `flow` tạo (Flowable, SeaweedFS, fake clamd thật).
@@ -126,52 +126,9 @@ body length: 77
 {"match":false}  [http=200]
 ```
 
-## Playwright (trang thật qua Caddy)
+## Playwright
 
-```
-PASS tiêu đề
-PASS h1
-PASS không có kết quả khi chưa có mã
-  badge: Hợp lệ | issuer: Đơn vị niêm phong: Tổ chức thử nghiệm
-  fields: ["ref","01/TF","Tiêu đề","Hồ sơ thử","Thời điểm niêm phong","17:26:38 21/10/2026 (giờ Việt Nam) — 2026-10-21T10:26:38Z","Mã niêm phong","I4NYLQHXCFKRZ5QW3OIFNWM6ME","Số tệp đính kèm","1"]
-  ledger: Sổ cái: đã kiểm niêm phong nằm ở vị trí 9 của cây có 35 mục (máy chủ kiểm). | anchor: Chưa neo công khai.
-PASS Hợp lệ
-PASS Đơn vị niêm phong hiển thị
-PASS Thời điểm niêm phong
-PASS nhãn Tiêu đề thay cho title / tên trường khi không có nhãn
-PASS ô chọn tệp hiện
-PASS chưa có nút gói trước khi khớp tệp
-PASS tệp đúng: Khớp  Khớp: tệp này đúng là tệp đã được niêm phong.
-PASS nút gói hiện sau khi khớp
-PASS đúng 1 request :check, thân chỉ là {sha256}  {"sha256":"fe4a35f0ca98e73ee2f8879ef86a2d3993f0e3d388639716138d275d51eb0ee1"}
-PASS không request nào mang nội dung tệp (thân < 300 byte, không chứa byte đầu của tệp)
-PASS tải gói: tên tệp  I4NYLQHXCFKRZ5QW3OIFNWM6ME.dxos-bundle.json
-PASS gói là JSON có chữ ký + sth  format,status,payload,signature,seal_key,ledger,inclusion,sth,sth_keys,anchored,generated_at
-PASS POST :bundle chỉ mang hash
-PASS tệp sửa 1 byte: Không khớp  Không khớp: tệp này khác tệp đã được niêm phong (đã bị sửa hoặc là tệp khác).
-PASS nút gói ẩn khi không khớp
-PASS không cần tệp: không có ô chọn tệp
-PASS không cần tệp: có nút gói
-PASS GET bundle tải về .dxos-bundle.json
-  anchor-line: Chưa neo công khai.
-PASS Đã thu hồi
-PASS chưa có STH phủ: Hợp lệ + dòng chờ STH  Gói bằng chứng sẵn sàng sau lần công bố STH kế tiếp. | Sổ cái: chưa có STH phủ niêm phong này (chờ lần công bố STH kế tiếp).
-PASS Không tìm thấy
-PASS sai dạng: báo lỗi, không gọi API
-PASS XSS: không tạo phần tử img/script từ dữ liệu
-PASS XSS: chuỗi hiện nguyên văn
-PASS 503: thông báo thử lại, không phải Không hợp lệ
-PASS signature_valid=false → Không hợp lệ, issuer null → (không xác định), không nút gói
-PASS inclusion.verified=false (có STH) → Không hợp lệ
-PASS nhập tay mã + Enter → đặt location.hash
-PASS không vi phạm CSP nào trong cả phiên  []
-PASS không lỗi console/trang  []
-  CSP header: default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
-PASS CSP chặn script nội tuyến
-PASS 375px: không cuộn ngang
-ALL PASS
-PASS Chờ niêm phong: không lộ trường, không ô tệp, không nút gói | Văn bản đã được duyệt, niêm phong đang được hoàn tất. Thử lại sau ít phút.
-```
+Lần chạy đầu (https, bản trang đầu) đã được thay bằng lần chạy cuối ở cuối tệp (fix round 1).
 
 ## Ảnh chụp
 
@@ -215,14 +172,16 @@ localhost       /apps/other.txt            -> 200
 
 `/apps/verify` (không dấu `/` cuối) vẫn trả 308 cho IP bị chặn: `redir` là directive chạy trước mọi `handle`, chỉ chuyển hướng tới `/apps/verify/` (lúc đó bị 403), không lộ nội dung.
 
-### Playwright lần chạy lại (qua pytest opt-in `core/tests/integration/test_verify_page_browser.py`, Caddy http cục bộ)
+### Playwright, lần chạy cuối (fix round 1; pytest opt-in `core/tests/integration/test_verify_page_browser.py`, Caddy http cục bộ)
+
+Bao gồm ca tệp chọn sau ghi đè tệp chọn trước (phản hồi `:check` cũ về muộn không đổi kết quả) và ca niêm phong không hợp lệ chỉ hiện huy hiệu + lý do.
 
 ```
 PASS tiêu đề
 PASS h1
 PASS không có kết quả khi chưa có mã
   badge: Hợp lệ | issuer: Đơn vị niêm phong: Tổ chức thử nghiệm
-  fields: ["ref","01/TF","Tiêu đề","Hồ sơ thử","Thời điểm niêm phong","17:32:13 21/10/2026 (giờ Việt Nam) — 2026-10-21T10:32:13Z","Mã niêm phong","AAO7YGOO2UYLZJ4GVYR7TKXG3M","Số tệp đính kèm","1"]
+  fields: ["ref","01/TF","Tiêu đề","Hồ sơ thử","Thời điểm niêm phong","17:40:53 21/10/2026 (giờ Việt Nam) — 2026-10-21T10:40:53Z","Mã niêm phong","A74AJ4FVRMOVNTZCFL6CZOZK6Y","Số tệp đính kèm","1"]
   ledger: Sổ cái: đã kiểm niêm phong nằm ở vị trí 9 của cây có 35 mục (máy chủ kiểm). | anchor: Chưa neo công khai.
 PASS Hợp lệ
 PASS Đơn vị niêm phong hiển thị
@@ -234,14 +193,14 @@ PASS tệp đúng: Khớp  Khớp: tệp này đúng là tệp đã được ni�
 PASS nút gói hiện sau khi khớp
 PASS đúng 1 request :check, thân chỉ là {sha256}  {"sha256":"fe4a35f0ca98e73ee2f8879ef86a2d3993f0e3d388639716138d275d51eb0ee1"}
 PASS không request nào mang nội dung tệp (thân < 300 byte, không chứa byte đầu của tệp)
-PASS tải gói: tên tệp như máy chủ đặt  dxos-seal-AAO7YGOO2UYLZJ4GVYR7TKXG3M.json
+PASS tải gói: tên tệp như máy chủ đặt  dxos-seal-A74AJ4FVRMOVNTZCFL6CZOZK6Y.json
 PASS gói là JSON có chữ ký + sth  format,status,payload,signature,seal_key,ledger,inclusion,sth,sth_keys,anchored,generated_at
 PASS POST :bundle chỉ mang hash
 PASS tệp sửa 1 byte: Không khớp  Không khớp: tệp này khác tệp đã được niêm phong (đã bị sửa hoặc là tệp khác).
 PASS nút gói ẩn khi không khớp
 PASS không cần tệp: không có ô chọn tệp
 PASS không cần tệp: có nút gói
-PASS GET bundle tải về dxos-seal-<id>.json  dxos-seal-O7V3DHNYERXPIB6KQKKZWPYC2U.json
+PASS GET bundle tải về dxos-seal-<id>.json  dxos-seal-2OLYAY4OAPFMZYR2MHUYHLYVCM.json
   anchor-line: Chưa neo công khai.
 PASS Đã thu hồi
 PASS chưa có STH phủ: không phải 'Hợp lệ' trần, có lớp wait riêng
@@ -251,11 +210,13 @@ PASS sai dạng: báo lỗi, không gọi API
 PASS XSS: không tạo phần tử img/script từ dữ liệu
 PASS XSS: chuỗi hiện nguyên văn
 PASS 503: thông báo thử lại, không phải Không hợp lệ
-PASS signature_valid=false → Không hợp lệ, issuer null → (không xác định), không nút gói
-PASS inclusion.verified=false (có STH) → Không hợp lệ
+PASS signature_valid=false → Không hợp lệ chỉ có huy hiệu + lý do (không issuer, trường, sổ cái, ô tệp, gói)  Không đáng tin: chữ ký niêm phong không khớp nội dung đã niêm phong.
+PASS lý do nêu chữ ký sai
+PASS inclusion.verified=false (có STH) → Không hợp lệ, chỉ huy hiệu + lý do
 PASS signature_valid=true + tree_size=null → chờ công bố, không Hợp lệ
 PASS thiếu inclusion → Không hợp lệ
 PASS nhập tay mã + Enter → đặt location.hash
+PASS pick cũ về muộn không đổi kết quả: vẫn Không khớp, không nút gói, hash của tệp sau  Không khớp: tệp này khác tệp đã được niêm phong (đã bị sửa hoặc là tệp khác).
 PASS không vi phạm CSP nào trong cả phiên  []
 PASS không lỗi console/trang  []
   CSP header: default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
@@ -263,6 +224,4 @@ PASS CSP chặn script nội tuyến
 PASS 375px: không cuộn ngang
 ALL PASS
 PASS Chờ niêm phong: không lộ trường, không ô tệp, không nút gói | Văn bản đã được duyệt, niêm phong đang được hoàn tất. Thử lại sau ít phút.
-  /home/claude/dxos/.venv/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
-    from starlette.testclient import TestClient as TestClient  # noqa
 ```
