@@ -3,16 +3,15 @@ SPDX-FileCopyrightText: 2026 PSA_OVNCR
 SPDX-License-Identifier: Apache-2.0
 -->
 <script setup lang="ts">
-// Khung ứng dụng: đầu trang (tên, vai trò, đăng xuất), tải manifest một lần, màn hình lỗi đăng nhập.
-// Ẩn/hiện theo vai trò chỉ là tiện dụng; mọi quyết định do lõi, mọi lỗi của lõi hiện bằng ProblemMessage.
-import { ProblemMessage } from 'dxos-sdk-js/vue'
-import { computed, onMounted } from 'vue'
+// Khung App A: phần chung (đầu trang, đăng xuất, tải manifest, màn hình lỗi đăng nhập) là AppShell của SDK;
+// ở đây chỉ còn liên kết điều hướng theo vai trò (tiện dụng; lõi vẫn kiểm mọi lời gọi).
+import { AppShell } from 'dxos-sdk-js/vue'
+import { computed } from 'vue'
 import { RouterLink, RouterView } from 'vue-router'
 import { COL, useSession } from './session'
 import { hasRole } from './status'
 
-const session = useSession()
-const { auth, guard, roles, view, viewError } = session
+const { roles, view } = useSession()
 
 const ROLE_LABELS: Record<string, string> = {
   chuyen_vien: 'Chuyên viên',
@@ -22,56 +21,19 @@ const ROLE_LABELS: Record<string, string> = {
   nhan_vien: 'Nhân viên',
 }
 
-const who = computed(() => auth.profile()?.name ?? '')
-const roleText = computed(() => roles.value.map((r) => ROLE_LABELS[r] ?? r).join(', '))
-
-// Liên kết điều hướng chỉ hiện cho vai trò dùng được (tiện dụng; lõi vẫn kiểm mọi lời gọi).
 const showInbox = computed(() => hasRole(roles.value, Object.values(view.value?.workflow?.tasks ?? {}).map((t) => t.role)))
 const showRegister = computed(() => hasRole(
   roles.value, (view.value?.collections[COL]?.access.read ?? []).filter((r) => r.startsWith('role:')).map((r) => r.slice(5)),
 ))
-
-onMounted(() => { if (!guard.redirecting.value && !guard.rejected.value) void session.load() })
-
-async function logout(): Promise<void> {
-  guard.succeeded() // đăng xuất chủ động không phải là vòng lặp đăng nhập
-  await auth.logout()
-}
 </script>
 
 <template>
-  <section v-if="guard.rejected.value" class="dx-fatal" role="alert">
-    <h1>Phiên đăng nhập không được máy chủ chấp nhận</h1>
-    <p>Bạn đã đăng nhập nhưng máy chủ vẫn từ chối phiên này. Hãy kiểm tra đồng hồ của máy rồi đăng nhập lại; nếu vẫn lỗi, hãy báo quản trị viên.</p>
-    <button type="button" @click="guard.retry()">Đăng nhập lại</button>
-  </section>
-
-  <p v-else-if="guard.redirecting.value" role="status" class="dx-fatal">Đang chuyển sang trang đăng nhập…</p>
-
-  <template v-else>
-    <header class="dx-header">
-      <p class="dx-brand">{{ view?.app.name ?? 'Phòng hồ sơ số' }}</p>
-      <nav aria-label="Điều hướng chính" class="dx-nav">
-        <RouterLink to="/">Danh sách văn bản</RouterLink>
-        <RouterLink v-if="showInbox" to="/hop-viec">Hộp việc</RouterLink>
-        <RouterLink v-if="showRegister" to="/so-dang-ky">Sổ đăng ký văn bản đi</RouterLink>
-      </nav>
-      <p class="dx-who">
-        <span>{{ who }}</span>
-        <span v-if="roleText" class="dx-roles"> · {{ roleText }}</span>
-        <button type="button" @click="logout">Đăng xuất</button>
-      </p>
-    </header>
-
-    <main class="dx-main">
-      <template v-if="view">
-        <RouterView />
-      </template>
-      <template v-else-if="viewError">
-        <ProblemMessage :error="viewError" />
-        <button type="button" @click="session.load()">Tải lại</button>
-      </template>
-      <p v-else role="status">Đang tải…</p>
-    </main>
-  </template>
+  <AppShell fallback-name="Phòng hồ sơ số" :role-labels="ROLE_LABELS">
+    <template #nav>
+      <RouterLink to="/">Danh sách văn bản</RouterLink>
+      <RouterLink v-if="showInbox" to="/hop-viec">Hộp việc</RouterLink>
+      <RouterLink v-if="showRegister" to="/so-dang-ky">Sổ đăng ký văn bản đi</RouterLink>
+    </template>
+    <RouterView />
+  </AppShell>
 </template>

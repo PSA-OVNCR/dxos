@@ -3,7 +3,7 @@
 import { createAuth } from 'dxos-sdk-js'
 import { boot } from './boot'
 import { BASE } from './session'
-import './style.css'
+import 'dxos-sdk-js/style.css'
 
 boot({ auth: createAuth({ appBase: BASE }), mount: '#app' }).catch(() => {
   // Lưới an toàn cuối cùng: không bao giờ để trang trắng (textContent, không phải HTML).

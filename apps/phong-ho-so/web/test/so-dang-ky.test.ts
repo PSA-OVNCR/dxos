@@ -122,7 +122,7 @@ describe('SoDangKy', () => {
   })
 
   test('print styles hide the navigation and the controls', () => {
-    const css = readFileSync(resolve(import.meta.dirname, '../src/style.css'), 'utf8')
+    const css = readFileSync(resolve(import.meta.dirname, '../../../../sdk/js/src/style.css'), 'utf8')
     const printBlock = /@media print\s*\{([\s\S]*?\n)\}/.exec(css)?.[1] ?? ''
     expect(printBlock).toMatch(/\.dx-header[\s\S]*display:\s*none/)
     expect(printBlock).toMatch(/\.dx-no-print/)

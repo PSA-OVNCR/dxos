@@ -7,10 +7,9 @@ SPDX-License-Identifier: Apache-2.0
 // để hiện số hiệu và trích yếu. "Duyệt"/"Trả lại" gọi `complete` đúng một lần (SDK tự đọc version mới nhất);
 // quyết định thật do lõi, mọi lỗi hiện bằng ProblemMessage. Không tự thử lại; 409/412 thì gợi ý tải lại.
 import { ApiError, type DxRecord, type TaskItem } from 'dxos-sdk-js'
-import { ProblemMessage } from 'dxos-sdk-js/vue'
+import { ConfirmDialog, ProblemMessage } from 'dxos-sdk-js/vue'
 import { computed, onBeforeUnmount, onMounted, ref, useId } from 'vue'
 import { RouterLink } from 'vue-router'
-import ConfirmDialog from '../components/ConfirmDialog.vue'
 import { APP, useSession } from '../session'
 import { formatVn } from '../status'
 

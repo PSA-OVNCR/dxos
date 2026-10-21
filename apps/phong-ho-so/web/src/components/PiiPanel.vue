@@ -6,12 +6,11 @@ SPDX-License-Identifier: Apache-2.0
 // Dữ liệu cá nhân của một văn bản: xác nhận đã rà (giám đốc, văn thư, khi đang duyệt) và xóa trường pii (văn thư).
 // Vai trò và trạng thái chỉ quyết định nút hiện hay ẩn; lõi kiểm lại. Ghi một lần, không tự thử lại.
 import { ApiError, type CollectionView, type DxRecord } from 'dxos-sdk-js'
-import { ProblemMessage } from 'dxos-sdk-js/vue'
+import { ConfirmDialog, ProblemMessage } from 'dxos-sdk-js/vue'
 import { computed, onBeforeUnmount, ref, useId } from 'vue'
 import { APP, COL, useSession } from '../session'
 import { ERASE_REASONS } from '../reasons'
 import { hasRole } from '../status'
-import ConfirmDialog from './ConfirmDialog.vue'
 
 const props = defineProps<{ record: DxRecord; collection: CollectionView }>()
 const emit = defineEmits<{ changed: [] }>()

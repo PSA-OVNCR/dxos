@@ -8,7 +8,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./vue": "./src/vue/index.ts",
-    "./testing": "./src/testing.ts"
+    "./testing": "./src/testing.ts",
+    "./style.css": "./src/style.css"
   },
   "scripts": {
     "typecheck": "vue-tsc --noEmit -p .",

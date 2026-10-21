@@ -6,13 +6,12 @@ SPDX-License-Identifier: Apache-2.0
 // Niêm phong của một văn bản: trạng thái, mã QR và liên kết đối soát, tải bản PDF đã ban hành, thu hồi (giám đốc).
 // Ẩn/hiện nút theo vai trò và trạng thái chỉ là tiện dụng; lõi quyết định. Ghi một lần, không tự thử lại.
 import { ApiError, type AttachmentItem, type DxRecord, type SealInfo } from 'dxos-sdk-js'
-import { ProblemMessage, SealQr, VerifyLink } from 'dxos-sdk-js/vue'
+import { ConfirmDialog, ProblemMessage, SealQr, VerifyLink } from 'dxos-sdk-js/vue'
 import { computed, onBeforeUnmount, ref, useId, watch } from 'vue'
 import { APP, COL, useSession } from '../session'
 import { pdfFileName, saveBlob } from '../download'
 import { REVOKE_REASONS } from '../reasons'
 import { formatVn, hasRole, sealLabel } from '../status'
-import ConfirmDialog from './ConfirmDialog.vue'
 
 const props = defineProps<{ record: DxRecord; files: AttachmentItem[] }>()
 const emit = defineEmits<{ changed: [] }>()
