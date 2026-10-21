@@ -2,8 +2,8 @@
 
 | Mục | Giá trị |
 |---|---|
-| Phiên bản | **1.0.1** · 20/10/2026 (thay cho 1.0; nhật ký thay đổi ở mục 24) |
-| Trạng thái | Nội dung đã duyệt (5 điểm + R-1..R-5) và đã áp dụng các góp ý ngày 20/10/2026 (bản 1.0.1). **Chờ trưởng nhóm đọc lại bản viết 1.0.1** trước khi lập kế hoạch triển khai (writing-plans). Chưa viết code |
+| Phiên bản | **1.0.3** (phần A) · 21/10/2026. Nhật ký thay đổi ở mục 24; nội dung mới ở mục 25 |
+| Trạng thái | 1.0.1 và 1.0.2 đã duyệt; Plan 01 đã thực hiện theo 1.0.2. Thiết kế của phần A bản 1.0.3 (mục 25) được trưởng nhóm duyệt từng phần trong buổi trao đổi ngày 21/10/2026. **Chờ trưởng nhóm đọc lại bản viết** trước khi sửa Plan 02. Phần B của 1.0.3 (các sửa nhỏ đã liệt kê ở Plan 02 Task 1) do Task 1 thực hiện |
 | Tài liệu căn cứ | Đề thi (Đề, 7 tr.), Thể lệ (TL, 3 tr.), Quick-guide (QG, 5 tr.), giải đáp BTC G1–G13, `OLP2026-TONG-HOP-DU-AN.md`, phản hồi duyệt của trưởng nhóm ngày 20/10/2026 |
 | Quy ước | **[BB]** bắt buộc theo văn bản/BTC · **[TK]** tham khảo · **[ĐX]** đề xuất thiết kế · **(chưa kiểm chứng)** = giấy phép/số liệu chưa xác minh · **AT-xx** = kiểm thử nghiệm thu (mục 19) |
 
@@ -63,12 +63,13 @@ Mục 4 đối chiếu **riêng** từng tiêu chí với từng bất biến.
 
 ## 4. Bất biến kiến trúc và đối chiếu với E1–E3
 
-### 4.1. Bốn bất biến
+### 4.1. Năm bất biến (I5 thêm ở bản 1.0.3)
 | Mã | Bất biến | Phát biểu kiểm chứng được |
 |---|---|---|
 | **I1** | **Trung gian toàn phần (complete mediation)** | Mọi thao tác đọc/ghi dữ liệu có cấu trúc, tệp, task workflow và mọi thao tác ký đều đi qua bộ quyết định chính sách (PDP) của trust-core. **Chỉ trust-core (api, worker) giữ thông tin truy cập** core-db, kho tệp, OpenBao và API Flowable, và chỉ trust-core nằm trong **vùng dữ liệu (`net-data`)**. **Flowable** chỉ có quyền với CSDL riêng của engine (`flowable-db`, mạng riêng) và **không thấy** vùng dữ liệu. **Viewer và mọi ứng dụng / backend Tầng 2 chỉ gọi API**, chỉ nằm trong `net-app`. Khi lõi gặp lỗi thì **đóng (fail-closed)**. Ranh giới mạng ở mục 6.2, kiểm bằng AT-01 |
 | **I2** | **Kiểm dịch trước khi dùng + bất biến nội dung** | Tệp chỉ được tham chiếu, đọc, duyệt hay niêm phong khi ở trạng thái `CLEAN`. Tệp định danh bằng SHA-256 và không bao giờ bị ghi đè. Mọi quyết định đều tham chiếu đúng hash đó |
 | **I3** | **Lõi mù nghiệp vụ** *(mới, để phủ E2)* | Mã và cấu hình của Tầng 1 không chứa định danh hay quy tắc của ứng dụng cụ thể nào. Hành vi riêng của từng ứng dụng **chỉ** đến từ manifest đã được duyệt (schema, chính sách, BPMN, guard lấy từ danh mục chung) |
+| **I5** | **Dữ liệu cá nhân xóa được** *(1.0.3)* | Giá trị của trường có khai `pii`, chữ tự do do người dùng nhập ngoài `data` (ghi chú thu hồi, `comment`) và salt của bản ghi **không bao giờ** vào ledger, STH hay bảng chỉ thêm. Mọi cam kết tới `data` nằm ở đó đều có salt riêng của bản ghi, và salt xóa được. Phạm vi và giới hạn ở mục 25.2; kiểm bằng AT-27 |
 | **I4** | **Bằng chứng kiểm chứng độc lập** | Mọi sự kiện an ninh đều thành một lá của nhật ký Merkle (RFC 6962). Đầu cây (STH) được ký và **neo ra ngoài vùng tin cậy**. Witness kiểm tra **consistency proof**. Bên thứ ba kiểm chứng ngoại tuyến được bằng gói bằng chứng + khóa công khai |
 
 ### 4.2. Đối chiếu riêng từng tiêu chí (không đồng nhất)
@@ -324,11 +325,13 @@ workflow:
 
 *`access.update` mặc định là `[owner]` khi không khai báo (bản 1.0.2).*
 
+*Bản 1.0.3 thêm: `fields.<f>.label`, `fields.<f>.reset` (cho `sequence`), định dạng `{n:02}`, `policies.pii.erase_roles`. Manifest App A 1.1.0 đầy đủ ở mục 25.4.*
+
 ### 9.2. Chính sách sàn của lõi (không manifest nào nới lỏng được)
 | # | Chính sách sàn | Kiểm thử |
 |---|---|---|
 | F1 | Mọi tệp (kể cả tệp do hệ thống sinh) đều qua kiểm dịch; tệp không `CLEAN` thì không ai đọc được | AT-03, AT-04 |
-| F2 | Bản ghi đã niêm phong thì bất biến; chỉ được thu hồi (có ghi ledger) | AT-09 |
+| F2 | Bản ghi đã niêm phong thì bất biến; chỉ được thu hồi (có ghi ledger). Ngoại lệ duy nhất (1.0.3): xóa trường có khai `pii` qua `:erase-pii`, có bằng chứng chỉ thêm trong cùng transaction (mục 25.2) | AT-09, AT-27 |
 | F3 | Mọi thao tác đọc/ghi và mọi **lần bị từ chối** đều thành sự kiện ledger (`policy.denied`) | AT-06 |
 | F4 | Trường PII được trả về dạng che, trừ khi người gọi thuộc `reveal_roles`; mỗi lần hiện bản rõ đều ghi ledger | AT-10 |
 | F5 | Endpoint công khai chỉ trả trường có cờ `public` | AT-19 |
@@ -376,7 +379,7 @@ sequenceDiagram
   API-->>ADM: 200 ACTIVE
 ```
 - **Gỡ app:** chỉ `disable` (giữ dữ liệu và ledger).
-- **Nâng phiên bản:** MVP chỉ cho phép thêm trường (additive). Migration phức tạp: WON'T.
+- **Nâng phiên bản:** MVP chỉ cho phép thêm trường (additive). Migration phức tạp: WON'T. Ngoại lệ cho chính sách niêm phong khi app chưa từng niêm phong, và các thuộc tính đổi tự do (`erase_roles`, `label`, `reset`): mục 25.4 (1.0.3).
 
 ---
 
@@ -468,7 +471,7 @@ stateDiagram-v2
   ```
   {seal_id, app_id, record_id, record_digest, attachments: [sha256…], issued_at, public_fields, key_version}
   ```
-  trong đó `record_digest = SHA-256(canonical(data))`. Payload được ký bằng `seal-key`, rồi thêm lá `record.sealed` vào ledger.
+  trong đó `record_digest = data_digest(data, salt) = SHA-256(canonical({"salt": salt, "data": data}))`, với `salt` là salt riêng của bản ghi (bảng `record_salts`, mục 25.2; bản 1.0.3). Payload được ký bằng `seal-key`, rồi thêm lá `record.sealed` vào ledger.
 - **Thuật toán đối soát (`/verify`):**
   1. Tra `seal_id`.
   2. Kiểm chữ ký niêm phong.
@@ -485,6 +488,7 @@ stateDiagram-v2
   - OpenBao transit: `seal-key` và `sth-key` (ed25519, không xuất khóa riêng, có phiên bản).
   - Policy cho token của trust-core: chỉ `sign` + `verify` trên 2 khóa này.
   - Khóa công khai công bố tại `/verify/v1/keys` và trong repo neo.
+  - Mỗi phiên bản `seal-key` có một **tuyên bố khóa** (tổ chức vận hành, thời hạn, mục đích), công bố cùng chỗ (mục 25.3; bản 1.0.3).
 - **Mở khóa OpenBao:**
   - Cấu hình demo: Shamir **1 phần**, trưởng nhóm giữ. Ghi rõ đây là cấu hình demo; cấu hình đề xuất cho thực tế là 3-of-5.
   - OpenBao đang khóa → niêm phong **từ chối** (fail-closed), health báo đỏ.
@@ -532,7 +536,8 @@ Từ đó repo của witness là một **bản sao lịch sử STH do bên thứ
 | `POST …/records/{id}/workflow:start` | Khởi tạo quy trình | 409 |
 | `GET /api/v1/apps/{app}/tasks?assigned=me` | Hộp việc | — |
 | `POST /api/v1/apps/{app}/tasks/{task}:complete` | `{decision, comment}`, `If-Match` → kiểm guard → Flowable | 403 (guard), 409 |
-| `POST …/records/{id}:revoke` | Thu hồi niêm phong | 403, 409 |
+| `POST …/records/{id}:revoke` | Thu hồi niêm phong; body `{reason_code, note?}` (1.0.3) | 403, 409 |
+| `POST …/records/{id}:erase-pii` | Xóa trường có khai `pii`; body `{fields, reason_code}`, `If-Match` (1.0.3, mục 25.2) | 404, 409, 422 |
 | `GET …/records/{id}/seal` | Niêm phong + liên kết đối soát + QR | 404 |
 
 ### 12.2. API công khai (ẩn danh, có rate-limit)
@@ -542,7 +547,7 @@ Từ đó repo của witness là một **bản sao lịch sử STH do bên thứ
 | `POST /verify/v1/seals/{seal_id}:check` | Body `{sha256: "<64 hex>"}` (hash do trình duyệt tự tính) → khớp / không khớp. **Không nhận tệp** (R-2) |
 | `GET /verify/v1/seals/{seal_id}/bundle` | Gói bằng chứng ngoại tuyến |
 | `GET /verify/v1/sth/latest`, `GET /verify/v1/sth/consistency?first=&second=` | Dành cho witness |
-| `GET /verify/v1/keys` | Khóa công khai theo phiên bản |
+| `GET /verify/v1/keys` | Khóa công khai theo phiên bản; kèm tuyên bố khóa của `seal-key` (1.0.3) |
 
 ### 12.3. API quản trị (vai trò `dxos-admin`, chỉ trên host admin)
 | Đường dẫn | Mô tả |
@@ -556,6 +561,8 @@ Admin dùng **CLI `dxos`** (MUST) gọi các API này. Giao diện admin đáp �
 
 ### 12.4. Loại sự kiện ledger
 `app.submitted`, `app.installed`, `app.disabled`, `record.created`, `record.updated`, `upload.staged`, `object.clean`, `object.infected`, `object.rejected`, `object.read`, `field.revealed`, `pii.detected`, `pii.reviewed`, `task.completed`, `record.sealed`, `record.revoked`, `policy.denied`, `sth.published`.
+
+Bản 1.0.3 thêm `pii.erased`, `key.published`. Body của `record.created` và `record.updated` chứa `data_digest` có salt thay cho `data_sha256` (mục 25.2).
 
 ### 12.5. SDK cho lập trình viên (MUST, bản tối giản)
 `dxos-sdk-js` (Apache-2.0) gồm: đăng nhập OIDC Authorization Code + PKCE, client gọi API có `If-Match`, thành phần hiển thị trạng thái kiểm dịch, nút đối soát. Cả App A và App B đều dùng SDK này; chính SDK là minh chứng cho vai trò PaaS của Tầng 1 (G9, tiêu chí 10).
@@ -665,7 +672,7 @@ sequenceDiagram
 | Người dùng | Tổ chức hư cấu "Công ty TNHH Sao Mai" | Thành viên CLB (nếu có đối tác), nếu không thì dữ liệu hư cấu |
 
 **Tuyên bố phạm vi cho App B (bắt buộc ghi trong README và slide):**
-> Chứng nhận số là hệ thống **quản lý và xác minh giấy chứng nhận điện tử** (chứng nhận tham gia sự kiện). Đây **không phải** hệ thống cấp chứng thư số PKI, **không phải** dịch vụ chữ ký số có giá trị pháp lý, và **không** cấp văn bằng, chứng chỉ thuộc hệ thống giáo dục quốc dân. "Niêm phong số" là con dấu toàn vẹn nội bộ của nền tảng.
+> Chứng nhận số là hệ thống **quản lý và xác minh giấy chứng nhận điện tử** (chứng nhận tham gia sự kiện). Đây **không phải** hệ thống cấp chứng thư số PKI, **không phải** chữ ký số hay dịch vụ chứng thực chữ ký số, và **không** cấp văn bằng, chứng chỉ thuộc hệ thống giáo dục quốc dân. "Niêm phong số" là chữ ký điện tử chuyên dùng của tổ chức vận hành, **chưa** được chứng nhận bảo đảm an toàn (mục 25.1); với người ngoài, đối soát là kiểm tra toàn vẹn về kỹ thuật.
 
 **Bằng chứng tái sử dụng (P1):**
 - Cài App B trên **cùng image trust-core đã phát hành** (digest không đổi).
@@ -688,7 +695,7 @@ sequenceDiagram
 | T8 | Sửa DB | Role không UPDATE/DELETE trên ledger; trigger; chữ ký; STH | AT-15 | Superuser tắt trigger → phát hiện được, không ngăn được |
 | T9 | Admin/root bị xâm phạm | Mục 11.6: neo ngoài + witness + consistency | AT-16, AT-18 | Hành động sau thời điểm xâm phạm |
 | T10 | Lỗi lưu trữ / mất tệp | Kiểm lại sha256 khi đọc; backup/restore (SHOULD) | AT-21 | Mất từ lần backup cuối |
-| T11 | Lộ PII | F4 che trường; bản che dạng ảnh (SHOULD); không lưu giá trị rõ của phát hiện | AT-10 | vipii bỏ sót (Alpha); tên, địa chỉ tự do |
+| T11 | Lộ PII | F4 che trường; bản che dạng ảnh (SHOULD); không lưu giá trị rõ của phát hiện; cam kết có salt xóa được và `:erase-pii` (I5, 1.0.3) | AT-10, AT-27 | vipii bỏ sót (Alpha); tên, địa chỉ tự do; trường `public` đã niêm phong; tệp PDF; backup và bản cũ trên đĩa trước `VACUUM` (mục 25.2) |
 | T12 | XSS đánh cắp token trong SPA | CSP chặt; token ngắn hạn; không lưu token trong localStorage | — | Không dùng BFF (chấp nhận trong MVP) |
 | T13 | Lạm dụng cổng công khai | limit-req; trả kết quả tối thiểu; **cổng không nhận tệp, chỉ nhận hash** (R-2) → không có hướng tải mã độc lên hay làm cạn băng thông bằng tệp lớn | AT-19 | DoS lớn ở mức request |
 | T15 | Witness không độc lập (cùng tài khoản GitHub với repo neo) | **Bắt buộc ≥ 1 witness chạy ngoài tài khoản và tổ chức GitHub của đội** (mục 11.4) | AT-18 | Witness ngoài bỏ cuộc → độc lập giảm |
@@ -697,7 +704,7 @@ sequenceDiagram
 
 **Giới hạn công bố:**
 - **Watermark** (nếu làm) chỉ để răn đe.
-- **Niêm phong nội bộ** không phải chữ ký số pháp lý.
+- **Niêm phong** là chữ ký điện tử chuyên dùng chưa được chứng nhận bảo đảm an toàn: không tương đương chữ ký tay, không phải chữ ký số (mục 25.1).
 - **Neo công khai** chỉ mạnh ngang số witness độc lập.
 - **ClamAV** không phải phân tích động.
 - **Một VPS** là điểm lỗi đơn.
@@ -874,6 +881,8 @@ Ai chưa đạt thì ghép cặp ngay trong tuần đầu.
 | AT-24 | CI: compose production không chứa `fake-av` hay bất kỳ dịch vụ gắn nhãn `DEV-ONLY` | R-4 / T16 |
 | AT-25 | Cổng đối soát: request `:check` có kèm tệp bị từ chối (415); trang đối soát tính hash bằng WebCrypto, kiểm bằng Playwright rằng không có request nào chứa nội dung tệp | R-2 / T13 |
 | AT-26 | Một người ngoài đội làm theo hướng dẫn H13, tạo được một app mới qua manifest mà không sửa `core/` | R-5 / P1 |
+| AT-27 | *(1.0.3)* `:erase-pii` trên bản ghi đã niêm phong: trường biến mất, salt bị xóa; niêm phong vẫn `VALID`, `verify-bundle` đạt, `ledger verify` xanh; dump mọi bảng của schema `core` không còn giá trị đã xóa, không còn salt đó, không có cam kết không salt nào | I5 / P3 |
+| AT-28 | *(1.0.3)* Mỗi phiên bản `seal-key` có tuyên bố khóa đã neo, khớp lá `key.published`; niêm phong ngoài thời hạn bị từ chối; tên tổ chức chưa cấu hình → 503 và không tạo tuyên bố; `verify-bundle --anchor-dir` báo `INVALID` khi tuyên bố bị sửa hoặc `issued_at` ngoài thời hạn | P3 |
 
 **Phân công trách nhiệm AT** (để không tính giờ hai lần):
 - AT-24 → H1
@@ -935,7 +944,7 @@ Giờ của AT-24..26 đã nằm trong giờ của H1, H6, H13 và **không** c�
 | 13 | Hàng đợi → **PostgreSQL SKIP LOCKED**, không broker | Không hợp tải lớn |
 | 14 | Tài nguyên → **hai hồ sơ p8/p16 + đo M0** | Hồ sơ p8 tắt Viewer |
 | 15 | Viewer → **dịch vụ dùng chung Tầng 2** (diễn giải Đề tr.3), SHOULD | Dựa trên diễn giải của đội |
-| 16 | App B → **quản lý và xác minh chứng nhận điện tử**, **không** PKI/chữ ký số pháp lý | Phải ghi tuyên bố phạm vi |
+| 16 | App B → **quản lý và xác minh chứng nhận điện tử**, **không** PKI, **không** chữ ký số (câu chữ pháp lý cập nhật ở 25.1, bản 1.0.3) | Phải ghi tuyên bố phạm vi |
 
 ---
 
@@ -998,5 +1007,157 @@ Giờ của AT-24..26 đã nằm trong giờ của H1, H6, H13 và **không** c�
 | | | UI quản trị: console nguồn mở (Keycloak; Flowable kiểm ở M0) + CLI là MUST, trang admin web là SHOULD; demo phải chỉ ra giao diện admin thật (R7, 12.3, 20.1) |
 | | | Giao trách nhiệm AT-24 → H1, AT-25 → H6, AT-26 → H13; không tính giờ hai lần trong H11 |
 | | | **I1 làm rõ (sửa kỹ thuật quan trọng nhất):** phân vùng mạng theo chủ sở hữu dữ liệu; Flowable chỉ có quyền với `flowable-db` riêng; Viewer và app Tầng 2 chỉ gọi API (4.1, 5, 6.2, 9.4, T1, T3, AT-01, ADR-22, RAM) |
+| 1.0.3 (phần A) | 21/10/2026 | Trưởng nhóm duyệt phương án A của tài liệu đề xuất khác biệt (Đ3, Đ4, Đ5; Đ2 neo OpenTimestamps để Plan 03) và duyệt từng phần thiết kế. Thêm mục 25 (pháp lý, dữ liệu cá nhân, tuyên bố khóa, văn thư, nghiệm thu); bất biến I5; ngoại lệ F2; AT-27, AT-28; sửa 4.1, 9.1, 9.2, 11.5, 11.6, 12.1, 12.2, 12.4, 14, 15, 19. Phần B (các sửa ở Plan 02 Task 1) chưa làm |
 | 1.0.2 | 20/10/2026 | Mục 9.1: thêm `public: true` cho `so_hieu`. Trường này nằm trong `seal.public_fields`, mà quy tắc validator (Plan 01 Task 11) đòi mọi `public_fields` phải có cờ `public` |
 | | | Mục 9.1: `access.update` không khai báo thì mặc định là `[owner]` (chủ bản ghi sửa và đính kèm tệp khi bản ghi chưa niêm phong) |
+
+---
+
+## 25. Bổ sung 1.0.3: pháp lý, dữ liệu cá nhân, tuyên bố khóa, văn thư
+
+*Thiết kế được trưởng nhóm duyệt từng phần ngày 21/10/2026. Phần pháp lý là **diễn giải kỹ thuật của đội, không phải tư vấn pháp lý**. Agent đã đọc các điều được dẫn ngày 21/10/2026 (nguồn ở 25.6); thành viên đội đọc lại toàn văn trước khi đưa vào README (`docs/legal-mapping.md`).*
+
+### 25.1. Bản chất pháp lý của niêm phong
+
+**Câu thống nhất** (dùng nguyên văn cho spec, README, slide và trang đối soát):
+
+> Niêm phong số là chữ ký điện tử chuyên dùng do tổ chức vận hành tạo lập (Điều 22 khoản 1 điểm a Luật Giao dịch điện tử 2023). Trong nội bộ tổ chức, niêm phong dùng để xác nhận văn bản đã được duyệt và chưa bị sửa. Niêm phong **chưa** được chứng nhận "bảo đảm an toàn", nên **không** tương đương chữ ký tay (Điều 23 khoản 2) và **không phải** chữ ký số. Muốn dùng niêm phong để giao dịch với tổ chức, cá nhân bên ngoài với giá trị pháp lý, tổ chức phải đăng ký chứng nhận (Điều 25 khoản 3). Với người ngoài, cổng đối soát là công cụ **kiểm tra toàn vẹn về kỹ thuật**.
+
+**Căn cứ đã đối chiếu:**
+
+| Văn bản | Điều | Nội dung dùng trong thiết kế |
+|---|---|---|
+| Luật Giao dịch điện tử 2023 (20/2023/QH15) | Đ22 k1 điểm a | Chữ ký điện tử chuyên dùng do cơ quan, tổ chức tạo lập cho hoạt động của mình |
+| | Đ22 k2 | 4 yêu cầu: (a) xác nhận chủ thể ký và sự chấp thuận; (b) chỉ gắn với nội dung được chấp thuận; (c) chỉ thuộc kiểm soát của chủ thể ký lúc ký; (d) kiểm tra được theo điều kiện các bên thỏa thuận |
+| | Đ23 k1–k3 | Không bị phủ nhận chỉ vì ở dạng điện tử; chỉ chữ ký chuyên dùng **bảo đảm an toàn** và chữ ký số mới tương đương chữ ký tay và thay được yêu cầu "tổ chức xác nhận" |
+| | Đ25 k1, k3 | Không được kinh doanh chữ ký chuyên dùng; dùng để giao dịch với bên ngoài hoặc muốn được công nhận bảo đảm an toàn thì phải đăng ký chứng nhận |
+| Nghị định 23/2025/NĐ-CP | Đ4, Đ5, Đ7 k4 | Chứng thư chữ ký điện tử chuyên dùng; 8 nội dung của chứng thư; thời hạn 10 năm. Dùng làm khung tham khảo cho tuyên bố khóa (25.3), **không** gọi tuyên bố khóa là chứng thư |
+| Nghị định 30/2020/NĐ-CP | Đ2 | Áp dụng cho cơ quan, tổ chức nhà nước và doanh nghiệp nhà nước. Công ty tư nhân (tổ chức hư cấu "Công ty TNHH Sao Mai") **không** thuộc diện; App A chỉ **vận dụng** |
+| | Đ5 | Văn bản điện tử có giá trị như bản gốc giấy khi được **ký số**. App A không đạt mức này |
+| | Đ15 k1 | Số văn bản bắt đầu từ 01 mỗi năm, duy nhất trong năm (25.4) |
+| | Đ21 k2 điểm a | Văn thư kiểm tra tính xác thực và toàn vẹn của văn bản điện tử đến (25.4) |
+| Luật Bảo vệ dữ liệu cá nhân 2025 (91/2025/QH15) | Đ4 k1 điểm d; Đ14 k1–k6; Đ19 k1 | Quyền yêu cầu xóa; các trường hợp xóa và ngoại lệ; xóa an toàn; thông báo khi không xóa được (25.2) |
+
+**Ánh xạ 4 yêu cầu của Đ22 k2:**
+- (a) payload ghi `app_id`; ledger ghi người duyệt (`task.completed`).
+- (b) chữ ký phủ `record_digest` và sha256 các tệp.
+- (c) khóa ed25519 trong OpenBao, không xuất được; token lõi chỉ có `sign`/`verify`. Khi máy chủ bị chiếm quyền root, điều kiện này **không còn bảo đảm** cho các niêm phong sau thời điểm đó (4.2 E3; 11.6 X3).
+- (d) cổng đối soát và `dxos-witness verify-bundle`.
+
+**Không nói:** Trust Core "sẵn sàng để được chứng nhận"; niêm phong "có giá trị pháp lý"; App A "tuân thủ Nghị định 30".
+
+### 25.2. Dữ liệu cá nhân
+
+**Cam kết có salt.** Đây là phần không sửa ngược được, nên làm trước mọi tính năng khác.
+- Bảng `record_salts(record_id PK → records, salt)`. Mỗi bản ghi có một salt 128 bit, dạng base64 24 ký tự.
+  - Trigger AFTER INSERT trên `records` tạo salt, nên không đường nào tạo bản ghi mà thiếu salt.
+  - `dxos_core` được SELECT, INSERT, DELETE, **không** được UPDATE; trigger chặn UPDATE và TRUNCATE với mọi role.
+  - Migration bổ sung salt cho bản ghi đã có.
+- `data_digest(data, salt) = SHA-256(canonical({"salt": salt, "data": data}))` dùng ở ba chỗ:
+  - body `record.created`/`record.updated` (trường `data_digest`);
+  - `record_digest` của niêm phong (11.5);
+  - `review_digest` của xác nhận rà PII.
+- Salt chỉ được đọc hoặc tạo lại khi đã giữ khóa hàng của bản ghi.
+- Lý do: ledger lưu `body_sha256`. Nếu body chứa mã băm không salt của `data`, ai có bản sao ledger và biết các trường công khai có thể thử từng CCCD hay email cho tới khi khớp, mãi mãi. Xóa salt thì mọi cam kết cũ không còn nối được với dữ liệu.
+- Giới hạn: lá ledger tạo trước bản 1.0.3 (dev stack, e2e của v0.1.0) vẫn mang cam kết không salt. Dữ liệu đó là hư cấu.
+
+**Phạm vi của I5:**
+- **Thuộc:** giá trị trường có khai `pii`; chữ tự do ngoài `data` (ghi chú thu hồi, `comment`); salt.
+- **Không thuộc, ghi là giới hạn:**
+  - Trường `public` đã niêm phong: được chép vào `seal_requests` và `seals.payload` đã ký. Đây là công bố có chủ đích, không xóa được, chỉ thu hồi được. Hướng dẫn manifest phải cảnh báo điều này.
+  - `sub` của nhân viên (định danh giả danh do Keycloak cấp) trong `task_intents`, `task_completions`, `pii_reviews`, `seal_revocations`, `pii_erasures`. Ledger chỉ giữ HMAC.
+  - Nội dung tệp PDF đã ban hành: là bản gốc văn bản, lưu theo nội dung, có thể dùng chung nhiều bản ghi.
+- `comment` của `:complete` không được lưu ở đâu. Lý do thu hồi là mã; ghi chú tự do (≤ 500 ký tự) lưu ở bảng xóa được `seal_revocation_notes`.
+- Mã lý do thu hồi: `superseded`, `issued_in_error`, `content_error`, `legal_order`, `other`.
+
+**`POST …/records/{id}:erase-pii`** (`If-Match`, body `{fields, reason_code}`):
+- **Quyền:** đọc được bản ghi, và có role thuộc `pii.erase_roles` của bản manifest ACTIVE. Không thì `policy.denied` (`not_eraser`) + 404. App `DISABLED` → 404.
+- **Trường xóa được:** trường có khai `pii` ở bản ACTIVE hoặc ở bản đã ghim của bản ghi. Sai → 422.
+- **`reason_code`** theo Đ14 k1 Luật 91/2025: `data_subject_request`, `purpose_completed`, `retention_expired`, `authority_decision`, `agreement`. Sai → 422.
+- **Trạng thái:** đã niêm phong thì vẫn xóa được. Đang `running` → 409 `record-in-workflow`; `SEAL_PENDING` → 409 `seal-pending`.
+- **Một transaction** có `SELECT … FOR UPDATE`, theo đúng thứ tự:
+  1. kiểm lại trạng thái và version trên hàng đã khóa;
+  2. INSERT `pii_erasures(record_id, fields, reason_code, erased_by, txid)` (chỉ thêm);
+  3. `UPDATE records SET data = data - fields, version = version + 1 WHERE version = $expected`;
+  4. xóa `record_salts` của bản ghi, xóa ghi chú thu hồi, thay `uploads.original_name_hash` bằng giá trị ngẫu nhiên;
+  5. ledger `pii.erased {collection, fields, reason_code, version}`.
+- **Trigger** `record_seal_guard` cho sửa `data` của bản ghi đã niêm phong **chỉ khi** có hàng `pii_erasures` với `record_id = OLD.id`, `txid = txid_current()` và `NEW.data = OLD.data - fields`. Không dùng cờ phiên, vì phiên `dxos_core` nào cũng tự bật được.
+- **Kết quả:** niêm phong vẫn `VALID`, gói bằng chứng vẫn kiểm được (chữ ký phủ `record_digest`, không phủ `data`). Không ai còn kiểm lại được `record_digest` với dữ liệu.
+
+**Đ14 k3 (xóa an toàn) và Đ14 k5 (thông báo khi không xóa được):** làm bằng tài liệu, không làm tính năng. `docs/runbook-pii-erasure.md` ghi:
+- bản cũ của hàng còn trên đĩa cho tới khi `VACUUM`, nên cần lịch `VACUUM` do owner chạy;
+- thời hạn giữ backup;
+- trường hợp không xóa (tệp PDF là bản gốc; trường `public` đã niêm phong) và việc tổ chức tự thông báo cho chủ thể, nêu căn cứ Đ14 k2 và Đ19.
+
+### 25.3. Tuyên bố khóa
+
+- Mỗi phiên bản `seal-key` có một tuyên bố, định dạng `dxos-key-statement/1`:
+  ```json
+  {"format": "dxos-key-statement/1", "key": "seal-key", "version": 1, "serial": "seal-key/v1",
+   "issuer": {"name": "<DXOS_ORG_NAME>", "id": "<DXOS_ORG_ID>|null"},
+   "algorithm": "ed25519", "public_key": "<base64>",
+   "valid_from": "<rfc3339, giây nguyên>", "valid_until": "<rfc3339>",
+   "purpose": "<DXOS_SEAL_PURPOSE>", "policy_url": "<DXOS_KEY_POLICY_URL>|null"}
+  ```
+- **Không tự ký.** Tuyên bố được bảo vệ bằng hai lớp:
+  - lá ledger `key.published {key, version, statement_sha256}`, nằm trong cây Merkle đã neo và có witness theo dõi;
+  - tệp `keys/seal-key/v<n>.json` trong repo neo có bảo vệ nhánh. Tệp đã có mà khác nội dung → `ANCHOR_CONFLICT`.
+- **Tạo một lần**, ngay trong lần niêm phong đầu tiên của phiên bản khóa, dưới khóa advisory. `valid_from` = `issued_at` của lần niêm phong đó; `valid_until` = `valid_from` + `DXOS_SEAL_KEY_VALIDITY_DAYS` (1..3650, mặc định 3650). Lưu ở bảng chỉ thêm `key_statements`.
+- **Từ chối niêm phong** (giữ `SEAL_PENDING`, job thử lại, không bao giờ `fail`) khi:
+  - `DXOS_ORG_NAME` còn giá trị mặc định (`OrgNotConfigured`), để tên mặc định không bị ghi vĩnh viễn;
+  - `issued_at` nằm ngoài `valid_from..valid_until` (`SealKeyExpired`); cần xoay khóa.
+- Kiểm trước task cuối (R-1) cũng kiểm hai điều trên → 503 `org-not-configured` / `seal-key-expired`, Flowable chưa bị gọi.
+- Health có thêm `seal_key` (`ok`/`expired`/`none`) và `org`.
+- Trang công khai trả thêm `issuer {name, id}`. Gói bằng chứng kèm tuyên bố.
+- `verify-bundle --anchor-dir`: tuyên bố trong gói phải trùng byte với tệp đã neo, và `valid_from ≤ issued_at ≤ valid_until` (so sánh thời gian đã parse). Không có `--anchor-dir` thì kiểm với tuyên bố trong gói, kết quả "chưa ghim".
+- Tên tổ chức là cấu hình triển khai, không phải định danh app; không vi phạm I3.
+
+### 25.4. Văn thư: App A vận dụng Nghị định 30/2020
+
+- **Nhãn trường:** `fields.<f>.label` (tùy chọn, 1–64 ký tự, không có ký tự điều khiển). Trang đối soát hiển thị nhãn thay cho tên kỹ thuật.
+- **Đánh số theo năm** (Đ15 k1), là tính năng chung của lõi:
+  - `sequence` có thêm `reset: never | yearly` (mặc định `never`) và định dạng `{n:02}` (đệm số 0).
+  - Năm tính theo `DXOS_TIMEZONE` (mặc định `Asia/Ho_Chi_Minh`).
+  - Khi một trường chuyển từ `never` sang `yearly`, bộ đếm của năm hiện tại tiếp nối giá trị cũ, để không trùng số trong năm.
+- **Manifest App A 1.1.0** (thêm vào 9.1):
+  ```yaml
+  fields:
+    so_hieu:            { type: sequence, format: "{n:02}/QĐ-SM", reset: yearly, public: true, label: "Số, ký hiệu" }
+    loai_van_ban:       { type: string, public: true, label: "Tên loại văn bản" }
+    trich_yeu:          { type: string, required: true, public: true, label: "Trích yếu nội dung" }
+    chuc_vu_nguoi_ky:   { type: string, public: true, label: "Chức vụ người ký" }
+    noi_nhan:           { type: string, label: "Nơi nhận" }
+    nguoi_lien_he_cccd: { type: string, pii: CCCD, label: "CCCD người liên hệ" }
+  policies:
+    pii:  { reveal_roles: [giam_doc, van_thu], erase_roles: [van_thu], document_detect: [CCCD, PHONE, BANK_ACCOUNT] }
+    seal: { on_event: "process.completed:approved", target: [record, attachments],
+            public_fields: [so_hieu, loai_van_ban, trich_yeu, chuc_vu_nguoi_ky], revoke_roles: [giam_doc] }
+  ```
+  - `loai_van_ban` không bắt buộc ở mức manifest, vì nâng phiên bản không được thêm trường bắt buộc; SPA bắt nhập.
+  - App B 1.1.0 thêm nhãn và `erase_roles: [truong_clb]`.
+- **Nâng phiên bản:** `seal`, `verify`, `revoke_roles` được đổi khi app **chưa từng có yêu cầu niêm phong** và không có bản ghi đang `running`. `erase_roles`, `label`, `reset` đổi tự do.
+- **Trang đối soát:**
+  - Tiêu đề "Kiểm tra tính xác thực và toàn vẹn văn bản điện tử"; gợi ý dùng cho văn thư khi tiếp nhận văn bản đến (Đ21 k2 điểm a).
+  - "Đơn vị niêm phong: {tên tổ chức}" và mã định danh nếu có.
+  - Trường công khai theo nhãn; `issued_at` hiển thị là "Thời điểm niêm phong".
+  - Đoạn câu thống nhất ở 25.1, kèm link `docs/legal-mapping.md`.
+  - Mọi giá trị đưa ra trang bằng `textContent`, không bao giờ `innerHTML`.
+- **Ngoài phạm vi Plan 02:** màn hình Sổ đăng ký văn bản đi (SPA App A, Plan 03); manifest thứ ba cho cơ quan nhà nước (không làm).
+
+### 25.5. Nghiệm thu và kiểm thử
+
+- AT-27, AT-28 ở mục 19.
+- Test thường:
+  - trigger xóa: không có bằng chứng, bỏ khác trường đã ghi, vừa bỏ vừa sửa, dùng lại bằng chứng của transaction cũ → đều bị chặn;
+  - salt có ngay khi INSERT, migration bổ sung salt, không UPDATE được kể cả với owner;
+  - đánh số theo năm: sang năm thì từ 01, chuyển chế độ không trùng số;
+  - nâng App A/B từ 1.0.0 lên 1.1.0 hợp lệ khi chưa niêm phong, bị từ chối khi đã niêm phong;
+  - trang đối soát không có `innerHTML`, có đúng cụm từ của Nghị định 30.
+- Tài liệu: `docs/legal-mapping.md` (câu đầu "Diễn giải kỹ thuật của đội, không phải tư vấn pháp lý"; bảng ánh xạ có link và ngày đối chiếu; mục "Không đạt"; cuối tệp ghi tên thành viên đã đọc toàn văn và ngày đọc), `docs/runbook-pii-erasure.md`, mục "Trường công khai là công bố vĩnh viễn" trong `docs/manifest-guide.md`.
+
+### 25.6. Nguồn (đối chiếu ngày 21/10/2026)
+
+- Luật Giao dịch điện tử 2023: [Điều 22](https://hethongphapluat.com/luat-giao-dich-dien-tu-2023/dieu-22) · [Điều 23](https://hethongphapluat.com/luat-giao-dich-dien-tu-2023/dieu-23) · [Điều 25](https://hethongphapluat.com/luat-giao-dich-dien-tu-2023/dieu-25)
+- [Nghị định 23/2025/NĐ-CP](https://thuvienphapluat.vn/van-ban/thue-phi-le-phi/decree-23-2025-nd-cp-digital-signatures-and-trust-services-649650.aspx)
+- [Nghị định 30/2020/NĐ-CP](https://thuvienphapluat.vn/van-ban/bo-may-hanh-chinh/decree-30-2020-nd-cp-records-management-472077.aspx)
+- [Luật Bảo vệ dữ liệu cá nhân 2025 (91/2025/QH15)](https://thuvienphapluat.vn/van-ban/Bo-may-hanh-chinh/Law-91-2025-QH15-Personal-Data-Protection-665440.aspx)
