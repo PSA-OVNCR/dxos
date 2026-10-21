@@ -1,0 +1,37 @@
+/*
+SPDX-FileCopyrightText: 2026 PSA_OVNCR
+SPDX-License-Identifier: Apache-2.0
+*/
+/* Phần riêng của App B; nền chung (màu, đầu trang, bảng, hộp xác nhận, ẩn khi in) là dxos-sdk-js/style.css.
+   Không dùng style nội tuyến: CSP style-src 'self'. */
+.dx-scroll { overflow-x: auto; }
+.dx-csv-errors { padding-left: 1.25rem; }
+.dx-csv-errors .dx-problem { display: inline-block; margin: 0.15rem 0; }
+.dx-field progress { width: 100%; max-width: 36rem; }
+.dx-field { display: flex; flex-direction: column; gap: 0.25rem; margin-bottom: 0.9rem; max-width: 36rem; }
+
+/* Trang in chứng nhận: khổ A4 ngang. */
+@page { size: A4 landscape; margin: 12mm; }
+
+.dx-cert {
+  max-width: 62rem;
+  margin: 1rem auto;
+  padding: 2rem 2.5rem;
+  border: 3px double var(--accent);
+  border-radius: 8px;
+  background: var(--card);
+}
+.dx-cert h1 { margin: 0 0 1.25rem; text-align: center; font-size: 1.9rem; }
+.dx-cert-fields { display: grid; grid-template-columns: max-content 1fr; gap: 0.6rem 1.5rem; font-size: 1.15rem; }
+.dx-cert-fields dt { color: var(--muted); }
+.dx-cert-fields dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+.dx-cert-seal { display: flex; flex-wrap: wrap; align-items: center; gap: 1.25rem; margin-top: 1.5rem; }
+.dx-cert-seal p { margin: 0.2rem 0; }
+.dx-cert-url { overflow-wrap: anywhere; }
+.dx-scope { margin: 1.5rem 0 0; padding-top: 0.75rem; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.85rem; }
+
+@media print {
+  .dx-cert { max-width: none; margin: 0; padding: 1rem 1.5rem; border: 3px double #000; background: #fff; color: #000; }
+  .dx-cert-fields dt, .dx-scope { color: #000; }
+  .dx-scope { border-top-color: #000; }
+}

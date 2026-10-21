@@ -4,3 +4,5 @@
 *.pdf binary
 *.png binary
 *.bin binary
+# Tệp CSV mẫu của App B là nhị phân (bảng mã, CRLF phải giữ nguyên từng byte).
+apps/chung-nhan/web/test/fixtures/*.csv binary
