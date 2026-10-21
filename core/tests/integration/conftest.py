@@ -397,7 +397,7 @@ def flowable_down_once(flow, monkeypatch):
     async def down(*args, **kwargs):
         if left[0]:
             left[0] -= 1
-            raise WorkflowUnavailable("Flowable ConnectError (giả lập)")
+            raise WorkflowUnavailable("Flowable ConnectError (giả lập)", sent=False)
         return await real(*args, **kwargs)
 
     monkeypatch.setattr(client, "complete", down)
@@ -424,3 +424,39 @@ def guard_flips_after_flowable(flow, monkeypatch):
 
     monkeypatch.setattr(client, "complete", complete)
     monkeypatch.setattr(guards, "evaluate", evaluate)
+
+
+@pytest.fixture
+def flowable_response_lost_once(flow, monkeypatch):
+    """Lần ``complete`` đầu tiên tới Flowable và được commit, nhưng phản hồi mất (quá hạn đọc): API thấy
+    ``WorkflowUnavailable(sent=True)``."""
+    from dxos_core.workflow.flowable import WorkflowUnavailable
+
+    client = flow.api.app.state.flowable
+    real, left = client.complete, [1]
+
+    async def lost(*args, **kwargs):
+        await real(*args, **kwargs)
+        if left[0]:
+            left[0] -= 1
+            raise WorkflowUnavailable("Flowable ReadTimeout (giả lập)", sent=True)
+
+    monkeypatch.setattr(client, "complete", lost)
+
+
+@pytest.fixture
+def flowable_no_answer_once(flow, monkeypatch):
+    """Lần ``complete`` đầu tiên quá hạn mà Flowable CHƯA commit (``sent=True``); test tự gọi
+    ``flow.late_commit`` để Flowable commit muộn đúng lần gửi đó."""
+    from dxos_core.workflow.flowable import WorkflowUnavailable
+
+    client = flow.api.app.state.flowable
+    real, left = client.complete, [1]
+
+    async def no_answer(*args, **kwargs):
+        if left[0]:
+            left[0] -= 1
+            raise WorkflowUnavailable("Flowable ReadTimeout (giả lập)", sent=True)
+        await real(*args, **kwargs)
+
+    monkeypatch.setattr(client, "complete", no_answer)

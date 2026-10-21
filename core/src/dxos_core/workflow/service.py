@@ -14,6 +14,7 @@
 """
 
 import logging
+import math
 import re
 import uuid
 from datetime import UTC, datetime
@@ -167,10 +168,13 @@ async def inbox(ctx: Ctx, deps: WorkflowDeps, app: str, assigned: str) -> dict:
     if not tasks:
         return {"items": []}
     rows = await ctx.conn.fetch(
-        "SELECT id, collection, wf_instance_id FROM core.records"
+        "SELECT id, collection, owner_sub, wf_instance_id FROM core.records"
         " WHERE app_id=$1 AND wf_state='running' AND wf_instance_id = ANY($2::text[])",
         app, sorted({t.process_instance_id for t in tasks}))
-    by_instance = {r["wf_instance_id"]: r for r in rows}
+    # Chỉ giữ task của bản ghi người gọi được đọc theo chính sách hiện hành. Lọc thầm (decide, không enforce):
+    # không ghi policy.denied cho mỗi task bị lọc.
+    by_instance = {r["wf_instance_id"]: r for r in rows
+                   if pdp.decide(ctx.principal, "read", m, r["collection"], r["owner_sub"]).allow}
     items = [{"task_id": t.id, "task_key": t.task_key, "name": t.name,
               "record_id": str(by_instance[t.process_instance_id]["id"]),
               "collection": by_instance[t.process_instance_id]["collection"], "created": t.created}
@@ -228,6 +232,21 @@ async def _r1_precheck(ctx: Ctx, deps: WorkflowDeps, m: Manifest, subject: str) 
         raise await refuse("seal_key_expired", "seal-key-expired", "Seal key statement expired")
     if deps.settings.org_name == ORG_NAME_DEFAULT:
         raise await refuse("org_not_configured", "org-not-configured", "Organisation name not configured")
+
+
+async def _reconcile_or_problem(deps: WorkflowDeps, conn: asyncpg.Connection, rid: uuid.UUID, *,
+                                raise_pending: bool = True) -> None:
+    """Đối soát dưới khóa; còn ý định chưa rõ kết quả → 503 ``workflow-pending`` kèm ``Retry-After``;
+    Flowable đã áp dụng một ý định đã bị bỏ → 409 ``workflow-inconsistent`` (admin xử lý)."""
+    try:
+        res = await reconcile.reconcile_record(deps, conn, rid)
+    except reconcile.WorkflowInconsistent as exc:
+        raise ProblemError(409, "workflow-inconsistent", "Workflow state is inconsistent",
+                           "an abandoned completion was applied by the workflow engine;"
+                           " an administrator must reconcile this record") from exc
+    if raise_pending and res.retry_after_s is not None:
+        raise ProblemError(503, "workflow-pending", "Previous completion outcome not yet known",
+                           headers={"Retry-After": str(max(1, math.ceil(res.retry_after_s)))})
 
 
 async def _try_seal(ctx: Ctx, deps: WorkflowDeps, row: asyncpg.Record) -> asyncpg.Record:
@@ -290,7 +309,7 @@ async def complete(ctx: Ctx, deps: WorkflowDeps, app: str, task_id: str, body: A
 
     async with record_lock(deps.pool, rid):
         # 6. Bước 0: đối soát ý định còn treo của bản ghi này.
-        await reconcile.reconcile_record(deps, conn, rid)
+        await _reconcile_or_problem(deps, conn, rid)
         task = await deps.flowable.get_task(task_id)
         row = await conn.fetchrow("SELECT * FROM core.records WHERE id=$1", rid)
         if task is None or row["wf_state"] != "running" or row["wf_instance_id"] != task.process_instance_id:
@@ -322,8 +341,16 @@ async def complete(ctx: Ctx, deps: WorkflowDeps, app: str, task_id: str, body: A
             await deps.flowable.complete(task.id, {"decision": decision},
                                          local_variables={"dxos_intent_id": str(intent["id"])})
         except TaskGone as exc:
-            await reconcile.reconcile_record(deps, conn, rid)
+            await _reconcile_or_problem(deps, conn, rid, raise_pending=False)
             raise _task_gone() from exc
+        except WorkflowUnavailable as exc:
+            if not exc.sent:
+                # Chắc chắn chưa tới Flowable: bỏ ý định ngay để lần gửi lại không phải chờ.
+                await conn.execute("INSERT INTO core.task_intent_outcomes(intent_id, outcome)"
+                                   " VALUES ($1, 'abandoned') ON CONFLICT (intent_id) DO NOTHING",
+                                   intent["id"])
+            # sent=True: Flowable có thể commit muộn; ý định để mở, đối soát quyết định sau.
+            raise
         # Flowable đã chạy. Mọi lỗi từ đây để lại ý định treo; lần gọi sau hoặc admin đối soát giải quyết nó.
         try:
             done = await reconcile.finalize(deps, conn, intent, task_assignee=task.assignee)

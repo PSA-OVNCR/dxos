@@ -36,12 +36,25 @@ if TYPE_CHECKING:
 INTENT_VARIABLE = "dxos_intent_id"
 _BPMN_SUFFIX = ".bpmn20.xml"
 _MAX_TASKS = 10_000
+# Lỗi xảy ra trước khi request rời client: Flowable chắc chắn chưa nhận request (client mới cho mỗi request,
+# không dùng lại kết nối, nên ConnectError không thể xảy ra sau khi đã gửi).
+_NEVER_SENT = (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout)
 # Id Flowable đặt vào đường dẫn URL: uuid, `key:phiên-bản:uuid`, ... Không có `/ ? # % \` hay khoảng trắng.
 _SEGMENT = re.compile(r"[A-Za-z0-9._:@-]{1,255}")
 
 
 class WorkflowUnavailable(Exception):  # noqa: N818 (tên theo spec F8)
-    """Mạng lỗi, 5xx, 401/403 hoặc phản hồi không dùng được -> API trả 503 (F8)."""
+    """Mạng lỗi, 5xx, 401/403 hoặc phản hồi không dùng được -> API trả 503 (F8).
+
+    ``sent``: request có thể đã tới Flowable hay không. ``False`` chỉ khi lỗi xảy ra trước khi request rời
+    client (không kết nối được, hết hạn chờ kết nối hay chờ pool): chắc chắn Flowable chưa nhận gì.
+    Mọi trường hợp khác (quá hạn đọc/ghi, lỗi giao thức, mã lỗi sau khi gửi) là ``True``: Flowable có thể đã
+    commit, kể cả sau khi client bỏ cuộc. Mặc định ``True`` (thận trọng).
+    """
+
+    def __init__(self, *args: object, sent: bool = True) -> None:
+        super().__init__(*args)
+        self.sent = sent
 
 
 class TaskGone(Exception):  # noqa: N818
@@ -101,6 +114,10 @@ class FlowableClient:
         self._timeout = timeout_s
         self._page_size = 100
 
+    @property
+    def timeout_s(self) -> float:
+        return self._timeout
+
     def __repr__(self) -> str:
         return f"FlowableClient({self.base_url!r})"
 
@@ -110,8 +127,10 @@ class FlowableClient:
         try:
             async with httpx.AsyncClient(timeout=self._timeout, auth=self._auth, trust_env=False) as client:
                 resp = await client.request(method, f"{self.base_url}{path}", **kwargs)
+        except _NEVER_SENT as exc:
+            raise WorkflowUnavailable(f"Flowable {type(exc).__name__}", sent=False) from exc
         except httpx.HTTPError as exc:
-            raise WorkflowUnavailable(f"Flowable {type(exc).__name__}") from exc
+            raise WorkflowUnavailable(f"Flowable {type(exc).__name__}", sent=True) from exc
         if resp.status_code not in ok:
             raise WorkflowUnavailable(f"Flowable trả HTTP {resp.status_code} cho {method} {path}")
         return resp
@@ -292,7 +311,11 @@ class FlowableClient:
             # thông điệp ("was updated by another transaction concurrently", cả NullPointerException).
             # Không so khớp thông điệp: bên thắng đã commit trước nên task đã xong trong lịch sử -> TaskGone.
             # Task chưa xong thì 500 là lỗi thật (vd. quyết định không khớp cổng) -> WorkflowUnavailable.
-            if await self.historic_task_done(task_id):
+            try:
+                done = await self.historic_task_done(task_id)
+            except WorkflowUnavailable as exc:      # POST đã tới Flowable: kết quả vẫn không rõ
+                raise WorkflowUnavailable(str(exc), sent=True) from exc
+            if done:
                 raise TaskGone(task_id)
             raise WorkflowUnavailable(f"Flowable trả HTTP 500 cho POST /runtime/tasks/{seg}")
 

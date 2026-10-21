@@ -8,11 +8,19 @@ Luồng ``:complete`` ghi ``task_intents`` và commit **trước** khi gọi Flo
 
 - task đã xong trên Flowable **và** biến lịch sử ``dxos_intent_id`` (task-local, C18) bằng id ý định
   → ``finalize`` với đúng ``actor_sub``/``actor_roles``/``decision`` của ý định;
-- task đã xong nhưng ``dxos_intent_id`` khác → ``abandoned`` (không thể xảy ra khi có khóa; ghi log ERROR);
-- task chưa xong → ``abandoned``: lần trước chưa tới được Flowable, người dùng gửi lại được ngay.
+- task đã xong với ``dxos_intent_id`` của **một ý định khác của cùng bản ghi và cùng task**: đó là lần gửi
+  Flowable thật sự áp dụng. Chưa có kết quả → ``finalize`` ý định đó; đã ``abandoned`` → không bao giờ bỏ qua
+  im lặng: ``WorkflowInconsistent`` (409, admin thấy bản ghi), ý định hiện tại để mở;
+- task đã xong với id lạ (hoặc không có, ví dụ instance bị hủy) → ``abandoned``;
+- task chưa xong → ``abandoned`` chỉ khi ý định đã quá ``late_commit_margin_s`` (3 × thời hạn client
+  Flowable). Trước đó kết quả còn chưa rõ: Flowable có thể commit muộn sau khi client đã bỏ cuộc, nên ý định
+  để mở (``pending``) và ``:complete`` trả 503 ``workflow-pending``. Lời gọi chắc chắn chưa tới Flowable
+  (``WorkflowUnavailable.sent is False``) thì ``:complete`` bỏ ý định ngay, không phải chờ.
 
 Mọi thao tác trên các ý định của một bản ghi chạy dưới khóa advisory phiên ``record_lock`` (``LOCK_WF``),
 trên một kết nối riêng và luôn nhả trong ``finally``. Không gọi Flowable khi đang mở transaction.
+Thứ tự lấy tài nguyên toàn cục (chống cạn pool rồi chờ vòng): **kết nối làm việc trước, rồi tới
+``record_lock``** (kết nối của khóa) — ``:complete`` (kết nối của request) và ``reconcile_all`` đều theo.
 
 Mô-đun này cũng giữ phần dùng chung của bridge (``WorkflowDeps``, ``SealHooks``, ``process_model``) để
 ``service.py`` import một chiều, không vòng.
@@ -45,6 +53,20 @@ log = logging.getLogger("dxos_core.workflow")
 # Khóa advisory hai số nguyên: (LOCK_WF, hashtext(record_id)). Khác 724000 (migrate), 724001 (ledger),
 # 724101 (LOCK_KEYSTMT, Task 7).
 LOCK_WF = 724100
+# Ý định chưa rõ kết quả chỉ được bỏ sau LATE_COMMIT_FACTOR × thời hạn client Flowable (mặc định 30 s).
+LATE_COMMIT_FACTOR = 3
+
+
+def late_commit_margin_s(flowable: FlowableClient) -> float:
+    return LATE_COMMIT_FACTOR * flowable.timeout_s
+
+
+class WorkflowInconsistent(Exception):  # noqa: N818
+    """Flowable đã áp dụng một ý định mà DB đã ghi ``abandoned``: không tự sửa được, admin phải xử lý."""
+
+    def __init__(self, record_id: uuid.UUID, intent_id: int) -> None:
+        super().__init__(f"bản ghi {record_id}: Flowable đã áp dụng ý định #{intent_id} đã bị bỏ")
+        self.record_id, self.intent_id = record_id, intent_id
 
 
 @dataclass(frozen=True)
@@ -261,40 +283,97 @@ async def finalize(deps: WorkflowDeps, conn: asyncpg.Connection, intent: asyncpg
 
 
 # ---------------------------------------------------------------- đối soát
-async def reconcile_record(deps: WorkflowDeps, conn: asyncpg.Connection, record_id: uuid.UUID) -> list[str]:
-    """Giải quyết mọi ý định chưa có kết quả của bản ghi; idempotent. Người gọi giữ ``record_lock``.
+@dataclass
+class Reconciled:
+    outcomes: list[str] = field(default_factory=list)   # kết quả đã ghi, theo thứ tự
+    retry_after_s: float | None = None                  # còn ý định chưa rõ kết quả: chờ bấy nhiêu giây
 
-    Trả danh sách kết quả đã ghi (theo thứ tự ý định). ``conn`` không được đang trong transaction.
+
+async def _outcome_of(conn: asyncpg.Connection, intent_id: int) -> str | None:
+    return await conn.fetchval("SELECT outcome FROM core.task_intent_outcomes WHERE intent_id=$1", intent_id)
+
+
+async def _applied_intent(conn: asyncpg.Connection, seen: str | None,
+                          intent: asyncpg.Record) -> asyncpg.Record | None:
+    """Ý định có id ``seen`` nếu nó thuộc CÙNG bản ghi và CÙNG task với ``intent``; ngược lại None."""
+    if seen is None or not seen.isdigit() or str(intent["id"]) == seen:
+        return None
+    return await conn.fetchrow("SELECT * FROM core.task_intents WHERE id=$1 AND record_id=$2 AND task_id=$3",
+                               int(seen), intent["record_id"], intent["task_id"])
+
+
+async def reconcile_record(deps: WorkflowDeps, conn: asyncpg.Connection, record_id: uuid.UUID) -> Reconciled:
+    """Giải quyết các ý định chưa có kết quả của bản ghi; idempotent. Người gọi giữ ``record_lock``.
+
+    ``conn`` không được đang trong transaction. Ý định chưa rõ kết quả (task chưa xong, chưa quá biên commit
+    muộn) được để mở và báo qua ``retry_after_s``. ``WorkflowInconsistent`` khi Flowable đã áp dụng một ý
+    định đã bị bỏ.
     """
     pending = await conn.fetch(
-        "SELECT i.* FROM core.task_intents i WHERE i.record_id=$1 AND NOT EXISTS"
+        "SELECT i.*, extract(epoch FROM now() - i.created_at)::float8 AS age_s FROM core.task_intents i"
+        " WHERE i.record_id=$1 AND NOT EXISTS"
         " (SELECT 1 FROM core.task_intent_outcomes o WHERE o.intent_id = i.id) ORDER BY i.id", record_id)
-    results: list[str] = []
+    res = Reconciled()
+    margin = late_commit_margin_s(deps.flowable)
     for intent in pending:
-        if await deps.flowable.historic_task_done(intent["task_id"]):
-            seen = await deps.flowable.historic_intent_id(intent["task_id"])
-            if seen == str(intent["id"]):
-                results.append((await finalize(deps, conn, intent)).outcome)
+        if await _outcome_of(conn, intent["id"]) is not None:      # đã được hoàn tất ở vòng trước
+            continue
+        if not await deps.flowable.historic_task_done(intent["task_id"]):
+            if intent["age_s"] <= margin:
+                wait = margin - intent["age_s"]
+                res.retry_after_s = wait if res.retry_after_s is None else max(res.retry_after_s, wait)
                 continue
-            log.error("task %s đã xong với dxos_intent_id=%r, khác ý định #%s (bản ghi %s)",
+            await _record_outcome(conn, intent["id"], "abandoned")
+            res.outcomes.append("abandoned")
+            continue
+        seen = await deps.flowable.historic_intent_id(intent["task_id"])
+        if seen == str(intent["id"]):
+            res.outcomes.append((await finalize(deps, conn, intent)).outcome)
+            continue
+        applied = await _applied_intent(conn, seen, intent)
+        if applied is not None:
+            status = await _outcome_of(conn, applied["id"])
+            if status is None:
+                res.outcomes.append((await finalize(deps, conn, applied)).outcome)
+            elif status == "abandoned":
+                log.error("Flowable đã áp dụng ý định #%s (đã bị bỏ) cho task %s của bản ghi %s",
+                          applied["id"], intent["task_id"], record_id)
+                raise WorkflowInconsistent(record_id, applied["id"])
+            # completed/guard_failed: lần gửi đó đã được xử lý; ý định này không được áp dụng
+        elif seen is not None:
+            log.error("task %s đã xong với dxos_intent_id=%r lạ, khác ý định #%s (bản ghi %s)",
                       intent["task_id"], seen, intent["id"], record_id)
         await _record_outcome(conn, intent["id"], "abandoned")
-        results.append("abandoned")
-    return results
+        res.outcomes.append("abandoned")
+    return res
 
 
-async def reconcile_all(deps: WorkflowDeps) -> dict[str, int]:
-    """``POST /admin/v1/workflow:reconcile``: đối soát mọi bản ghi có ý định chưa có kết quả."""
+async def reconcile_all(deps: WorkflowDeps) -> dict[str, Any]:
+    """``POST /admin/v1/workflow:reconcile``: đối soát mọi bản ghi có ý định chưa có kết quả.
+
+    ``unavailable`` > 0 khi có bản ghi không đối soát được vì Flowable lỗi (route trả 503 kèm số đếm);
+    ``inconsistent`` liệt kê bản ghi cần admin xử lý tay.
+    """
     async with deps.pool.acquire() as conn:
         rids = [r["record_id"] for r in await conn.fetch(
             "SELECT DISTINCT i.record_id FROM core.task_intents i WHERE NOT EXISTS"
             " (SELECT 1 FROM core.task_intent_outcomes o WHERE o.intent_id = i.id) ORDER BY i.record_id")]
-    counts = {"records": len(rids), "completed": 0, "abandoned": 0, "guard_failed": 0, "errors": 0}
+    counts: dict[str, Any] = {"records": len(rids), "completed": 0, "abandoned": 0, "guard_failed": 0,
+                              "pending": 0, "unavailable": 0, "errors": 0, "inconsistent": []}
     for rid in rids:
         try:
-            async with record_lock(deps.pool, rid), deps.pool.acquire() as conn:
-                for outcome in await reconcile_record(deps, conn, rid):
-                    counts[outcome] += 1
+            # Thứ tự toàn cục: kết nối làm việc trước, khóa bản ghi sau (như :complete).
+            async with deps.pool.acquire() as conn, record_lock(deps.pool, rid):
+                res = await reconcile_record(deps, conn, rid)
+            for outcome in res.outcomes:
+                counts[outcome] += 1
+            if res.retry_after_s is not None:
+                counts["pending"] += 1
+        except WorkflowInconsistent:
+            counts["inconsistent"].append(str(rid))
+        except WorkflowUnavailable:
+            log.warning("đối soát bản ghi %s: Flowable không sẵn sàng", rid)
+            counts["unavailable"] += 1
         except Exception:  # noqa: BLE001 (một bản ghi lỗi không chặn các bản ghi khác)
             log.exception("đối soát bản ghi %s lỗi", rid)
             counts["errors"] += 1

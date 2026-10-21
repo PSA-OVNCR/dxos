@@ -15,9 +15,12 @@ import pytest
 from dxos_core.kms.base import KmsUnavailable
 from dxos_core.policy.pdp import deny
 from dxos_core.settings import ORG_NAME_DEFAULT
-from dxos_core.workflow.reconcile import SealHooks
+from dxos_core.workflow import reconcile
+from dxos_core.workflow.flowable import WorkflowUnavailable
+from dxos_core.workflow.reconcile import LOCK_WF, SealHooks
 from dxos_proof.canonical import canonical_bytes, sha256_hex
 from helpers.files import fixture
+from helpers.flow import headers_for
 from helpers.manifests import manifest
 
 pytestmark = pytest.mark.integration
@@ -72,11 +75,34 @@ async def test_reject_reopens_record(flow):
     assert (await flow.patch(rid, {"title": "sửa lại"}, as_="a1")).status_code == 200
 
 
-async def test_two_approvers_race_only_one_wins(flow):                         # Review Focus 2
+async def test_two_approvers_race_only_one_wins(flow, monkeypatch):            # Review Focus 2
+    """Bên thắng dừng trong lời gọi Flowable cho tới khi bên kia đã xếp hàng ở khóa bản ghi. Không có
+    record_lock thì cả hai cùng vào Flowable (in_flight 2, không thấy ai chờ khóa) và test trượt."""
     rid = await flow.ready_record(author="a1")
     await flow.start(rid, as_="a1")
+    client = flow.api.app.state.flowable
+    real, st = client.complete, {"in_flight": 0, "max": 0, "waiter": False}
+
+    async def complete(*args, **kwargs):
+        st["in_flight"] += 1
+        st["max"] = max(st["max"], st["in_flight"])
+        try:
+            for _ in range(500):                     # tối đa 5 s
+                if st["in_flight"] > 1:
+                    break
+                if await flow.db.fetchval("SELECT count(*) FROM pg_locks WHERE locktype='advisory'"
+                                          " AND NOT granted AND classid::bigint = $1", LOCK_WF):
+                    st["waiter"] = True
+                    break
+                await asyncio.sleep(0.01)
+            await real(*args, **kwargs)
+        finally:
+            st["in_flight"] -= 1
+
+    monkeypatch.setattr(client, "complete", complete)
     r1, r2 = await asyncio.gather(flow.complete_task("review", rid, "approve", as_="r1"),
                                   flow.complete_task("review", rid, "approve", as_="r2"))
+    assert st["waiter"] and st["max"] == 1
     assert sorted([r1.status_code, r2.status_code]) == [200, 409]
     assert await flow.count("task_completions", rid) == 1
     assert await flow.count_ledger("task.completed", subject=rid) == 1
@@ -243,7 +269,36 @@ async def test_completed_task_is_409_and_stale_version_is_409(flow):
     r = await flow.complete_raw(tid, "approve", as_="r1", version=await flow.version(rid))
     assert r.status_code == 409 and r.json()["type"].endswith("/task-gone")
     assert (await flow.complete_raw(f"no-such-{uuid.uuid4()}", "approve", as_="r1")).status_code == 404
-    assert (await flow.complete_raw("..%2F..%2Fx", "approve", as_="r1")).status_code == 404
+
+
+async def test_malformed_task_id_reaches_service_and_is_404(flow, monkeypatch):
+    """Id khớp route nhưng không qua ``_seg`` của client: ValueError được map thành 404 ở service."""
+    client = flow.api.app.state.flowable
+    real, seen = client.get_task, []
+
+    async def probe(task_id):
+        try:
+            return await real(task_id)
+        except ValueError:
+            seen.append(task_id)
+            raise
+
+    monkeypatch.setattr(client, "get_task", probe)
+    for bad in ("...", "a%20b"):
+        r = await flow.complete_raw(bad, "approve", as_="r1")
+        assert r.status_code == 404 and r.json()["type"].endswith("/not-found")
+    assert seen == ["...", "a b"]
+
+
+async def test_no_active_version_freezes_complete_and_inbox(flow):           # C4
+    rid = await flow.ready_record(author="a1")
+    await flow.start(rid, as_="a1")
+    await flow.conn.execute("UPDATE apps SET status='DISABLED' WHERE id='test-flow'")
+    r = await flow.complete_task("review", rid, "approve", as_="r1")
+    assert r.status_code == 404 and r.json()["type"].endswith("/app-not-active")
+    r = await flow.api.get("/api/v1/apps/test-flow/tasks?assigned=me", headers=headers_for("r1"))
+    assert r.status_code == 404 and r.json()["type"].endswith("/app-not-active")
+    assert await flow.task_exists("review", rid)
 
 
 async def test_org_not_configured_and_expired_key_statement_block_last_task(flow):    # P2-D25, spec 25.3
@@ -285,3 +340,123 @@ async def test_deny_refuses_to_run_inside_a_transaction(core_conn):
         with pytest.raises(RuntimeError):
             await deny(core_conn, P("u1", []), manifest("test-flow"), action="complete",
                        reason="not_task_role", subject="s", hmac_key=b"k")
+
+
+
+# ---------- Fix vòng 1: Flowable commit muộn, đối soát, hộp việc ----------
+
+async def test_lost_response_after_flowable_commit_is_recovered(flow, flowable_response_lost_once):
+    rid = await flow.ready_record(author="a1")
+    await flow.start(rid, as_="a1")
+    r = await flow.complete_task("review", rid, "approve", as_="r1")
+    assert r.status_code == 503                                     # Flowable đã commit, phản hồi mất
+    [intent] = await flow.intents(rid)
+    assert intent["outcome"] is None                                            # không bỏ: kết quả chưa rõ
+    assert (await flow.admin_post("/admin/v1/workflow:reconcile")).json()["completed"] == 1
+    assert await flow.completion_actor(rid, "review") == "r1"
+    assert await flow.count_ledger("task.completed", subject=rid) == 1
+    assert await flow.task_exists("approve", rid)
+
+
+async def test_late_flowable_commit_is_not_lost(flow, flowable_no_answer_once):     # rà soát Task 6, Minor 2
+    rid = await flow.ready_record(author="a1")
+    await flow.start(rid, as_="a1")
+    dual = flow.token("r1", "reviewer", "approver")
+    assert (await flow.complete_task("review", rid, "approve", as_=dual)).status_code == 503
+    r = await flow.complete_task("review", rid, "approve", as_=dual)     # thử lại ngay: chưa rõ kết quả
+    assert r.status_code == 503 and r.json()["type"].endswith("/workflow-pending")
+    assert 1 <= int(r.headers["Retry-After"]) <= 30
+    [intent] = await flow.intents(rid)
+    assert intent["outcome"] is None and await flow.count("task_intents", rid) == 1
+    await flow.late_commit("review", rid, intent["id"])                         # Flowable commit muộn
+    await flow.admin_post("/admin/v1/workflow:reconcile")
+    assert await flow.completion_actor(rid, "review") == "r1"
+    assert [i["outcome"] for i in await flow.intents(rid)] == ["completed"]
+    # tách bạch nhiệm vụ còn nguyên: chính r1 (có cả role approver) không được phê duyệt lần xem xét của mình
+    assert (await flow.pii_review(rid, as_="p1")).status_code == 200
+    r = await flow.complete_task("approve", rid, "approve", as_=dual)
+    assert r.status_code == 403 and r.json()["guard"] == "not_same_actor:review"
+
+
+async def test_unanswered_intent_is_abandoned_after_the_margin(flow, flowable_no_answer_once, monkeypatch):
+    rid = await flow.ready_record(author="a1")
+    await flow.start(rid, as_="a1")
+    assert (await flow.complete_task("review", rid, "approve", as_="r1")).status_code == 503
+    monkeypatch.setattr(reconcile, "LATE_COMMIT_FACTOR", 0)                     # biên đã trôi qua
+    r = await flow.complete_task("review", rid, "approve", as_="r1")
+    assert r.status_code == 200, r.text
+    assert [i["outcome"] for i in await flow.intents(rid)] == ["abandoned", "completed"]
+
+
+async def test_done_with_other_intent_of_same_task_finalizes_that_intent(flow, flowable_response_lost_once,
+                                                                         monkeypatch):
+    """Flowable cho thấy task xong với ``dxos_intent_id`` của MỘT ý định khác của cùng bản ghi và cùng task,
+    chưa có kết quả: đó là lần gửi Flowable đã áp dụng, nên hoàn tất nó (đúng người, đúng quyết định)."""
+    rid = await flow.ready_record(author="a1")
+    await flow.start(rid, as_="a1")
+    assert (await flow.complete_task("review", rid, "approve", as_="r1")).status_code == 503
+    other = await flow.add_intent(rid, "review", "r2")
+    client = flow.api.app.state.flowable
+
+    async def seen(task_id):
+        return str(other)
+
+    monkeypatch.setattr(client, "historic_intent_id", seen)
+    body = (await flow.admin_post("/admin/v1/workflow:reconcile")).json()
+    assert (body["completed"], body["abandoned"], body["inconsistent"]) == (1, 1, [])
+    assert await flow.completion_actor(rid, "review") == "r2"
+    assert [(i["actor_sub"], i["outcome"]) for i in await flow.intents(rid)] == [
+        ("r1", "abandoned"), ("r2", "completed")]
+    assert await flow.count_ledger("task.completed", subject=rid) == 1
+
+
+async def test_done_with_an_abandoned_intent_is_reported_never_skipped(flow, flowable_response_lost_once,
+                                                                       monkeypatch):
+    rid = await flow.ready_record(author="a1")
+    await flow.start(rid, as_="a1")
+    assert (await flow.complete_task("review", rid, "approve", as_="r1")).status_code == 503
+    other = await flow.add_intent(rid, "review", "r2", outcome="abandoned")
+    client = flow.api.app.state.flowable
+
+    async def seen(task_id):
+        return str(other)
+
+    monkeypatch.setattr(client, "historic_intent_id", seen)
+    body = (await flow.admin_post("/admin/v1/workflow:reconcile")).json()
+    assert body["inconsistent"] == [rid] and body["completed"] == 0
+    assert [i["outcome"] for i in await flow.intents(rid)] == [None, "abandoned"]   # ý định vẫn mở
+    assert (await flow.pii_review(rid, as_="p1")).status_code == 200
+    r = await flow.complete_task("approve", rid, "approve", as_="p1")
+    assert r.status_code == 409 and r.json()["type"].endswith("/workflow-inconsistent")
+    assert await flow.completion_actor(rid, "review") is None
+    assert (await flow.admin_post("/admin/v1/workflow:reconcile")).json()["inconsistent"] == [rid]
+
+
+async def test_admin_reconcile_is_503_when_flowable_is_unreachable(flow, flowable_no_answer_once,
+                                                                   monkeypatch):
+    rid = await flow.ready_record(author="a1")
+    await flow.start(rid, as_="a1")
+    assert (await flow.complete_task("review", rid, "approve", as_="r1")).status_code == 503
+    client = flow.api.app.state.flowable
+
+    async def down(task_id):
+        raise WorkflowUnavailable("Flowable ConnectError (giả lập)", sent=False)
+
+    monkeypatch.setattr(client, "historic_task_done", down)
+    r = await flow.admin_post("/admin/v1/workflow:reconcile", expect=503)
+    assert r.json()["type"].endswith("/workflow-unavailable")
+    assert r.json()["counts"]["unavailable"] == 1 and r.json()["counts"]["records"] == 1
+
+
+async def test_inbox_hides_tasks_of_records_the_caller_cannot_read(flow):
+    rid = await flow.ready_record(author="a1")
+    await flow.start(rid, as_="a1")
+    assert [t["record_id"] for t in await flow.inbox(as_="r1")] == [rid]
+
+    def no_reviewer_read(r):
+        r["collections"]["doc"]["access"]["read"] = ["owner", "role:approver"]
+
+    await flow.install_version("0.2.0", mutate=no_reviewer_read)               # chính sách đọc hiện hành
+    denied = await flow.db.fetchval("SELECT count(*) FROM ledger_entries WHERE type='policy.denied'")
+    assert await flow.inbox(as_="r1") == []
+    assert await flow.db.fetchval("SELECT count(*) FROM ledger_entries WHERE type='policy.denied'") == denied

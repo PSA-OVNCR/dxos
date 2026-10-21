@@ -499,3 +499,46 @@ async def test_ping_ok_and_failures(client, respx_mock):
     route.mock(side_effect=httpx.ConnectError("x"))
     with pytest.raises(WorkflowUnavailable):
         await client.ping()
+
+
+# ---------------------------------------------------------------- request có tới Flowable không (fix vòng 1)
+@pytest.mark.parametrize("exc", [httpx.ConnectError("refused"), httpx.ConnectTimeout("syn"),
+                                 httpx.PoolTimeout("pool")])
+async def test_never_sent_errors_are_marked_not_sent(client, respx_mock, exc):
+    """Lỗi trước khi request rời client: chắc chắn Flowable chưa nhận gì (bên gọi bỏ ý định ngay)."""
+    respx_mock.post(f"{BASE}/runtime/tasks/t1").mock(side_effect=exc)
+    with pytest.raises(WorkflowUnavailable) as e:
+        await client.complete("t1", {"decision": "approve"})
+    assert e.value.sent is False
+
+
+@pytest.mark.parametrize("exc", [httpx.ReadTimeout("slow"), httpx.WriteTimeout("slow"),
+                                 httpx.RemoteProtocolError("eof"), httpx.ReadError("reset")])
+async def test_errors_after_sending_are_outcome_unknown(client, respx_mock, exc):
+    """Request có thể đã tới Flowable và được commit sau đó: kết quả không rõ (sent=True)."""
+    respx_mock.post(f"{BASE}/runtime/tasks/t1").mock(side_effect=exc)
+    with pytest.raises(WorkflowUnavailable) as e:
+        await client.complete("t1", {"decision": "approve"})
+    assert e.value.sent is True
+
+
+async def test_status_errors_and_default_are_sent(client, respx_mock):
+    respx_mock.post(f"{BASE}/runtime/tasks/t1").mock(return_value=httpx.Response(503))
+    with pytest.raises(WorkflowUnavailable) as e:
+        await client.complete("t1", {"decision": "approve"})
+    assert e.value.sent is True
+    assert WorkflowUnavailable("x").sent is True                       # mặc định thận trọng
+
+
+async def test_complete_500_then_history_unreachable_is_still_sent(client, respx_mock):
+    """POST đã tới Flowable (trả 500); lần đọc lịch sử sau đó không kết nối được vẫn là 'không rõ kết quả'."""
+    respx_mock.post(f"{BASE}/runtime/tasks/t1").mock(return_value=httpx.Response(500))
+    respx_mock.get(f"{BASE}/history/historic-task-instances/t1").mock(side_effect=httpx.ConnectError("x"))
+    with pytest.raises(WorkflowUnavailable) as e:
+        await client.complete("t1", {"decision": "approve"})
+    assert e.value.sent is True
+
+
+def test_client_exposes_timeout(client):
+    assert client.timeout_s == 10.0
+    assert FlowableClient(BASE, "u", "p", timeout_s=3.5).timeout_s == 3.5

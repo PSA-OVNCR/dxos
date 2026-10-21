@@ -14,7 +14,7 @@ import asyncio
 import copy
 import hashlib
 import uuid
-from collections.abc import Coroutine
+from collections.abc import Callable, Coroutine
 from typing import Any
 
 import asyncpg
@@ -63,12 +63,15 @@ class FlowHarness:
 
     # ------------------------------------------------------------ cài app
     async def install_version(self, version: str = "0.1.0", *, add_guard: dict[str, str] | None = None,
-                              activate: bool = True) -> None:
-        """Cài một phiên bản ``test-flow`` (tùy chọn thêm guard vào task) và kích hoạt nó."""
+                              mutate: Callable[[dict], None] | None = None, activate: bool = True) -> None:
+        """Cài một phiên bản ``test-flow`` (tùy chọn thêm guard vào task, hoặc sửa manifest thô bằng
+        ``mutate``) và kích hoạt nó. Không qua installer: không kiểm luật nâng cấp (Task 12)."""
         r = raw(APP)
         r["app"]["version"] = version
         for task, guard in (add_guard or {}).items():
             r["workflow"]["tasks"][task]["guards"] = [*r["workflow"]["tasks"][task]["guards"], guard]
+        if mutate is not None:
+            mutate(r)
         m = validate_manifest(copy.deepcopy(r))
         for t in m.workflow.tasks.values():
             self._guards.update(t.guards)
@@ -237,12 +240,37 @@ class FlowHarness:
         assert (r := await self.pii_review(rid, as_="p1")).status_code == 200, r.text
         return rid
 
+    async def late_commit(self, task_key: str, rid: str, intent_id: int, decision: str = "approve") -> None:
+        """Flowable commit muộn đúng lần gửi của ý định ``intent_id`` (như lời gọi đã quá hạn phía client)."""
+        tid = await self.task_id(task_key, rid)
+        await self.flowable.complete(tid, {"decision": decision},
+                                     local_variables={"dxos_intent_id": str(intent_id)})
+
+    async def intents(self, rid: str) -> list[asyncpg.Record]:
+        """Ý định của bản ghi theo thứ tự id, kèm ``outcome`` (None nếu chưa có kết quả)."""
+        return await self.db.fetch(
+            "SELECT i.*, o.outcome FROM task_intents i LEFT JOIN task_intent_outcomes o ON o.intent_id = i.id"
+            " WHERE i.record_id=$1 ORDER BY i.id", uuid.UUID(rid))
+
+    async def add_intent(self, rid: str, task_key: str, actor: str, *, outcome: str | None = None) -> int:
+        """Chèn một ý định cho task đang mở của bản ghi (giả lập lần gửi khác của cùng task)."""
+        tid = await self.task_id(task_key, rid)
+        iid = await self.instance_of(rid)
+        intent = await self.db.fetchval(
+            "INSERT INTO task_intents(task_id, record_id, wf_instance_id, task_key, actor_sub, actor_roles,"
+            " decision) VALUES ($1, $2, $3, $4, $5, $6, 'approve') RETURNING id",
+            tid, uuid.UUID(rid), iid, task_key, actor, list(ROLES[actor]))
+        if outcome is not None:
+            await self.db.execute("INSERT INTO task_intent_outcomes(intent_id, outcome) VALUES ($1, $2)",
+                                  intent, outcome)
+        return intent
+
     async def instance_running(self, iid: str) -> bool:
         return not (await self.flowable.outcome(iid)).ended
 
-    async def admin_post(self, path: str) -> httpx.Response:
+    async def admin_post(self, path: str, *, expect: int = 200) -> httpx.Response:
         r = await self.api.post(path, headers=self.admin())
-        assert r.status_code == 200, r.text
+        assert r.status_code == expect, r.text
         return r
 
     # ------------------------------------------------------------ đọc DB / ledger

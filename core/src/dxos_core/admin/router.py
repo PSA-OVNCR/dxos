@@ -62,6 +62,11 @@ async def workflow_reconcile(request: Request, _: Principal = Depends(require_ad
     """Đối soát mọi ý định hoàn thành task chưa có kết quả với lịch sử Flowable (P2-D20, spec 15 T6)."""
     deps = deps_from_state(request.app.state)
     try:
-        return await reconcile_all(deps)
+        counts = await reconcile_all(deps)
     except WorkflowUnavailable as exc:
         raise workflow_unavailable() from exc
+    if counts["unavailable"]:
+        # Đã xử lý các bản ghi khác; báo 503 để admin/CLI biết còn bản ghi chưa đối soát được.
+        raise ProblemError(503, "workflow-unavailable", "Workflow engine unavailable",
+                           "some records could not be reconciled", counts=counts)
+    return counts
