@@ -395,7 +395,10 @@ def test_keys_colliding_after_nfc_are_rejected(bundle_env):                     
     key = "tiêu đề"
     pf = {"ref": "01/TF", key: "Bản A", unicodedata.normalize("NFD", key): "Bản B"}
     assert len(set(pf)) == 3
-    b, a = bundle_env.build(public_fields=pf)                   # gói tự nhất quán: chữ ký/hash đều đúng
+    # canonical_bytes nay từ chối khóa trùng sau NFC (rà soát cuối, m1): dựng gói như một bên dùng bộ chuẩn
+    # hóa cũ (gộp, giá trị sau thắng): chữ ký/hash trên bản đã gộp, gói mang bản có hai khóa.
+    b, a = bundle_env.build(public_fields={"ref": "01/TF", key: "Bản B"})
+    b["payload"]["public_fields"] = pf                          # gói tự nhất quán theo cách gộp cũ
     r = verify_bundle(b, anchor_dir=a)
     assert r.status == "INVALID" and _code(r) == "MALFORMED", r.detail
     assert "payload.public_fields" in r.detail and "NFC" in r.detail

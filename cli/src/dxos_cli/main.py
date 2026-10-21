@@ -102,7 +102,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=commands.app_disable)
 
     p = sub.add_parser(
-        "health", parents=[shared], help="sức khỏe các thành phần (mã thoát 0 khi yêu cầu thành công)"
+        "health", parents=[shared],
+        help="sức khỏe các thành phần (mã thoát 0 khi yêu cầu thành công; dòng '!' là vấn đề: down, "
+             "seal_key expired/invalid/unknown)"
     )
     p.set_defaults(func=commands.health)
 

@@ -1,5 +1,6 @@
 # SPDX-FileCopyrightText: 2026 PSA_OVNCR
 # SPDX-License-Identifier: Apache-2.0
+import unicodedata
 from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
@@ -47,3 +48,14 @@ def test_rejects_datetime_object_directly():
 
 def test_sha256_hex():
     assert sha256_hex(b"") == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+
+def test_keys_colliding_after_nfc_are_rejected():  # rà soát cuối Plan 02, m1
+    """Hai khóa khác nhau chỉ ở dạng Unicode (NFD/NFC) không được gộp im lặng thành một: lỗi rõ."""
+    nfc, nfd = "Hồ sơ", unicodedata.normalize("NFD", "Hồ sơ")
+    assert nfc != nfd
+    with pytest.raises(CanonicalError):
+        canonical_bytes({nfc: 1, nfd: 2})
+    with pytest.raises(CanonicalError):
+        canonical_bytes({"a": [{nfd: 1, nfc: 1}]})              # lồng sâu, kể cả cùng giá trị
+    assert canonical_bytes({nfd: 1, "b": 2}) == canonical_bytes({nfc: 1, "b": 2})

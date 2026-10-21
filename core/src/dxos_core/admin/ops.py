@@ -5,7 +5,8 @@ Task 12).
 
 ``health`` luôn trả HTTP 200 (để CLI đọc được); mỗi thành phần là ``"ok"`` hoặc ``"down: <lý do ngắn>"``,
 mỗi lần thăm dò có hạn chờ ngắn. Trạng thái niêm phong (``seal_pending``, ``seal_key``, ``org``; Task 7)
-chuyển từ ``/admin/v1/ledger/status`` về đây.
+chuyển từ ``/admin/v1/ledger/status`` về đây. ``seal_key``: ``ok``, ``none``, ``expired``, ``invalid``,
+``unknown`` (xem ``seal_key_status``) hoặc ``down: db unavailable``.
 """
 
 import asyncio
@@ -22,7 +23,7 @@ from dxos_core.identity.jwt import Principal
 from dxos_core.kms.base import KmsUnavailable
 from dxos_core.objects.clamd import ScannerUnavailable, clamd_version
 from dxos_core.registry.keycloak_admin import IdpAdminUnavailable
-from dxos_core.seal.keys import latest_statement, org_configured, statement_for, within_validity
+from dxos_core.seal.keys import KeyStatementInvalid, checked_statement_for, org_configured, within_validity
 from dxos_core.workflow.flowable import WorkflowUnavailable
 from dxos_core.workflow.service import KMS_PROBE
 
@@ -59,13 +60,21 @@ async def _probe(check: Callable[[], Awaitable[None]], *, what: str) -> str:
 
 # ---------------------------------------------------------------- từng thành phần
 async def seal_key_status(conn: asyncpg.Connection, signer: Any) -> str:
-    """``seal_key`` theo phiên bản seal-key lớn nhất KMS biết (phiên bản lần niêm phong sau sẽ dùng): chưa có
-    tuyên bố → ``"none"`` (lần niêm phong đầu bằng nó sẽ tạo). KMS không trả lời → tuyên bố mới nhất đã có."""
+    """``seal_key`` theo phiên bản seal-key lớn nhất KMS biết (phiên bản lần niêm phong sau sẽ dùng):
+
+    - ``"ok"`` / ``"expired"``: tuyên bố đã kiểm của phiên bản đó, theo thời hạn;
+    - ``"none"``: chưa có tuyên bố (lần niêm phong đầu bằng nó sẽ tạo);
+    - ``"invalid"``: có hàng tuyên bố nhưng không qua kiểm hash/phiên bản (bị sửa; niêm phong bị chặn);
+    - ``"unknown"``: KMS không trả lời nên không biết phiên bản nào sẽ dùng (không báo "ok" cũ).
+    """
     try:
         versions = (await asyncio.wait_for(signer.public_keys(), CHECK_TIMEOUT_S))["seal-key"]
-        statement = await statement_for(conn, max(versions)) if versions else None
     except (KmsUnavailable, TimeoutError):
-        statement = await latest_statement(conn)
+        return "unknown"
+    try:
+        statement = await checked_statement_for(conn, max(versions)) if versions else None
+    except KeyStatementInvalid:
+        return "invalid"
     if statement is None:
         return "none"
     return "ok" if within_validity(statement, datetime.now(UTC)) else "expired"

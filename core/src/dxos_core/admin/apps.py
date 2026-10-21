@@ -6,7 +6,6 @@ Mọi route nằm dưới ``/admin/v1`` (APISIX chỉ mở trên host admin) và
 luồng với trần cứng (413 ngay khi vượt), chỉ nhận ``application/json`` (415).
 """
 
-import json
 from typing import Any
 
 from fastapi import APIRouter, Depends, Request
@@ -15,6 +14,7 @@ from dxos_core.errors import ProblemError
 from dxos_core.http_body import read_capped_body
 from dxos_core.identity.deps import require_admin
 from dxos_core.identity.jwt import Principal
+from dxos_core.jsonbody import JsonBodyError, parse_json
 from dxos_core.registry import installer
 
 router = APIRouter(tags=["admin"])            # gắn dưới /admin/v1 trong admin/router.py
@@ -24,13 +24,14 @@ MAX_SMALL_BYTES = 4096              # :approve
 
 
 async def read_json(request: Request, limit: int) -> Any:
-    """``read_capped_body`` (415/413/400) rồi JSON hợp lệ (422 ``invalid-request``)."""
+    """``read_capped_body`` (415/413/400) rồi JSON hợp lệ, mã hóa UTF-8 được, lồng không quá sâu (422
+    ``invalid-request``; ``dxos_core.jsonbody``)."""
     raw = await read_capped_body(request, limit)
     try:
-        return json.loads(raw)
-    except (ValueError, RecursionError):
-        raise ProblemError(422, "invalid-request", "Request validation failed",
-                           "body is not valid JSON") from None
+        return parse_json(raw)
+    except JsonBodyError as exc:
+        detail = "body is not valid JSON" if exc.malformed else exc.detail
+        raise ProblemError(422, "invalid-request", "Request validation failed", detail) from None
 
 
 @router.post("/apps", status_code=202)

@@ -408,6 +408,18 @@ def test_health_flags_expired_seal_key(token_env, capsys):
     assert len(flagged) == 1 and "seal_key" in flagged[0]
 
 
+@pytest.mark.parametrize("value", ["invalid", "unknown"])
+@respx.mock
+def test_health_flags_invalid_or_unknown_seal_key(token_env, capsys, value):
+    """``invalid`` (tuyên bố khóa bị sửa) và ``unknown`` (KMS không trả lời) là vấn đề; ``none`` thì không."""
+    respx.get(f"{SRV}/admin/v1/health").mock(
+        return_value=httpx.Response(200, json={"db": "ok", "seal_key": value})
+    )
+    assert main(["--server", SRV, "health"]) == 0
+    flagged = [x for x in capsys.readouterr().out.splitlines() if x.lstrip().startswith("!")]
+    assert len(flagged) == 1 and "seal_key" in flagged[0]
+
+
 @respx.mock
 def test_quarantine_list(token_env, capsys):
     rows = [

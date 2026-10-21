@@ -153,8 +153,9 @@ async def seal_record(conn: asyncpg.Connection, *, signer: Signer, hmac_key: byt
                       record_id: uuid.UUID, now: datetime | None = None) -> SealOutcome:
     """Ký ảnh chụp của bản ghi ``SEAL_PENDING``; idempotent. ``now`` chỉ dùng trong test.
 
-    ``KmsUnavailable``, ``SealKeyExpired``, ``OrgNotConfigured`` → rollback và raise (bản ghi giữ
-    ``SEAL_PENDING``). Không bao giờ ghi ``seals`` thiếu chữ ký.
+    ``KmsUnavailable``, ``SealKeyExpired``, ``OrgNotConfigured``, ``KeyStatementInvalid`` (tuyên bố khóa đã
+    lưu không qua kiểm) → rollback và raise (bản ghi giữ ``SEAL_PENDING``). Không bao giờ ghi ``seals`` thiếu
+    chữ ký.
     """
     async with conn.transaction():
         row = await conn.fetchrow("SELECT id, seal_state FROM core.records WHERE id=$1 FOR UPDATE", record_id)

@@ -25,7 +25,8 @@ Trang tĩnh (HTML + JS thuần + CSS, không build, không thư viện ngoài) d
 | `SEAL_PENDING` | Chờ niêm phong (không lộ trường nào) |
 | `signature_valid: false`, hoặc `inclusion.verified: false` khi đã có STH phủ lá | Không hợp lệ |
 | `REVOKED` | Đã thu hồi |
-| `VALID`, `signature_valid: true` và `inclusion.verified: true` | Hợp lệ |
+| `VALID`, `signature_valid: true`, `inclusion.verified: true` và `inclusion.anchored` khác `null` | Hợp lệ |
+| `VALID`, `signature_valid: true`, `inclusion.verified: true`, `inclusion.anchored` là `null` (STH chưa neo công khai) | "Hợp lệ — chưa neo công khai" (lớp CSS `unanchored`, không phải "Hợp lệ" trần) |
 | `VALID`, `signature_valid: true`, chưa có STH phủ lá (`inclusion.tree_size` null) | "Chữ ký hợp lệ — đang chờ công bố vào sổ cái" (lớp CSS `wait`, không phải "Hợp lệ") |
 
 Với "Không hợp lệ" trang chỉ hiện huy hiệu và lý do (chữ ký sai, hoặc không thuộc sổ cái); không hiện đơn vị, trường công khai, chi tiết sổ cái, ô chọn tệp hay nút gói.

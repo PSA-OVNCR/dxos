@@ -236,6 +236,7 @@ Ghi bởi `pdp.deny` (từ chối ngoài bảng quyền, Plan 02):
 | `not_task_role` | `complete` | người gọi không giữ role của task theo bản manifest đã ghim | 404 |
 | `kms_unavailable` | `complete` | R-1: OpenBao không ký được trước task niêm phong; Flowable chưa bị gọi | 503 `kms-unavailable` |
 | `seal_key_expired` | `complete` | R-1: tuyên bố khóa `seal-key` hết hạn | 503 `seal-key-expired` |
+| `key_statement_invalid` | `complete` | R-1: tuyên bố khóa `seal-key` trong DB không qua kiểm hash/phiên bản (bị sửa) | 503 `key-statement-invalid` |
 | `org_not_configured` | `complete` | R-1: `DXOS_ORG_NAME` chưa đặt thật | 503 `org-not-configured` |
 | `not_pii_reviewer` | `pii_review` | người gọi không thuộc `pii.reveal_roles` | 404 |
 | `not_revoker` | `revoke` | người gọi không thuộc `seal.revoke_roles` của bản đã niêm phong | 404 |
@@ -281,7 +282,8 @@ tại), `list`/`create` trả 403:
 | `invalid-decision` | 422 | `decision` sai dạng hoặc không thuộc các giá trị của cổng sau task |
 | `invalid-note` | 422 | ghi chú thu hồi sai kiểu hoặc dài quá |
 | `invalid-reason-code` | 422 | mã lý do thu hồi không thuộc danh sách |
-| `invalid-request` | 422 | thân request sai cấu trúc (`:erase-pii`, `:revoke`, `:check`, nộp app…) |
+| `invalid-request` | 422 | thân request sai cấu trúc (`:erase-pii`, `:revoke`, `:check`, nộp app…), có surrogate lẻ (không mã hóa UTF-8 được) hoặc lồng quá 64 mức |
+| `key-statement-invalid` | 503 | tuyên bố khóa `seal-key` trong DB không qua kiểm hash; không niêm phong, admin điều tra |
 | `keys-unavailable` | 503 | OpenBao khóa và phiên bản khóa công khai cần dùng chưa có trong cache |
 | `kms-unavailable` | 503 | OpenBao không ký được |
 | `length-required` | 411 | upload thiếu `Content-Length` |

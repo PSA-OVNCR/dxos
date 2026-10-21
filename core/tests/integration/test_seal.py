@@ -16,6 +16,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from dxos_core.seal.keys import (
     LOCK_KEYSTMT,
     ORG_NAME_DEFAULT,
+    KeyStatementInvalid,
     OrgNotConfigured,
     SealKeyExpired,
     build_statement,
@@ -24,7 +25,7 @@ from dxos_core.seal.keys import (
 from dxos_core.seal.service import SealStateError, record_digest, seal_signing_bytes, sealed_leaf_body
 from dxos_proof.canonical import canonical_bytes, sha256_hex
 from helpers.flow import URL, headers_for
-from helpers.local_signer import FailingSigner
+from helpers.local_signer import FailingSigner, UnreachableSigner
 
 pytestmark = pytest.mark.integration
 
@@ -452,3 +453,49 @@ async def test_seal_key_status_follows_highest_kms_version(flow, local_signer): 
     await flow.sealed_record()                                # lần niêm phong đầu bằng v2 tạo tuyên bố
     assert (await flow.admin_status())["seal_key"] == "ok"
     assert [r["version"] for r in await flow.key_statements()] == [1, 2]
+
+
+# ---------- rà soát cuối Plan 02, m3/m5: tuyên bố khóa luôn đọc qua bước kiểm; health khi KMS lỗi ----------
+async def _tampered_statement(flow, local_signer, version: int = 1) -> None:
+    """Hàng ``key_statements`` đúng khóa công khai, còn hạn, nhưng ``statement_sha256`` sai (bị sửa)."""
+    pk = (await local_signer.public_keys())["seal-key"][version]
+    st = build_statement(flow.settings, version=version, public_key=pk,
+                         valid_from=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"))
+    await flow.conn.execute("INSERT INTO key_statements(key, version, statement, statement_sha256)"
+                            " VALUES ('seal-key', $1, $2, $3)", version, json.dumps(st), "0" * 64)
+
+
+async def test_seal_refuses_a_tampered_key_statement(flow, local_signer, caplog):
+    rid = await flow.pending_record()
+    await _tampered_statement(flow, local_signer)
+    with pytest.raises(KeyStatementInvalid):
+        await flow.seal_inline(rid)
+    caplog.clear()
+    await flow.run_worker_until_idle()
+    await _assert_job_waits(flow, rid, "KeyStatementInvalid")
+    assert any(r.levelname == "ERROR" and "KeyStatementInvalid" in r.getMessage() for r in caplog.records)
+    assert await flow.count("seals", rid) == 0 and await flow.count("key_statements") == 1   # không INSERT
+
+
+async def test_r1_refuses_a_tampered_key_statement(flow, local_signer):
+    rid = await flow.reviewed_record(author="a1", reviewer="r1")
+    await _tampered_statement(flow, local_signer)
+    r = await flow.complete_task("approve", rid, "approve", as_="p1")
+    assert r.status_code == 503 and r.json()["type"].endswith("/key-statement-invalid"), r.text
+    assert await flow.last_denied_reason() == "key_statement_invalid"
+    assert await flow.task_exists("approve", rid)                              # Flowable chưa bị gọi
+
+
+async def test_health_seal_key_invalid_and_unknown(flow, local_signer):
+    await _tampered_statement(flow, local_signer)
+    assert (await flow.admin_status())["seal_key"] == "invalid"
+    await flow.owner_bypass("DELETE FROM core.key_statements")                # bảng chỉ-thêm: bỏ hàng giả
+    await flow.sealed_record()                                                 # tuyên bố thật, còn hạn
+    assert (await flow.admin_status())["seal_key"] == "ok"
+    state = flow.api.app.state
+    good = state.signer
+    state.signer = UnreachableSigner()
+    try:
+        assert (await flow.admin_status())["seal_key"] == "unknown"           # không báo "ok" cũ
+    finally:
+        state.signer = good

@@ -39,10 +39,11 @@ from dxos_core.records.service import (
 from dxos_core.registry.model import CollectionSpec, Manifest
 from dxos_core.registry.store import get_active, get_deployment, get_version
 from dxos_core.seal.keys import (
+    KeyStatementInvalid,
     OrgNotConfigured,
     SealKeyExpired,
+    checked_statement_for,
     org_configured,
-    statement_for,
     within_validity,
 )
 from dxos_core.workflow import guards, reconcile
@@ -214,7 +215,8 @@ async def _task_known(conn: asyncpg.Connection, app: str, task_id: str) -> bool:
 
 
 async def _r1_precheck(ctx: Ctx, deps: WorkflowDeps, m: Manifest, subject: str) -> None:
-    """R-1 trước task niêm phong: KMS ký được, tuyên bố khóa còn hạn, tên tổ chức đã cấu hình (spec 25.3).
+    """R-1 trước task niêm phong: KMS ký được, tuyên bố khóa (đã kiểm hash) còn hạn, tên tổ chức đã cấu hình
+    (spec 25.3).
 
     Sai thì ``deny`` + 503 và Flowable chưa bị gọi (AT-20a).
     """
@@ -227,7 +229,12 @@ async def _r1_precheck(ctx: Ctx, deps: WorkflowDeps, m: Manifest, subject: str) 
         probe = await deps.signer.sign("seal-key", KMS_PROBE)
     except KmsUnavailable as exc:
         raise await refuse("kms_unavailable", "kms-unavailable", "Key service unavailable") from exc
-    statement = await statement_for(ctx.conn, probe.key_version)
+    try:
+        statement = await checked_statement_for(ctx.conn, probe.key_version)
+    except KeyStatementInvalid as exc:
+        log.error("R-1: %s", exc)
+        raise await refuse("key_statement_invalid", "key-statement-invalid",
+                           "Seal key statement failed verification") from exc
     if statement is not None and not within_validity(statement, datetime.now(UTC)):
         raise await refuse("seal_key_expired", "seal-key-expired", "Seal key statement expired")
     if not org_configured(deps.settings):
@@ -264,6 +271,8 @@ async def _try_seal(ctx: Ctx, deps: WorkflowDeps, row: asyncpg.Record) -> asyncp
     except (KmsUnavailable, SealKeyExpired, OrgNotConfigured) as exc:
         log.warning("chưa niêm phong được bản ghi %s ngay (%s); job sẽ thử lại", row["id"],
                     type(exc).__name__)
+    except KeyStatementInvalid:
+        log.error("không niêm phong bản ghi %s: tuyên bố khóa không qua kiểm; job sẽ thử lại", row["id"])
     except Exception:  # noqa: BLE001 (đã commit SEAL_PENDING + seal_requests: job thử lại, không trả 500)
         log.exception("niêm phong ngay bản ghi %s lỗi; job sẽ thử lại", row["id"])
     return await ctx.conn.fetchrow("SELECT * FROM core.records WHERE id=$1", row["id"])

@@ -199,6 +199,8 @@ services:
       interval: 60s
 
   # ---------- Workflow ----------
+  # Flowable history level phải ≥ audit (mặc định của flowable-rest; không đặt FLOWABLE_HISTORY_LEVEL thấp hơn):
+  # bridge dùng lịch sử Flowable (task đã xong, biến dxos_intent_id, end event) để đối soát ý định (P2-D20).
   flowable:
     <<: *common
     image: flowable/flowable-rest:7.1.0@sha256:b7ae287502cd5c243b577a0ca2894172e1c18cd75aea4fd67dc7d58f1b40db44

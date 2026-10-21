@@ -46,7 +46,9 @@ const check = (name, ok, extra) => { log((ok ? "PASS " : "FAIL ") + name + (extr
   log("  badge:", await text("#status-badge"), "| issuer:", await text("#issuer"));
   log("  fields:", JSON.stringify((await page.locator("#fields").innerText()).split("\n")));
   log("  ledger:", await text("#ledger-line"), "| anchor:", await text("#anchor-line"));
-  check("Hợp lệ", (await text("#status-badge")) === "Hợp lệ");
+  // Niêm phong thật của test thuộc sổ cái nhưng STH chưa neo (không có repo neo): không phải "Hợp lệ" trần.
+  check("Hợp lệ — chưa neo công khai (lớp unanchored, không ok)",
+    (await text("#status-badge")) === "Hợp lệ — chưa neo công khai" && (await page.locator("#status-badge.unanchored").count()) === 1 && (await page.locator("#status-badge.ok").count()) === 0);
   check("Đơn vị niêm phong hiển thị", /^Đơn vị niêm phong: /.test(await text("#issuer")));
   check("Thời điểm niêm phong", (await page.locator("#fields dt", { hasText: "Thời điểm niêm phong" }).count()) === 1);
   check("nhãn Tiêu đề thay cho title / tên trường khi không có nhãn", (await page.locator("#fields dt", { hasText: /^ref$/ }).count()) === 1);
@@ -119,6 +121,7 @@ const check = (name, ok, extra) => { log((ok ? "PASS " : "FAIL ") + name + (extr
   await open("B".repeat(26)); await waitBadge(/Hợp lệ/);
   check("XSS: không tạo phần tử img/script từ dữ liệu", (await page.locator("#result img, #result script").count()) === 0 && !(await page.evaluate(() => window.__pwned)));
   check("XSS: chuỗi hiện nguyên văn", (await page.locator("#fields").innerText()).includes("<img src=x"));
+  check("đã neo công khai → Hợp lệ trần, lớp ok", (await text("#status-badge")) === "Hợp lệ" && (await page.locator("#status-badge.ok").count()) === 1 && (await page.locator("#status-badge.unanchored").count()) === 0);
   await page.unroute("**/verify/v1/seals/" + "B".repeat(26));
 
   // 6) 503 và lỗi mạng
@@ -151,6 +154,13 @@ const check = (name, ok, extra) => { log((ok ? "PASS " : "FAIL ") + name + (extr
   await open("F".repeat(26)); await waitBadge(/đang chờ công bố/);
   check("signature_valid=true + tree_size=null → chờ công bố, không Hợp lệ", !/^Hợp lệ$/.test(await text("#status-badge")) && await page.locator("#bundle-go").isHidden());
   await page.unroute("**/verify/v1/seals/" + "F".repeat(26));
+  // inclusion.verified=true nhưng anchored null → "Hợp lệ — chưa neo công khai", không phải "Hợp lệ" trần
+  await page.route("**/verify/v1/seals/" + "H".repeat(26), (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+    seal_id: "H".repeat(26), status: "VALID", app_id: "x", issued_at: "2026-10-21T01:00:00Z", key_version: 1, public_fields: {}, require_file: false,
+    attachments_count: 0, signature_valid: true, inclusion: { leaf_index: 1, tree_size: 2, verified: true, anchored: null }, issuer: null, public_labels: {} }) }));
+  await open("H".repeat(26)); await waitBadge(/chưa neo công khai/);
+  check("verified=true + anchored=null → Hợp lệ — chưa neo công khai", (await text("#status-badge")) === "Hợp lệ — chưa neo công khai" && (await page.locator("#status-badge.unanchored").count()) === 1);
+  await page.unroute("**/verify/v1/seals/" + "H".repeat(26));
   // thiếu inclusion → Không hợp lệ (không tin phản hồi thiếu kết quả kiểm)
   await page.route("**/verify/v1/seals/" + "G".repeat(26), (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
     seal_id: "G".repeat(26), status: "VALID", app_id: "x", issued_at: "2026-10-21T01:00:00Z", key_version: 1, public_fields: {}, require_file: false,

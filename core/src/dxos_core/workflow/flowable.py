@@ -328,6 +328,7 @@ class FlowableClient:
         """``(task_id, task_key)`` của mọi task ĐÃ XONG của instance (lịch sử, ``finished=true``), theo trang.
 
         Dùng cho bất biến của cầu nối: mọi task đã xong của instance hiện tại phải có ``task_completions``.
+        Trang rỗng khi chưa đủ ``total`` → ``WorkflowUnavailable`` (không bao giờ trả danh sách thiếu).
         """
         seg = _seg(instance_id)
         out: list[tuple[str, str]] = []
@@ -345,8 +346,11 @@ class FlowableClient:
                     raise WorkflowUnavailable("Flowable trả task lịch sử thiếu taskDefinitionKey")
                 out.append((self._id(row), key))
             start += len(rows)
-            if not rows or start >= total:
+            if start >= total:
                 return out
+            if not rows:
+                # Trang rỗng mà chưa đủ ``total``: lịch sử lệch/đang dọn, không biết đã đủ chưa → fail-closed.
+                raise WorkflowUnavailable("Flowable trả trang lịch sử rỗng trước khi đủ total")
             if start >= _MAX_TASKS:
                 raise WorkflowUnavailable("quá nhiều task lịch sử để liệt kê")
 

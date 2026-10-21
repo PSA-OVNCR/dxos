@@ -42,6 +42,14 @@ class FailingSigner(LocalSigner):
         raise KmsUnavailable("OpenBao sealed (giả lập)")
 
 
+class UnreachableSigner(FailingSigner):
+    """OpenBao không trả lời gì: cả ``public_keys`` lẫn ``sign`` ném ``KmsUnavailable`` (như
+    ``OpenBaoTransit`` khi bị khóa hoặc mất mạng)."""
+
+    async def public_keys(self) -> dict[KeyName, dict[int, bytes]]:
+        raise KmsUnavailable("OpenBao không tới được (giả lập)")
+
+
 class FlakySigner(LocalSigner):
     """KMS lỗi theo cờ ``fail`` (bật/tắt giữa chừng); lần ký thăm dò ``b"dxos-kms-probe"`` luôn đạt khi
     ``probe_ok`` (mặc định), để R-1 cho qua mà lần ký thật sau Flowable lỗi (AT-20b). ``public_keys`` luôn

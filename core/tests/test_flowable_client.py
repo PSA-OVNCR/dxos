@@ -571,3 +571,19 @@ async def test_historic_done_tasks_rejects_bad_ids_and_bad_rows(client, respx_mo
     route.mock(return_value=httpx.Response(200, json={"data": [], "total": "x"}))
     with pytest.raises(WorkflowUnavailable):
         await client.historic_done_tasks("i-1")
+
+
+async def test_historic_done_tasks_short_page_before_total_is_unavailable(client, respx_mock):
+    """Trang rỗng khi ``start < total`` (lịch sử đang dọn, phân trang lệch): không coi là "đã liệt kê hết"."""
+    first = [{"id": "t1", "taskDefinitionKey": "review", "endTime": "2026-10-21T10:00:00Z"}]
+
+    def reply(request: httpx.Request) -> httpx.Response:
+        rows = first if request.url.params["start"] == "0" else []
+        return httpx.Response(200, json={"data": rows, "total": 3})
+
+    respx_mock.get(f"{BASE}/history/historic-task-instances").mock(side_effect=reply)
+    with pytest.raises(WorkflowUnavailable):
+        await client.historic_done_tasks("i-1")
+    respx_mock.get(f"{BASE}/history/historic-task-instances").mock(
+        return_value=httpx.Response(200, json={"data": [], "total": 0}))
+    assert await client.historic_done_tasks("i-1") == []                       # rỗng thật: hợp lệ

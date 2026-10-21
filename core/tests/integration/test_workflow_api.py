@@ -549,3 +549,25 @@ async def test_admin_reconcile_needs_a_single_connection(flow, flowable_response
     finally:
         small.terminate()
     assert r.json()["completed"] == 1 and r.json()["errors"] == 0
+
+
+async def test_complete_body_deeply_nested_or_unencodable_is_422(flow):   # rà soát cuối Plan 02, m2
+    headers = {**headers_for("r1"), "If-Match": '"1"', "content-type": "application/json"}
+    for body in (b'{"decision": "x\\udc00"}', b"[" * 200_000 + b"]" * 200_000):
+        r = await flow.api.post("/api/v1/apps/test-flow/tasks/1:complete", content=body, headers=headers)
+        assert r.status_code == 422 and r.json()["type"].endswith("/invalid-request"), r.text
+
+
+async def test_history_unavailable_during_completion_check_is_503(flow, monkeypatch):   # rà soát cuối, m4
+    """Không đọc được lịch sử Flowable lúc kiểm bất biến hoàn thành → 503, chưa ghi ý định, Flowable chưa bị
+    gọi (fail-closed: không đánh giá guard trên danh sách task đã xong có thể thiếu)."""
+    rid = await flow.ready_record(author="a1")
+    await flow.start(rid, as_="a1")
+
+    async def down(instance_id):
+        raise WorkflowUnavailable("Flowable trả trang lịch sử rỗng trước khi đủ total")
+
+    monkeypatch.setattr(flow.api.app.state.flowable, "historic_done_tasks", down)
+    r = await flow.complete_task("review", rid, "approve", as_="r1")
+    assert r.status_code == 503 and r.json()["type"].endswith("/workflow-unavailable"), r.text
+    assert await flow.task_exists("review", rid) and await flow.count("task_intents", rid) == 0

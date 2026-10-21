@@ -49,7 +49,8 @@ _DENY_ACTIONS = ("complete", "pii_review", "list_tasks", "read", "update", "list
                  "revoke", "erase_pii")
 _GUARD_REASONS = ("same_actor", "role_not_allowed", "field_missing", "attachments_not_clean",
                   "pii_not_reviewed", "record_sealed", "not_assignee")
-_PLAIN_REASONS = ("not_task_role", "kms_unavailable", "seal_key_expired", "org_not_configured",
+_PLAIN_REASONS = ("not_task_role", "kms_unavailable", "seal_key_expired", "key_statement_invalid",
+                  "org_not_configured",
                   "not_pii_reviewer", "no_app_role", "admin_no_data_access", "not_in_access_list",
                   "not_revoker", "not_eraser")
 # Bảng không có cột record_id: đếm qua seals.

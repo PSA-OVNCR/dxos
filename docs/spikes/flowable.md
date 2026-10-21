@@ -96,6 +96,12 @@ Ghi chú cho workflow-bridge (S5.1):
 - Flowable chỉ có **một** tài khoản REST (`rest-admin`). Phân quyền theo vai trò nằm ở trust-core (PDP và danh mục guard), không dựa vào IDM của Flowable. `candidateGroups` trong BPMN dùng chuỗi vai trò ứng dụng `app:<id>:<role>`.
 - Gắn `businessKey` = mã bản ghi DX-OS để tra ngược.
 - Thời điểm kết thúc lấy từ API lịch sử. Runtime trả 404 cho instance đã kết thúc là bình thường, không phải lỗi.
+- **Flowable history level phải ≥ audit (mặc định); bridge dùng lịch sử Flowable để đối soát.** Task đã xong,
+  biến task-local `dxos_intent_id` lúc hoàn thành và end event của instance đều đọc từ `/history/...` (P2-D20, bất
+  biến "task đã xong ⇒ có bản ghi hoàn thành"). Hạ xuống `activity`/`none` thì đối soát mất căn cứ: task đã xong
+  trông như chưa xong, ý định có thể bị bỏ nhầm sau biên commit muộn và bất biến hoàn thành không còn kiểm được gì.
+  Lõi **không** tự phát hiện cấu hình này; không được đổi. Ghi chú tương ứng ở dịch vụ `flowable` trong
+  `deploy/compose.yaml`.
 
 ## Nguồn
 - [Flowable Open Source 7.0.0 release](https://flowable.com/blog/releases/flowable-open-source-7-0-0-release): loại bỏ UI applications.

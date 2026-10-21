@@ -121,6 +121,8 @@ button:disabled { opacity: 0.6; cursor: progress; }
 .badge.warn { color: var(--warn); background: var(--warn-bg); }
 .badge.bad { color: var(--bad); background: var(--bad-bg); }
 .badge.wait { color: var(--wait); background: var(--wait-bg); border: 1px dashed var(--wait); }
+/* Hợp lệ nhưng STH chưa neo công khai: cùng màu "ok" nhưng viền đứt, để không lẫn với "Hợp lệ" trần. */
+.badge.unanchored { color: var(--ok); background: var(--card); border: 1px dashed var(--ok); }
 
 .issuer { font-weight: 600; }
 

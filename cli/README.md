@@ -23,6 +23,11 @@ dxos quarantine list [--limit N]
 dxos ledger status
 dxos anchor run
 ```
+`dxos health`: mỗi thành phần là `ok` hoặc `down: <lý do>`; `seal_key` là `ok`, `none` (chưa có tuyên bố cho
+phiên bản khóa mới nhất, lần niêm phong đầu sẽ tạo), `expired` (cần xoay khóa), `invalid` (tuyên bố khóa trong DB
+không qua kiểm hash: niêm phong bị chặn, cần điều tra) hoặc `unknown` (OpenBao không trả lời). Dòng bắt đầu bằng `!`
+là vấn đề (`down: …`, `expired`, `invalid`, `unknown`).
+
 Tùy chọn chung (đặt trước hoặc sau lệnh): `--server URL`, `--ca-file PEM`, `--json`.
 - `--server` bắt buộc là `https://…` (`http://` chỉ cho `127.0.0.1`, `localhost`, `::1`). Bỏ `--server` thì dùng server
   của token đã lưu.

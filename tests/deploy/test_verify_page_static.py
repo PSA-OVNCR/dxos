@@ -275,9 +275,21 @@ def test_pre_sth_state_is_not_a_bare_valid():
     js, css = JS.read_text(encoding="utf-8"), CSS.read_text(encoding="utf-8")
     assert "Chữ ký hợp lệ — đang chờ công bố vào sổ cái" in js
     assert ".badge.wait" in css                                 # lớp CSS riêng, khác .ok
-    # "Hợp lệ" chỉ khi chữ ký đúng VÀ inclusion.verified đúng.
-    assert re.search(r'if \(sigOk && verifiedOk\) \{\s*showStatus\("Hợp lệ", "ok"', js)
+    # "Hợp lệ" trần chỉ khi chữ ký đúng VÀ inclusion.verified đúng VÀ đã neo công khai (rà soát cuối, m6).
+    assert re.search(r'if \(sigOk && verifiedOk && anchoredOk\) \{\s*showStatus\("Hợp lệ", "ok"', js)
     assert re.search(r'showStatus\("Chữ ký hợp lệ — đang chờ công bố vào sổ cái", "wait"', js)
+
+
+def test_unanchored_valid_is_not_a_bare_valid():                  # rà soát cuối Plan 02, m6
+    js, css = JS.read_text(encoding="utf-8"), CSS.read_text(encoding="utf-8")
+    assert re.search(r'\} else if \(sigOk && verifiedOk\) \{\s*showStatus\("Hợp lệ — chưa neo công khai", '
+                     r'"unanchored"', js)
+    assert ".badge.unanchored" in css                           # lớp riêng, khác .ok và .wait
+    # anchoredOk: inclusion.anchored phải là object khác null (null, thiếu, chuỗi... đều là chưa neo).
+    assert re.search(r'anchoredOk: inc !== null && inc\.anchored !== null'
+                     r' && typeof inc\.anchored === "object"', js)
+    # setText gỡ cả lớp mới, để huy hiệu không giữ lớp cũ khi đổi mã niêm phong.
+    assert re.search(r'classList\.remove\([^)]*"unanchored"', js)
 
 
 def test_admin_allow_list_is_enforced_before_any_handle():

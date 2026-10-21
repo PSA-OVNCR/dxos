@@ -3,7 +3,6 @@
 """Route Records API (spec 12.1). Logic nằm ở ``service.py`` và ``erase.py``; ở đây chỉ nhận request và trả
 response."""
 
-import json
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -13,6 +12,7 @@ from fastapi.responses import JSONResponse
 from dxos_core.errors import ProblemError
 from dxos_core.identity.deps import require_principal
 from dxos_core.identity.jwt import Principal
+from dxos_core.jsonbody import JsonBodyError, parse_json
 from dxos_core.records import erase, service
 
 router = APIRouter(prefix="/api/v1/apps/{app}/collections/{col}", tags=["records"])
@@ -25,10 +25,14 @@ async def ctx_dep(request: Request, p: Principal = Depends(require_principal)) -
 
 
 async def _json_body(request: Request) -> Any:
+    """Thân JSON của Records/Workflow/Seal API: JSON hỏng → 400 ``bad-request``; surrogate lẻ hoặc lồng quá
+    sâu → 422 ``invalid-request`` (``dxos_core.jsonbody``)."""
     try:
-        return json.loads(await request.body())
-    except (ValueError, UnicodeDecodeError) as exc:
-        raise ProblemError(400, "bad-request", "Bad Request", "body must be JSON") from exc
+        return parse_json(await request.body())
+    except JsonBodyError as exc:
+        if exc.malformed:
+            raise ProblemError(400, "bad-request", "Bad Request", exc.detail) from None
+        raise ProblemError(422, "invalid-request", "Request validation failed", exc.detail) from None
 
 
 def _with_etag(body: dict, status: int = 200) -> JSONResponse:

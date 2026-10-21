@@ -4,7 +4,8 @@
 
 Quy tắc (spec 11.1): UTF-8, khóa sắp xếp, không khoảng trắng, cấm số thực,
 thời gian là chuỗi RFC 3339 UTC. Bổ sung: mọi chuỗi (khóa và giá trị) được
-chuẩn hóa Unicode NFC để chữ tiếng Việt gõ ở dạng NFD hay NFC cho cùng kết quả.
+chuẩn hóa Unicode NFC để chữ tiếng Việt gõ ở dạng NFD hay NFC cho cùng kết quả. Hai khóa của cùng
+một object trùng nhau sau NFC → ``CanonicalError`` (không gộp im lặng).
 
 Thứ tự khóa theo code point của Python; có thể khác JCS (RFC 8785) với ký tự
 ngoài BMP. Dự án không dùng ký tự ngoài BMP làm khóa.
@@ -32,7 +33,11 @@ def _normalize(value: object) -> object:
         for key, item in value.items():
             if not isinstance(key, str):
                 raise CanonicalError(f"khóa phải là chuỗi, nhận {type(key).__name__}")
-            out[unicodedata.normalize("NFC", key)] = _normalize(item)
+            norm = unicodedata.normalize("NFC", key)
+            if norm in out:
+                # Hai khóa khác nhau chỉ ở dạng Unicode: gộp im lặng sẽ làm mất một giá trị mà băm vẫn "đúng".
+                raise CanonicalError(f"hai khóa trùng nhau sau chuẩn hóa NFC: {norm!r}")
+            out[norm] = _normalize(item)
         return out
     if isinstance(value, (list, tuple)):
         return [_normalize(item) for item in value]

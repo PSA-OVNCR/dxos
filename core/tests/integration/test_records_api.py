@@ -361,3 +361,16 @@ async def test_yearly_sequence_field_uses_zero_padded_format(make_settings, core
     assert refs == ["01/TF", "02/TF"]
     names = [r["name"] for r in await core_conn.fetch("SELECT name FROM sequences WHERE app_id='test-flow'")]
     assert len(names) == 1 and names[0].startswith("doc.ref@20")
+
+
+# ---------- rà soát cuối Plan 02, m2: thân JSON không mã hóa được / lồng quá sâu → 422, không 500 ----------
+@pytest.mark.parametrize("body", [
+    b'{"title": "x\\ud800y"}',                          # surrogate lẻ: json.loads nhận, UTF-8 thì không
+    b'{"title": ' + b"[" * 100 + b"]" * 100 + b"}",              # quá trần độ sâu
+    b'{"title": ' + b"[" * 200_000 + b"]" * 200_000 + b"}",      # json.loads ném RecursionError
+], ids=["surrogate", "depth-100", "depth-200000"])
+async def test_unencodable_or_deep_body_is_422(api, tok_author, body):
+    headers = {**tok_author, "content-type": "application/json"}
+    for r in (await api.post(URL_F, content=body, headers=headers),
+              await api.post(URL_F + ":bulk", content=body, headers=headers)):
+        assert r.status_code == 422 and r.json()["type"].endswith("/invalid-request"), r.text

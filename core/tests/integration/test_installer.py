@@ -578,7 +578,19 @@ async def test_unencodable_manifest_is_422_not_500(admin):  # m2
     r = await admin.post(
         "/admin/v1/apps", content=body.encode(), headers={"content-type": "application/json"}
     )
-    assert r.status_code == 422 and r.json()["code"] == "SCHEMA_INVALID"
+    # Bộ đọc thân JSON dùng chung chặn trước cả bộ kiểm manifest (rà soát cuối Plan 02, m2).
+    assert r.status_code == 422 and r.json()["type"].endswith("/invalid-request"), r.text
+    assert "surrogate" in r.json()["detail"]
+
+
+async def test_deeply_nested_submit_is_422_not_500(admin):  # rà soát cuối Plan 02, m2
+    body = b'{"manifest": ' + b"[" * 200_000 + b"]" * 200_000 + b', "files": {}}'
+    r = await admin.post("/admin/v1/apps", content=body, headers={"content-type": "application/json"})
+    assert r.status_code == 422 and r.json()["type"].endswith("/invalid-request"), r.text
+    deep = b'{"manifest": ' + b"[" * 100 + b"]" * 100 + b', "files": {}}'
+    r = await admin.post("/admin/v1/apps", content=deep, headers={"content-type": "application/json"})
+    assert r.status_code == 422 and r.json()["type"].endswith("/invalid-request")
+    assert "deep" in r.json()["detail"]
 
 
 async def test_chunked_body_over_cap_is_413(admin):  # m4

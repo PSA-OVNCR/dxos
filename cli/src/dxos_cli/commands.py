@@ -362,9 +362,14 @@ def app_disable(args) -> int:
 # ---------------------------------------------------------------- health / quarantine / ledger / anchor
 
 
+# ``seal_key``: ``expired`` (cần xoay khóa), ``invalid`` (tuyên bố khóa trong DB không qua kiểm), ``unknown``
+# (KMS không trả lời nên không biết phiên bản khóa sẽ dùng). ``ok``/``none`` là bình thường.
+PROBLEM_VALUES = frozenset({"expired", "invalid", "unknown", "down"})
+
+
 def is_problem_value(v: Any) -> bool:
-    """Vấn đề khi giá trị là ``down: …`` hoặc ``expired``; ``ok``/``none`` thì không."""
-    return isinstance(v, str) and (v == "expired" or v == "down" or v.startswith("down:"))
+    """Vấn đề khi giá trị là ``down: …`` hoặc thuộc ``PROBLEM_VALUES``; ``ok``/``none`` thì không."""
+    return isinstance(v, str) and (v in PROBLEM_VALUES or v.startswith("down:"))
 
 
 def health(args) -> int:

@@ -32,7 +32,7 @@
   // ---------------------------------------------------------------- tiện ích DOM
   function setText(node, text, tone) {
     node.textContent = text;
-    node.classList.remove("ok", "warn", "bad", "wait");
+    node.classList.remove("ok", "warn", "bad", "wait", "unanchored");
     if (tone) node.classList.add(tone);
   }
 
@@ -123,6 +123,8 @@
     return {
       sigOk: v.signature_valid === true,
       verifiedOk: inc !== null && inc.verified === true,
+      // Đã neo công khai: STH phủ lá đã có trong repo neo (máy chủ báo). null/thiếu/khác object → chưa neo.
+      anchoredOk: inc !== null && inc.anchored !== null && typeof inc.anchored === "object",
       // Chưa có STH nào phủ lá (tree_size null): chưa thể kiểm inclusion, không phải "Không hợp lệ".
       treeKnown: inc !== null && inc.tree_size !== null && inc.tree_size !== undefined,
       hasInclusion: inc !== null,
@@ -232,9 +234,13 @@
     } else if (v.status === "REVOKED") {
       showStatus("Đã thu hồi", "bad", "Niêm phong này đã bị thu hồi: không dùng làm căn cứ xác nhận văn bản.");
     } else if (v.status === "VALID") {
-      const { sigOk, verifiedOk } = checks(v);
-      if (sigOk && verifiedOk) {
-        showStatus("Hợp lệ", "ok", "Chữ ký niêm phong khớp nội dung đã niêm phong và niêm phong đã nằm trong sổ cái (máy chủ kiểm).");
+      const { sigOk, verifiedOk, anchoredOk } = checks(v);
+      if (sigOk && verifiedOk && anchoredOk) {
+        showStatus("Hợp lệ", "ok", "Chữ ký niêm phong khớp nội dung đã niêm phong, niêm phong đã nằm trong sổ cái và STH phủ nó đã được neo công khai (máy chủ kiểm).");
+        // Đã thuộc sổ cái nhưng STH chưa neo công khai: chưa có mốc bên ngoài để đối chiếu, không báo "Hợp lệ" trần.
+      } else if (sigOk && verifiedOk) {
+        showStatus("Hợp lệ — chưa neo công khai", "unanchored",
+          "Chữ ký niêm phong khớp nội dung và niêm phong đã nằm trong sổ cái (máy chủ kiểm), nhưng STH phủ nó chưa được neo công khai. Thử lại sau lần neo kế tiếp.");
       } else {
         // Chữ ký đúng nhưng chưa có STH phủ lá: không báo "Hợp lệ" trần.
         showStatus("Chữ ký hợp lệ — đang chờ công bố vào sổ cái", "wait",
