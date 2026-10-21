@@ -15,13 +15,13 @@ import logging
 from pathlib import Path
 
 import asyncpg
-from dxos_proof.canonical import canonical_bytes, sha256_hex
 
 from dxos_core.jobs.context import WorkerContext
 from dxos_core.jobs.queue import Job, complete, enqueue, fail, retry_later
 from dxos_core.kms.base import KmsUnavailable
 from dxos_core.ledger.anchor import AnchorError, ensure_clone, publish_sth
 from dxos_core.ledger.sth import get_sth, make_sth
+from dxos_core.seal.keys import verified_statements
 
 log = logging.getLogger("dxos_core.ledger.anchor_job")
 ANCHOR_JOB = "anchor_sth"
@@ -47,7 +47,7 @@ async def process_anchor_job(ctx: WorkerContext, job: Job) -> None:
             return
         repo = Path(s.anchor_repo_dir)
         keys = await _public_keys(ctx)
-        statements = await _statements(conn)
+        statements = await verified_statements(conn)      # đã kiểm statement_sha256 (fix vòng 1)
         try:
             await ensure_clone(s.anchor_remote, repo, s.anchor_git_ssh_command)
             commit = await publish_sth(th, repo, s.anchor_git_ssh_command, keys=keys, statements=statements)
@@ -74,20 +74,6 @@ async def _public_keys(ctx: WorkerContext) -> dict | None:
     except KmsUnavailable as exc:
         log.warning("KMS không trả lời: neo STH lần này không kèm tệp khóa công khai (%s)", exc)
         return None
-
-
-async def _statements(conn: asyncpg.Connection) -> list[dict]:
-    """Mọi tuyên bố khóa; hàng có ``statement_sha256`` không khớp nội dung thì không công bố (log ERROR)."""
-    out = []
-    rows = await conn.fetch(
-        "SELECT version, statement, statement_sha256 FROM key_statements ORDER BY key, version")
-    for r in rows:
-        st = json.loads(r["statement"]) if isinstance(r["statement"], str) else r["statement"]
-        if sha256_hex(canonical_bytes(st)) != r["statement_sha256"]:
-            log.error("tuyên bố khóa v%s không khớp statement_sha256: không công bố", r["version"])
-            continue
-        out.append(st)
-    return out
 
 
 async def maybe_schedule(conn: asyncpg.Connection) -> int | None:

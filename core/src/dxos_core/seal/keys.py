@@ -13,6 +13,7 @@ Không bao giờ tạo tuyên bố với tên tổ chức mặc định: bảng 
 
 import base64
 import json
+import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -25,7 +26,10 @@ from dxos_core.settings import ORG_NAME_DEFAULT, Settings, org_configured
 
 __all__ = ["LOCK_KEYSTMT", "ORG_NAME_DEFAULT", "STATEMENT_FORMAT", "OrgNotConfigured", "SealKeyExpired",
            "build_statement", "ensure_key_statement", "insert_statement_once", "latest_statement",
-           "org_configured", "parse_rfc3339", "publish_leaf", "statement_for", "within_validity"]
+           "org_configured", "parse_rfc3339", "publish_leaf", "statement_for", "verified_statement_for",
+           "verified_statements", "within_validity"]
+
+log = logging.getLogger("dxos_core.seal.keys")
 
 STATEMENT_FORMAT = "dxos-key-statement/1"
 # Khóa advisory của việc tạo tuyên bố khóa (Task 7). Khác 724000 (migrate), 724001 (ledger), 724100 (LOCK_WF).
@@ -74,6 +78,34 @@ async def latest_statement(conn: asyncpg.Connection) -> dict[str, Any] | None:
         "SELECT statement FROM core.key_statements WHERE key='seal-key' ORDER BY version DESC LIMIT 1")
     return None if raw is None else _loads(raw)
 
+
+async def verified_statements(conn: asyncpg.Connection,
+                              version: int | None = None) -> dict[int, dict[str, Any]]:
+    """Tuyên bố ``seal-key`` đã kiểm, ``{version: tuyên bố}`` (chỉ ``version`` nếu có): dùng chung cho job
+    neo, ``/verify/v1/keys``, trang công khai và gói bằng chứng (Plan 02 Task 8, fix vòng 1).
+
+    Hàng mà ``sha256(canonical(statement)) != statement_sha256``, hoặc ``statement.key``/``statement.version``
+    khác cột của hàng → log ERROR và **bỏ qua**: không bao giờ phục vụ tuyên bố chưa kiểm.
+    """
+    sql = "SELECT version, statement, statement_sha256 FROM core.key_statements WHERE key='seal-key'"
+    rows = await (conn.fetch(sql + " AND version=$1", version) if version is not None
+                  else conn.fetch(sql + " ORDER BY version"))
+    out: dict[int, dict[str, Any]] = {}
+    for r in rows:
+        st = _loads(r["statement"])
+        ok = (isinstance(st, dict) and st.get("key") == "seal-key" and st.get("version") == r["version"]
+              and sha256_hex(canonical_bytes(st)) == r["statement_sha256"])
+        if not ok:
+            log.error("tuyên bố seal-key/v%s không khớp statement_sha256 hoặc phiên bản: bỏ qua",
+                      r["version"])
+            continue
+        out[r["version"]] = st
+    return out
+
+
+async def verified_statement_for(conn: asyncpg.Connection, version: int) -> dict[str, Any] | None:
+    """Tuyên bố đã kiểm của ``seal-key/v<version>``; chưa có hoặc không qua kiểm → None."""
+    return (await verified_statements(conn, version)).get(version)
 
 
 def build_statement(settings: Settings, *, version: int, public_key: bytes,

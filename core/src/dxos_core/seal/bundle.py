@@ -197,8 +197,9 @@ def build_bundle(ev: Evidence, *, seal_public_key: bytes | None, statement: dict
         "status": seal.status,                       # KHÔNG được ký: ngoại tuyến phải tra trực tuyến
         "payload": seal.payload,
         "signature": seal.signature,
+        # Không có tuyên bố đã kiểm → BỎ khóa ``statement`` (không bao giờ phục vụ tuyên bố chưa kiểm).
         "seal_key": {"version": seal.key_version, "public_key": _b64(seal_public_key),
-                     "statement": statement},
+                     **({"statement": statement} if statement is not None else {})},
         "ledger": {"entry": entry_fields(ev.entry), "body": sealed_leaf_body(seal.payload)},
         "inclusion": {"leaf_index": seal.leaf_index, "tree_size": ev.sth.tree_size if ev.sth else None,
                       "proof": [p.hex() for p in ev.proof]},

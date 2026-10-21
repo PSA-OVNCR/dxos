@@ -46,7 +46,7 @@ from dxos_core.seal.bundle import (
     signature_ok,
     sth_versions,
 )
-from dxos_core.seal.keys import statement_for
+from dxos_core.seal.keys import verified_statement_for
 
 log = logging.getLogger("dxos_core.seal.verify")
 router = APIRouter(prefix="/verify/v1/seals", tags=["verify"])
@@ -151,9 +151,9 @@ def _pending(seal_id: str) -> JSONResponse:
 
 
 async def _statement(conn: asyncpg.Connection, seal: SealRow) -> dict[str, Any] | None:
-    st = await statement_for(conn, seal.key_version)
-    if st is None:   # mọi niêm phong của Plan 02 tạo tuyên bố trước khi ký: thiếu là bất nhất nội bộ
-        log.error("niêm phong %s: không có tuyên bố seal-key/v%s", seal.seal_id, seal.key_version)
+    st = await verified_statement_for(conn, seal.key_version)
+    if st is None:   # mọi niêm phong của Plan 02 tạo tuyên bố trước khi ký: thiếu (hoặc sai hash) là bất nhất
+        log.error("niêm phong %s: không có tuyên bố đã kiểm của seal-key/v%s", seal.seal_id, seal.key_version)
     return st
 
 
@@ -187,8 +187,9 @@ async def seal_view(seal_id: str, request: Request) -> JSONResponse:
         statement = await _statement(conn, t.seal)
     seal_pk, sth_pks = await _keys(request, ev)
     p = t.seal.payload
+    # Trang chỉ báo "đã neo" khi STH đã neo PHỦ lá (fix vòng 1); gói vẫn giữ cách chọn của brief.
     anchored = None
-    if ev.anchored is not None:
+    if ev.anchored is not None and ev.anchored.sth.tree_size > t.seal.leaf_index:
         anchored = {"tree_size": ev.anchored.sth.tree_size, "repo": ev.anchored.repo,
                     "commit_sha": ev.anchored.commit_sha}
     issuer = statement.get("issuer") if statement is not None else None

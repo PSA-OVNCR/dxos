@@ -337,3 +337,19 @@ async def test_anchor_job_without_kms_on_pinned_retry_still_anchors(anchor_env, 
         await process_anchor_job(anchor_env.ctx, await claim(c, ["anchor_sth"]))
         assert await c.fetchval("SELECT state FROM jobs WHERE id=$1", job_id) == "DONE"
     assert anchor_env.remote_file(sth_path(th_.tree_size))
+
+
+async def test_statement_file_named_by_row_version_and_mismatch_refused(tmp_bare_repo_clone, bare_remote, th):
+    """Fix vòng 1, #4."""
+    from dxos_core.ledger.anchor import key_files
+
+    st = {"format": "dxos-key-statement/1", "key": "seal-key", "version": 1, "serial": "seal-key/v1"}
+    assert key_files(None, {1: st}) == [("keys/seal-key/v1.json", canonical_bytes(st) + b"\n")]
+    with pytest.raises(AnchorError) as e:
+        key_files(None, {2: st})
+    assert e.value.code == "ANCHOR_CONFLICT"
+    with pytest.raises(AnchorError):
+        await publish_sth(th, tmp_bare_repo_clone, GIT_SSH, statements={2: st})
+    assert not (tmp_bare_repo_clone / sth_path(th.tree_size)).exists()
+    assert not (tmp_bare_repo_clone / "keys").exists()
+    assert git(bare_remote, "rev-list", "--all", "--count") == "0"

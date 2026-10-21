@@ -16,7 +16,7 @@ import asyncio
 import base64
 import dataclasses
 import os
-from collections.abc import Iterable, Mapping
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Literal
 
@@ -43,16 +43,21 @@ _KEY_FILES = ("seal-key", "sth-key")
 
 
 def key_files(keys: Mapping[str, Mapping[int, bytes]] | None,
-              statements: Iterable[Mapping[str, Any]] = ()) -> list[tuple[str, bytes]]:
-    """Các tệp khóa cần có trong repo neo: ``(đường dẫn, nội dung)``, theo thứ tự cố định."""
+              statements: Mapping[int, Mapping[str, Any]] | None = None) -> list[tuple[str, bytes]]:
+    """Các tệp khóa cần có trong repo neo: ``(đường dẫn, nội dung)``, theo thứ tự cố định.
+
+    ``statements`` là ``{cột version của hàng: tuyên bố}``. Tên tệp ``v<n>.json`` lấy từ cột ``version``;
+    tuyên bố nói phiên bản khác (hoặc khóa khác ``seal-key``) → ``ANCHOR_CONFLICT`` trước khi ghi bất cứ gì.
+    """
     out: list[tuple[str, bytes]] = []
     for name in _KEY_FILES:
         for v, raw in sorted((keys or {}).get(name, {}).items()):
             out.append((f"keys/{name}/v{int(v)}.pub", base64.b64encode(raw) + b"\n"))
-    for st in sorted(statements, key=lambda x: int(x["version"])):
-        if st.get("key") != "seal-key":
-            raise ValueError(f"tuyên bố khóa lạ: {st.get('key')!r}")
-        out.append((f"keys/seal-key/v{int(st['version'])}.json", canonical_bytes(dict(st)) + b"\n"))
+    for v, st in sorted((statements or {}).items()):
+        if st.get("key") != "seal-key" or st.get("version") != v:
+            raise AnchorError("ANCHOR_CONFLICT", f"tuyên bố của hàng seal-key/v{v} nói {st.get('key')!r}"
+                                                 f"/v{st.get('version')!r}")
+        out.append((f"keys/seal-key/v{int(v)}.json", canonical_bytes(dict(st)) + b"\n"))
     return out
 
 
@@ -95,7 +100,7 @@ async def _remote_has_branch(repo: Path, ssh: str) -> bool:
 
 async def publish_sth(th: TreeHead, repo_dir: Path, git_ssh_command: str, *,
                       keys: Mapping[str, Mapping[int, bytes]] | None = None,
-                      statements: Iterable[Mapping[str, Any]] = ()) -> str:
+                      statements: Mapping[int, Mapping[str, Any]] | None = None) -> str:
     """Ghi, commit và đẩy STH (cùng tệp khóa/tuyên bố còn thiếu) lên ``origin main``; trả về sha của commit
     chứa tệp STH."""
     ssh = git_ssh_command

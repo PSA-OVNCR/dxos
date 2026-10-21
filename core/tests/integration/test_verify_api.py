@@ -305,7 +305,47 @@ async def test_anchored_sth_older_than_leaf_comes_with_consistency(flow, verify,
                               [bytes.fromhex(p) for p in b["anchored"]["consistency"]])
     view = (await verify.get(f"/verify/v1/seals/{sid}")).json()
     assert view["inclusion"]["tree_size"] == s1.tree_size and view["inclusion"]["verified"] is True
-    assert view["inclusion"]["anchored"]["tree_size"] == s0.tree_size
+    assert view["inclusion"]["anchored"] is None        # fix vòng 1: neo chưa phủ lá thì trang không báo neo
+
+
+# ---------- Fix vòng 1 ----------
+
+async def test_view_anchored_only_when_anchor_covers_leaf(flow, verify, anchor_env, local_signer):  # #1
+    await anchor_env.anchor_once()                                   # neo cuối cùng TRƯỚC khi niêm phong
+    sid, _ = await flow.sealed_ids()
+    s1 = await _make_sth(flow, local_signer)                         # STH phủ lá nhưng chưa neo
+    inc = (await verify.get(f"/verify/v1/seals/{sid}")).json()["inclusion"]
+    assert inc["tree_size"] == s1.tree_size and inc["verified"] is True and inc["anchored"] is None
+    size = await anchor_env.anchor_once()                            # lần neo kế tiếp phủ lá
+    inc = (await verify.get(f"/verify/v1/seals/{sid}")).json()["inclusion"]
+    commit = await flow.db.fetchval("SELECT commit_sha FROM anchors WHERE tree_size=$1", size)
+    assert size > inc["leaf_index"] and inc["tree_size"] == size and inc["verified"] is True
+    assert inc["anchored"] == {"tree_size": size, "repo": anchor_env.settings.anchor_remote,
+                               "commit_sha": commit}
+
+
+async def test_tampered_key_statement_is_never_served(flow, verify, anchor_env):              # #2
+    sid, original = await flow.sealed_with_file()
+    await flow.owner_bypass(
+        "UPDATE key_statements SET statement = jsonb_set(statement, '{purpose}', '\"giả mạo\"')"
+        " WHERE key='seal-key' AND version=1")
+    keys = (await verify.get("/verify/v1/keys")).json()
+    assert keys["statements"] == {"seal-key": {}}
+    view = (await verify.get(f"/verify/v1/seals/{sid}")).json()
+    assert set(view) == ALLOWED and view["issuer"] is None
+    b = await _file_bundle(verify, sid, original)
+    assert "statement" not in b["seal_key"] and "giả mạo" not in json.dumps(b, ensure_ascii=False)
+    await anchor_env.anchor_once()
+    assert not (anchor_env.repo / "keys/seal-key/v1.json").exists()
+    assert (anchor_env.repo / "keys/seal-key/v1.pub").exists()
+
+
+async def test_missing_key_statement_gives_null_issuer(flow, verify):                       # #3
+    sid, original = await flow.sealed_with_file()
+    await flow.owner_bypass("DELETE FROM key_statements WHERE key='seal-key' AND version=1")
+    view = (await verify.get(f"/verify/v1/seals/{sid}")).json()
+    assert set(view) == ALLOWED and view["issuer"] is None and view["signature_valid"] is True
+    assert "statement" not in (await _file_bundle(verify, sid, original))["seal_key"]
 
 
 async def test_verify_routes_never_write(flow, verify, local_signer):

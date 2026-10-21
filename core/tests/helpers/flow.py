@@ -480,6 +480,13 @@ class FlowHarness:
         rid = await self.db.fetchval("SELECT record_id FROM seal_requests WHERE seal_id=$1", sid)
         return await self.raw_data(str(rid))
 
+    async def owner_bypass(self, sql: str, *args: Any) -> None:
+        """Chạy ``sql`` bằng owner (superuser) với trigger tắt (``session_replication_role = replica``): giả
+        lập kẻ có quyền SQL sửa bảng chỉ-thêm."""
+        async with self.owner.transaction():
+            await self.owner.execute("SET LOCAL session_replication_role = replica")
+            await self.owner.execute(sql, *args)
+
     # ------------------------------------------------------------ đọc thô (owner)
     async def salt_of(self, rid: str) -> str | None:
         return await self.owner.fetchval("SELECT salt FROM record_salts WHERE record_id=$1", uuid.UUID(rid))

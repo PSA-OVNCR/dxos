@@ -8,7 +8,6 @@ Task 8): OpenBao khóa thì vẫn trả các khóa đã biết; chưa biết kh�
 
 import base64
 import dataclasses
-import json
 
 from dxos_proof.merkle import consistency_proof
 from fastapi import APIRouter, Request
@@ -17,6 +16,7 @@ from dxos_core.errors import ProblemError
 from dxos_core.kms.base import KmsUnavailable
 from dxos_core.ledger.log import entries_bytes
 from dxos_core.ledger.sth import latest_sth
+from dxos_core.seal.keys import verified_statements
 
 router = APIRouter(prefix="/verify/v1", tags=["verify"])
 
@@ -53,11 +53,8 @@ async def keys(request: Request) -> dict:
     except KmsUnavailable as exc:
         raise ProblemError(503, "kms-unavailable", "Key service unavailable") from exc
     async with request.app.state.pool.acquire() as conn:
-        rows = await conn.fetch(
-            "SELECT version, statement FROM key_statements WHERE key='seal-key' ORDER BY version")
+        statements = await verified_statements(conn)          # hàng không qua kiểm bị bỏ (fix vòng 1)
     out: dict = {name: {str(v): base64.b64encode(k).decode("ascii") for v, k in sorted(vers.items())}
                  for name, vers in pub.items()}
-    out["statements"] = {"seal-key": {
-        str(r["version"]): json.loads(r["statement"]) if isinstance(r["statement"], str) else r["statement"]
-        for r in rows}}
+    out["statements"] = {"seal-key": {str(v): st for v, st in statements.items()}}
     return out
