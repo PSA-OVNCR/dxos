@@ -31,7 +31,9 @@ Các bước, theo thứ tự; bước đầu tiên sai → ``INVALID`` kèm ``d
 8. ``file_sha256`` (nếu có) ∈ ``payload.attachments`` → ``FILE_NOT_IN_SEAL``.
 
 Trường ``status`` của gói **không** được ký nên **không** được dùng: trạng thái thu hồi luôn cần tra trực
-tuyến (``revocation="unknown_offline"``). Khóa lạ ở mức gốc của gói bị bỏ qua. Mọi trường thiếu hoặc sai
+tuyến (``revocation="unknown_offline"``). Khóa lạ ở mức gốc của gói bị bỏ qua. Riêng ``timestamps``
+(biên nhận OpenTimestamps của STH đã neo, Plan 03 Task 14) chỉ được ghi chú ở kết quả VALID: không đổi
+``ok``/mã thoát; người kiểm dùng ``ots upgrade`` + ``ots verify``. Mọi trường thiếu hoặc sai
 kiểu → ``INVALID`` (``MALFORMED`` nếu không thuộc bước nào ở trên); không ngoại lệ nào lọt ra ngoài.
 
 Module chỉ dùng dxos-proof và cryptography, không import dxos-core, không gọi mạng.
@@ -39,6 +41,7 @@ Module chỉ dùng dxos-proof và cryptography, không import dxos-core, không 
 
 import base64
 import binascii
+import hashlib
 import json
 import re
 import unicodedata
@@ -386,5 +389,37 @@ def _verify(b: Any, anchor_dir: Path | None, file_sha256: str | None) -> BundleR
         notes.append("chưa ghim khóa: khóa lấy từ chính gói (không có --anchor-dir)")
         notes.append("STH đã neo theo gói, chưa đối chiếu repo neo" if covered
                      else "chưa neo: chưa có STH đã neo phủ lá")
+    ots_note = _ots_note(b.get("timestamps"), anchored_sth)
+    if ots_note:
+        notes.append(ots_note)
     notes.append(f"trạng thái thu hồi cần tra trực tuyến: GET /verify/v1/seals/{seal_id}")
     return BundleResult(True, "VALID", "unknown_offline", "; ".join(notes), anchor_dir is not None, issuer)
+
+
+# ---------------------------------------------------------------- OpenTimestamps: chỉ ghi chú (P3 Task 14)
+OTS_MAGIC = b"\x00OpenTimestamps\x00\x00Proof\x00\xbf\x89\xe2\xe8\x84\xe8\x92\x94"
+
+
+def _ots_note(timestamps: Any, anchored_sth: dict | None) -> str | None:
+    """Ghi chú cho các mục ``{"type": "opentimestamps"}`` của ``timestamps``; không bao giờ đổi kết quả.
+
+    Chỉ kiểm phần đầu tệp ``.ots`` (magic, phiên bản 1, op sha256, digest = SHA-256(canonical(anchored.sth))),
+    tức tệp có đúng là biên nhận cho STH đã neo hay không. Biên nhận đã vào khối Bitcoin hay chưa thì ngoại
+    tuyến không kiểm được: việc đó của ``ots upgrade`` + ``ots verify`` (P3-D10)."""
+    if not isinstance(timestamps, list):
+        return None
+    entries = [t for t in timestamps if isinstance(t, dict) and t.get("type") == "opentimestamps"]
+    if not entries:
+        return None
+    try:
+        size = anchored_sth["tree_size"]
+        header = OTS_MAGIC + b"\x01\x08" + hashlib.sha256(canonical_bytes(anchored_sth)).digest()
+        good = any(type(t.get("tree_size")) is int and t["tree_size"] == size
+                   and len(raw := base64.b64decode(t.get("ots"), validate=True)) > len(header)
+                   and raw.startswith(header) for t in entries)
+    except Exception:  # noqa: BLE001 — mục OTS sai dạng chỉ được ghi chú, không bao giờ làm hỏng kết quả
+        good = False
+    if not good:
+        return "OTS: biên nhận không cam kết anchored.sth — bỏ qua"
+    return (f"OTS: biên nhận OpenTimestamps cho sth/{size:012d}.json đang chờ xác nhận trên Bitcoin"
+            " — kiểm bằng `ots upgrade` rồi `ots verify`")

@@ -431,3 +431,67 @@ def test_valid_until_boundary(bundle_env):                                      
     b, a = bundle_env.build(issued_at="2026-10-21T09:00:01Z",
                             statement=bundle_env.statement(valid_until="2026-10-21T09:00:00Z"))
     assert _code(verify_bundle(b, anchor_dir=a)) == "KEY_NOT_VALID_AT_ISSUE"     # +1 s
+
+
+# ---------- Plan 03 Task 14: "timestamps" (OpenTimestamps) chỉ được ghi chú, không đổi kết quả ----------
+OTS_MAGIC = b"\x00OpenTimestamps\x00\x00Proof\x00\xbf\x89\xe2\xe8\x84\xe8\x92\x94"
+OTS_PENDING = b"\x00" + bytes.fromhex("83dfe30d2ef90c8e") + b"\x12\x11https://a.example"
+
+
+def _ots_for(th: dict) -> str:
+    return _b64(OTS_MAGIC + b"\x01\x08" + hashlib.sha256(canonical_bytes(th)).digest() + OTS_PENDING)
+
+
+def _with_ots(bundle_env, **entry):
+    b = copy.deepcopy(bundle_env.bundle)
+    th = b["anchored"]["sth"]
+    b["timestamps"] = [{"type": "opentimestamps", "tree_size": th["tree_size"], "ots": _ots_for(th), **entry}]
+    return b
+
+
+def test_ots_receipt_is_only_noted(bundle_env, tmp_path):
+    base = verify_bundle(bundle_env.bundle, anchor_dir=bundle_env.anchor_dir)
+    b = _with_ots(bundle_env)
+    size = b["anchored"]["sth"]["tree_size"]
+    for anchor_dir in (bundle_env.anchor_dir, None):
+        r = verify_bundle(b, anchor_dir=anchor_dir)
+        assert r.ok and r.pinned == (anchor_dir is not None), r.detail
+        assert (f"OTS: biên nhận OpenTimestamps cho sth/{size:012d}.json đang chờ xác nhận trên Bitcoin"
+                f" — kiểm bằng `ots upgrade` rồi `ots verify`") in r.detail
+    r = verify_bundle(b, anchor_dir=bundle_env.anchor_dir)
+    assert (r.status, r.issuer) == (base.status, base.issuer)
+    assert r.detail.startswith(base.detail.split(";")[0])
+    f = tmp_path / "goi.json"
+    f.write_text(json.dumps(b), encoding="utf-8")
+    assert main(["verify-bundle", str(f), "--anchor-dir", str(bundle_env.anchor_dir)]) == 0
+    assert main(["verify-bundle", str(f)]) == 3
+
+
+@pytest.mark.parametrize("entry", [
+    {"ots": _b64(OTS_MAGIC + b"\x01\x08" + b"\x00" * 32 + OTS_PENDING)},        # cam kết digest khác
+    {"tree_size": 999},                                                           # không phải STH đã neo
+    {"ots": "!!khong-phai-base64"},
+    {"ots": _b64(b"rac")},
+    {"ots": None},
+])
+def test_ots_receipt_mismatch_is_a_note_not_invalid(bundle_env, entry):
+    r = verify_bundle(_with_ots(bundle_env, **entry), anchor_dir=bundle_env.anchor_dir)
+    assert r.ok and "OTS: biên nhận không cam kết anchored.sth" in r.detail, r.detail
+    assert "đang chờ xác nhận" not in r.detail
+
+
+@pytest.mark.parametrize("timestamps", ["x", [1], [{"type": "khac", "ots": "AA=="}], [], None, {"a": 1}])
+def test_odd_timestamps_never_change_verdict(bundle_env, timestamps):
+    b = copy.deepcopy(bundle_env.bundle)
+    b["timestamps"] = timestamps
+    r = verify_bundle(b, anchor_dir=bundle_env.anchor_dir)
+    assert r.ok and "OTS: biên nhận OpenTimestamps" not in r.detail
+
+
+def test_ots_does_not_rescue_or_alter_invalid(bundle_env):
+    b, a = bundle_env.tampered("signature")
+    b = copy.deepcopy(b)
+    b["timestamps"] = [{"type": "opentimestamps", "tree_size": b["anchored"]["sth"]["tree_size"],
+                        "ots": _ots_for(b["anchored"]["sth"])}]
+    r = verify_bundle(b, anchor_dir=a)
+    assert _code(r) == "SIGNATURE" and "OTS" not in r.detail

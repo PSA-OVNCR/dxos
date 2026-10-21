@@ -32,7 +32,8 @@ pytestmark = pytest.mark.integration
 async def test_migrations_idempotent(owner_dsn):
     first = await apply_migrations(owner_dsn, MIGRATIONS)
     second = await apply_migrations(owner_dsn, MIGRATIONS)
-    assert first == ["001_core.sql", "002_anchors.sql", "003_workflow_seal.sql", "004_harden_triggers.sql"]
+    assert first == ["001_core.sql", "002_anchors.sql", "003_workflow_seal.sql", "004_harden_triggers.sql",
+                     "005_ots.sql"]
     assert second == []
 
 
@@ -184,7 +185,7 @@ async def test_core_role_cannot_create_objects_in_schema(core_conn):
 
 
 async def test_core_role_cannot_touch_schema_migrations(core_conn):
-    assert await core_conn.fetchval("SELECT count(*) FROM schema_migrations") == 4
+    assert await core_conn.fetchval("SELECT count(*) FROM schema_migrations") == 5
     with pytest.raises(asyncpg.InsufficientPrivilegeError):
         await core_conn.execute("DELETE FROM schema_migrations")
 
@@ -196,7 +197,7 @@ async def test_all_spec_tables_exist(owner_conn):
             "seals", "ledger_entries", "tree_heads", "jobs", "schema_migrations", "anchors",
             "app_files", "app_deployments", "task_intents", "task_intent_outcomes", "task_completions",
             "pii_reviews", "seal_requests", "seal_revocations", "seal_revocation_notes", "record_salts",
-            "pii_erasures", "key_statements"} <= names
+            "pii_erasures", "key_statements", "ots_receipts"} <= names
 
 
 async def test_core_can_enqueue_job(core_conn):
@@ -231,7 +232,7 @@ async def test_failed_migration_rolls_back_and_is_not_recorded(owner_dsn, tmp_pa
         applied = await conn.fetchval(
             "SELECT array_agg(filename ORDER BY filename) FROM core.schema_migrations")
         assert applied == ["001_core.sql", "002_anchors.sql", "003_workflow_seal.sql",
-                           "004_harden_triggers.sql"]
+                           "004_harden_triggers.sql", "005_ots.sql"]
         assert await conn.fetchval("SELECT to_regclass('core.ok_then_fail')") is None
     finally:
         await conn.close()
@@ -256,7 +257,7 @@ async def test_apply_until_stops_at_prefix(owner_dsn):
     assert await apply_migrations(owner_dsn, MIGRATIONS, until="001") == ["001_core.sql"]
     assert await apply_migrations(owner_dsn, MIGRATIONS, until="002") == ["002_anchors.sql"]
     assert await apply_migrations(owner_dsn, MIGRATIONS) == ["003_workflow_seal.sql",
-                                                             "004_harden_triggers.sql"]
+                                                             "004_harden_triggers.sql", "005_ots.sql"]
 
 
 async def test_apply_until_unknown_prefix_rejected(owner_dsn):

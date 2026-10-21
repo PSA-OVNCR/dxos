@@ -91,6 +91,16 @@ def _anchored_signature(env, b, files):
     _re_anchor(b, files, b["anchored"]["sth"]["tree_size"])
 
 
+def _ots_receipt(env, b, files):
+    # Plan 03 Task 14: biên nhận OpenTimestamps (pending) cho anchored.sth; hai bên chỉ ghi chú, không đổi mã.
+    th = b["anchored"]["sth"]
+    magic = b"\x00OpenTimestamps\x00\x00Proof\x00\xbf\x89\xe2\xe8\x84\xe8\x92\x94"
+    pending = b"\x00" + bytes.fromhex("83dfe30d2ef90c8e") + b"\x12\x11https://a.example"
+    digest = hashlib.sha256(canonical_bytes(th)).digest()
+    ots = magic + b"\x01\x08" + digest + b"\xf1\x04\x65\x00\x00\x01" + pending
+    b["timestamps"] = [{"type": "opentimestamps", "tree_size": th["tree_size"], "ots": _b64(ots)}]
+
+
 def _validity_us(env):
     # 16:00:00.0002+07:00 = 09:00:00.000200Z > 09:00:00.000100Z: chỉ thấy khi so tới micro giây.
     return {"issued_at": "2026-10-21T16:00:00.0002+07:00",
@@ -156,6 +166,7 @@ MUTATIONS = {
         0, _flip_hex(b["anchored"]["consistency"][0]))),
     "file_in_seal": (_nothing, lambda e, b, f: {"file_sha256": hashlib.sha256(ORIGINAL).hexdigest().upper()}),
     "file_not_in_seal": (_nothing, lambda e, b, f: {"file_sha256": hashlib.sha256(b"khac").hexdigest()}),
+    "ots_receipt": (_nothing, _ots_receipt),
 }
 
 CASES = [  # (tên, layout, biến đổi, kỳ vọng mã)
@@ -207,6 +218,7 @@ EXTRA_CASES = [
     ("leaf-after-last-anchor", "anchor_before_leaf", None, "NOT_ANCHORED"),
     ("file-in-seal", "anchored_is_sth", "file_in_seal", None),
     ("file-not-in-seal", "anchored_is_sth", "file_not_in_seal", "FILE_NOT_IN_SEAL"),
+    ("ots-timestamps", "newer_sth", "ots_receipt", None),
 ]
 # Kỳ vọng khi KHÔNG có repo neo (khóa lấy từ gói); vắng mặt = như ``expected``.
 UNPINNED = {

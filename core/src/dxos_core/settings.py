@@ -72,6 +72,9 @@ class Settings(BaseSettings):
     # sth_after_seal: xếp việc lập STH + neo ngay sau mỗi lần niêm phong (DXOS_STH_AFTER_SEAL).
     public_base_url: str = "https://localhost"
     sth_after_seal: bool = True
+    # OpenTimestamps (Plan 03 Task 14, P3-D10): URL calendar https, phân tách bằng dấu phẩy
+    # (DXOS_OTS_CALENDARS). Rỗng (mặc định) = tắt, không gửi request nào. Chỉ có tác dụng khi đã neo.
+    ots_calendars: str = ""
 
     @field_validator("org_name", "seal_purpose", mode="before")
     @classmethod
@@ -86,6 +89,17 @@ class Settings(BaseSettings):
     @classmethod
     def _blank_is_none(cls, v: object) -> object:
         return None if isinstance(v, str) and not v.strip() else v
+
+    @field_validator("ots_calendars")
+    @classmethod
+    def _check_ots_calendars(cls, v: str) -> str:
+        urls = [u.strip().rstrip("/") for u in v.split(",") if u.strip()]
+        for u in urls:
+            if not u.startswith("https://") or len(u) <= len("https://"):
+                raise ValueError(f"calendar OpenTimestamps phải là URL https://: {u!r}")
+        if len(set(urls)) != len(urls):
+            raise ValueError("DXOS_OTS_CALENDARS có calendar trùng nhau")
+        return v
 
     @field_validator("timezone")
     @classmethod

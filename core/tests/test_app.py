@@ -115,6 +115,7 @@ def test_settings_has_exactly_planned_fields():
         "keycloak_token_url", "keycloak_admin_url", "installer_client_id",                   # Task 11
         "installer_client_secret_file",
         "allow_self_approval",                                                               # Task 12
+        "ots_calendars",                                                         # Plan 03 Task 14 (P3-D10)
     }
 
 

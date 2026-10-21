@@ -35,6 +35,7 @@ from dxos_proof.merkle import (
 )
 
 from dxos_core.ledger.log import LedgerEntry, entries_bytes, entry_bytes
+from dxos_core.ledger.ots import receipts_ots
 from dxos_core.ledger.sth import TreeHead, verify_sth
 from dxos_core.seal.service import seal_signing_bytes, sealed_leaf_body
 
@@ -73,6 +74,7 @@ class Evidence:
     anchored: AnchorRef | None
     proof: list[bytes]          # inclusion của lá trong ``sth``
     consistency: list[bytes]    # từ ``anchored.sth`` tới ``sth`` (rỗng khi trùng nhau)
+    anchored_ots: bytes | None = None   # tệp .ots của ``anchored.sth`` (Plan 03 Task 14), nếu có biên nhận
 
 
 def choose_sth(leaf_index: int, latest_anchor: AnchorRef | None, latest: TreeHead | None) -> SthChoice:
@@ -127,8 +129,12 @@ async def load_evidence(conn: asyncpg.Connection, seal: SealRow) -> Evidence:
         proof = inclusion_proof(seal.leaf_index, leaves)
         if choice.anchored is not None and choice.anchored.sth.tree_size != choice.sth.tree_size:
             consistency = consistency_proof(choice.anchored.sth.tree_size, leaves)
+    anchored_ots = None
+    if choice.anchored is not None:
+        a_sth = choice.anchored.sth
+        anchored_ots = await receipts_ots(conn, a_sth.tree_size, dataclasses.asdict(a_sth))
     return Evidence(seal=seal, entry=entry, sth=choice.sth, anchored=choice.anchored, proof=proof,
-                    consistency=consistency)
+                    consistency=consistency, anchored_ots=anchored_ots)
 
 
 # ---------------------------------------------------------------- kiểm phía máy chủ (trang công khai)
@@ -207,4 +213,9 @@ def build_bundle(ev: Evidence, *, seal_public_key: bytes | None, statement: dict
         "sth_keys": {str(v): _b64(k) for v, k in sorted(sth_keys.items()) if k is not None},
         "anchored": anchored,
         "generated_at": rfc3339_utc(now or datetime.now(UTC)),
+        # Biên nhận OpenTimestamps của ``anchored.sth`` (Plan 03 Task 14): chỉ có khi đã có biên nhận. Người
+        # kiểm tự nâng cấp/kiểm bằng ``ots``; dxos-witness chỉ ghi chú, không đổi kết quả.
+        **({"timestamps": [{"type": "opentimestamps", "tree_size": ev.anchored.sth.tree_size,
+                            "ots": _b64(ev.anchored_ots)}]}
+           if ev.anchored is not None and ev.anchored_ots is not None else {}),
     }

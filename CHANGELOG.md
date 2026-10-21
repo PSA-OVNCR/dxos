@@ -14,6 +14,12 @@ Mọi thay đổi đáng kể được ghi tại đây, theo định dạng [Kee
   (tự duyệt, đọc chéo, sai app, admin đọc dữ liệu app, sửa văn bản đã niêm phong, ban hành thiếu rà PII, tệp tới `:check`,
   EICAR, manifest nới sàn, task của app khác), in bảng kết quả và 20 lá `policy.denied` gần nhất. Chỉ chạy trên stack có
   realm dev.
+- Biên nhận OpenTimestamps cho STH đã neo (Đ2, Plan 03 Task 14, P3-D10), **mặc định tắt**: đặt `DXOS_OTS_CALENDARS`
+  (URL https cách nhau dấu phẩy) thì sau mỗi lần neo mới, việc `ots_stamp` gửi digest STH tới các calendar. Biên nhận
+  được lưu vào bảng chỉ-thêm `ots_receipts` (migration 005) và commit thành `ots/<n>.ots` trong repo neo. Gói bằng
+  chứng có thêm `timestamps`. Client calendar tự viết, không thêm phụ thuộc. Calendar lỗi không chặn việc neo.
+  `dxos-witness` chỉ ghi chú, không đổi kết quả. Người kiểm dùng `ots upgrade` + `ots verify`
+  (`docs/runbook-anchor.md` mục 6).
 - `docs/acceptance.md`: ma trận AT-01..AT-28 (test tự động, nơi chạy, bằng chứng); `tests/repo/test_at_matrix.py` bắt
   buộc đủ 28 dòng và mọi test được dẫn phải tồn tại.
 

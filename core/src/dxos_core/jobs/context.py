@@ -17,3 +17,4 @@ class WorkerContext:
     settings: Settings
     hmac_key: bytes
     signer: Any = None    # dxos_core.kms.base.Signer (Task 15)
+    http_transport: Any = None  # httpx.AsyncBaseTransport cho gọi ra ngoài (calendar OTS); None: mặc định

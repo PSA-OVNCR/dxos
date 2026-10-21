@@ -178,7 +178,10 @@ services:
     <<: *common
     build: *core-build
     command: ["python", "-m", "dxos_core.worker"]
-    environment: *core-env
+    environment:
+      <<: *core-env
+      # OpenTimestamps (Plan 03 Task 14, P3-D10): URL calendar https cách nhau dấu phẩy; trống = tắt (mặc định).
+      DXOS_OTS_CALENDARS: ${DXOS_OTS_CALENDARS:-}
     secrets: *core-secrets
     volumes: [anchor-repo:/var/lib/dxos]          # bản clone repo neo + known_hosts (Task 16)
     depends_on:

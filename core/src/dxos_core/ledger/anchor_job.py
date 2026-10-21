@@ -8,6 +8,8 @@
 - Plan 02 Task 8: cùng commit với STH là khóa công khai (``signer.public_keys()``) và mọi tuyên bố khóa
   (bảng ``key_statements``). Lần thử lại của một STH đã ký không cần KMS: KMS khóa thì neo STH, tệp khóa để
   lần sau.
+- Plan 03 Task 14: neo mới thành công và ``DXOS_OTS_CALENDARS`` có giá trị → xếp việc ``ots_stamp``
+  (``ledger/ots.py``) trong cùng transaction. Việc đó lỗi không ảnh hưởng neo.
 """
 
 import json
@@ -20,6 +22,7 @@ from dxos_core.jobs.context import WorkerContext
 from dxos_core.jobs.queue import Job, complete, enqueue, fail, retry_later
 from dxos_core.kms.base import KmsUnavailable
 from dxos_core.ledger.anchor import AnchorError, ensure_clone, publish_sth
+from dxos_core.ledger.ots import OTS_JOB, calendar_urls
 from dxos_core.ledger.sth import get_sth, make_sth
 from dxos_core.seal.keys import verified_statements
 
@@ -60,9 +63,12 @@ async def process_anchor_job(ctx: WorkerContext, job: Job) -> None:
                 await retry_later(conn, job.id, PUSH_RETRY_S, str(exc)[:500])
             return
         async with conn.transaction():
-            await conn.execute(
+            status = await conn.execute(
                 "INSERT INTO anchors(tree_size, repo, commit_sha) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
                 th.tree_size, s.anchor_remote, commit)
+            # Plan 03 Task 14: biên nhận OpenTimestamps là việc riêng, chỉ khi bật và chỉ cho lần neo mới.
+            if status == "INSERT 0 1" and calendar_urls(s):
+                await enqueue(conn, OTS_JOB, {"tree_size": th.tree_size})
             await complete(conn, job.id)
 
 
