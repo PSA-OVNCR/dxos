@@ -324,6 +324,32 @@ class FlowableClient:
         resp = await self._send("GET", f"/history/historic-task-instances/{_seg(task_id)}", ok=(200, 404))
         return resp.status_code == 200 and self._json(resp).get("endTime") is not None
 
+    async def historic_done_tasks(self, instance_id: str) -> list[tuple[str, str]]:
+        """``(task_id, task_key)`` của mọi task ĐÃ XONG của instance (lịch sử, ``finished=true``), theo trang.
+
+        Dùng cho bất biến của cầu nối: mọi task đã xong của instance hiện tại phải có ``task_completions``.
+        """
+        seg = _seg(instance_id)
+        out: list[tuple[str, str]] = []
+        start = 0
+        while True:
+            resp = await self._send("GET", "/history/historic-task-instances", ok=(200,), params={
+                "processInstanceId": seg, "finished": "true", "size": self._page_size, "start": start})
+            total = self._json(resp).get("total")
+            if not isinstance(total, int) or isinstance(total, bool):
+                raise WorkflowUnavailable("Flowable không trả tổng số task (total)")
+            rows = self._rows(resp)
+            for row in rows:
+                key = row.get("taskDefinitionKey")
+                if not isinstance(key, str) or not key:
+                    raise WorkflowUnavailable("Flowable trả task lịch sử thiếu taskDefinitionKey")
+                out.append((self._id(row), key))
+            start += len(rows)
+            if not rows or start >= total:
+                return out
+            if start >= _MAX_TASKS:
+                raise WorkflowUnavailable("quá nhiều task lịch sử để liệt kê")
+
     async def historic_intent_id(self, task_id: str) -> str | None:
         """Biến ``dxos_intent_id`` (task-local) lúc task hoàn thành; chưa có -> None."""
         resp = await self._send("GET", "/history/historic-variable-instances", ok=(200,), params={

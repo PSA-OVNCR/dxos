@@ -62,11 +62,12 @@ def late_commit_margin_s(flowable: FlowableClient) -> float:
 
 
 class WorkflowInconsistent(Exception):  # noqa: N818
-    """Flowable đã áp dụng một ý định mà DB đã ghi ``abandoned``: không tự sửa được, admin phải xử lý."""
+    """Flowable và DB lệch nhau mà lõi không tự sửa được (admin phải xử lý): Flowable đã áp dụng một ý định đã
+    ghi ``abandoned``, hoặc một task đã xong không có ``task_completions`` (xem ``check_completions``)."""
 
-    def __init__(self, record_id: uuid.UUID, intent_id: int) -> None:
-        super().__init__(f"bản ghi {record_id}: Flowable đã áp dụng ý định #{intent_id} đã bị bỏ")
-        self.record_id, self.intent_id = record_id, intent_id
+    def __init__(self, record_id: uuid.UUID, detail: str) -> None:
+        super().__init__(f"bản ghi {record_id}: {detail}")
+        self.record_id, self.detail = record_id, detail
 
 
 @dataclass(frozen=True)
@@ -167,6 +168,35 @@ async def process_model(conn: asyncpg.Connection, deps: WorkflowDeps, m: Manifes
     return model
 
 
+# ---------------------------------------------------------------- bất biến hoàn thành
+async def check_completions(deps: WorkflowDeps, conn: asyncpg.Connection, record_id: uuid.UUID, instance: str,
+                            *, exclude: frozenset[str] = frozenset()) -> None:
+    """Bất biến: mọi task Flowable báo ĐÃ XONG của ``instance`` có hàng ``task_completions`` của bản ghi, hoặc
+    còn một ý định chưa có kết quả trỏ tới nó (``reconcile_record`` xử lý ý định đó, theo thứ tự id).
+
+    Không thỏa → log ERROR + ``WorkflowInconsistent`` (fail-closed: không đánh giá guard, không gọi Flowable).
+    Thiếu hàng hoàn thành nghĩa là guard ``not_same_actor:<task>`` sẽ đọc thiếu người đã làm task đó, ví dụ
+    khi Flowable commit muộn hơn biên ``late_commit_margin_s`` và không ai gửi lại. Cách khôi phục hiện có
+    (``reconcile_record``) phải chạy TRƯỚC hàm này; ``exclude``: task của chính ý định đang hoàn tất.
+    Người gọi giữ ``record_lock``; ``conn`` không đang trong transaction.
+    """
+    done = await deps.flowable.historic_done_tasks(instance)
+    if not done:
+        return
+    recorded = {r["task_id"] for r in await conn.fetch(
+        "SELECT task_id FROM core.task_completions WHERE record_id=$1 AND wf_instance_id=$2",
+        record_id, instance)}
+    open_intents = {r["task_id"] for r in await conn.fetch(
+        "SELECT i.task_id FROM core.task_intents i WHERE i.record_id=$1 AND NOT EXISTS"
+        " (SELECT 1 FROM core.task_intent_outcomes o WHERE o.intent_id = i.id)", record_id)}
+    missing = [(tid, key) for tid, key in done if tid not in recorded | open_intents | exclude]
+    if missing:
+        log.error("bản ghi %s: task đã xong trên Flowable nhưng không có bản ghi hoàn thành: %s",
+                  record_id, missing)
+        raise WorkflowInconsistent(record_id, "task đã xong trên Flowable không có bản ghi hoàn thành: "
+                                   + ", ".join(f"{key} ({tid})" for tid, key in missing))
+
+
 # ---------------------------------------------------------------- hoàn tất một ý định
 @dataclass(frozen=True)
 class Finalized:
@@ -204,6 +234,8 @@ async def finalize(deps: WorkflowDeps, conn: asyncpg.Connection, intent: asyncpg
     """
     rid: uuid.UUID = intent["record_id"]
     instance: str = intent["wf_instance_id"]
+    # Không ghi hoàn thành chồng lên một hoàn thành bị thiếu (bất biến, fix vòng 2).
+    await check_completions(deps, conn, rid, instance, exclude=frozenset({intent["task_id"]}))
     # Đọc kết quả instance TRƯỚC khi mở transaction: không gọi Flowable khi đang giữ khóa hàng. Dưới
     # record_lock không ai khác đẩy instance này đi tiếp, nên kết quả không đổi tới lúc commit.
     flow_outcome = await deps.flowable.outcome(instance)
@@ -338,7 +370,7 @@ async def reconcile_record(deps: WorkflowDeps, conn: asyncpg.Connection, record_
             elif status == "abandoned":
                 log.error("Flowable đã áp dụng ý định #%s (đã bị bỏ) cho task %s của bản ghi %s",
                           applied["id"], intent["task_id"], record_id)
-                raise WorkflowInconsistent(record_id, applied["id"])
+                raise WorkflowInconsistent(record_id, f"Flowable đã áp dụng ý định #{applied['id']} đã bị bỏ")
             # completed/guard_failed: lần gửi đó đã được xử lý; ý định này không được áp dụng
         elif seen is not None:
             log.error("task %s đã xong với dxos_intent_id=%r lạ, khác ý định #%s (bản ghi %s)",
@@ -358,13 +390,23 @@ async def reconcile_all(deps: WorkflowDeps) -> dict[str, Any]:
         rids = [r["record_id"] for r in await conn.fetch(
             "SELECT DISTINCT i.record_id FROM core.task_intents i WHERE NOT EXISTS"
             " (SELECT 1 FROM core.task_intent_outcomes o WHERE o.intent_id = i.id) ORDER BY i.record_id")]
-    counts: dict[str, Any] = {"records": len(rids), "completed": 0, "abandoned": 0, "guard_failed": 0,
-                              "pending": 0, "unavailable": 0, "errors": 0, "inconsistent": []}
-    for rid in rids:
+        running = [r["id"] for r in await conn.fetch(
+            "SELECT id FROM core.records WHERE wf_state='running' AND wf_instance_id IS NOT NULL"
+            " ORDER BY id")]
+    # records: bản ghi có ý định chưa có kết quả; checked: bản ghi đang chạy đã kiểm bất biến hoàn thành.
+    counts: dict[str, Any] = {"records": len(rids), "checked": 0, "completed": 0, "abandoned": 0,
+                              "guard_failed": 0, "pending": 0, "unavailable": 0, "errors": 0,
+                              "inconsistent": []}
+    for rid in [*rids, *(r for r in running if r not in set(rids))]:
         try:
             # Thứ tự toàn cục: kết nối làm việc trước, khóa bản ghi sau (như :complete).
             async with deps.pool.acquire() as conn, record_lock(deps.pool, rid):
                 res = await reconcile_record(deps, conn, rid)
+                row = await conn.fetchrow(
+                    "SELECT wf_state, wf_instance_id FROM core.records WHERE id=$1", rid)
+                if row["wf_state"] == "running" and row["wf_instance_id"] is not None:
+                    counts["checked"] += 1
+                    await check_completions(deps, conn, rid, row["wf_instance_id"])
             for outcome in res.outcomes:
                 counts[outcome] += 1
             if res.retry_after_s is not None:

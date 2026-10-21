@@ -542,3 +542,32 @@ async def test_complete_500_then_history_unreachable_is_still_sent(client, respx
 def test_client_exposes_timeout(client):
     assert client.timeout_s == 10.0
     assert FlowableClient(BASE, "u", "p", timeout_s=3.5).timeout_s == 3.5
+
+
+# ---------------------------------------------------------------- task đã xong của một instance (fix vòng 2)
+async def test_historic_done_tasks_queries_finished_tasks_of_instance_and_pages(client, respx_mock):
+    pages = {"0": [{"id": "t1", "taskDefinitionKey": "review", "endTime": "2026-10-21T10:00:00Z"},
+                   {"id": "t2", "taskDefinitionKey": "approve", "endTime": "2026-10-21T10:01:00Z"}],
+             "2": [{"id": "t3", "taskDefinitionKey": "review", "endTime": "2026-10-21T10:02:00Z"}]}
+
+    def reply(request: httpx.Request) -> httpx.Response:
+        p = request.url.params
+        assert (p["processInstanceId"], p["finished"], p["size"]) == ("i-1", "true", "2")
+        return httpx.Response(200, json={"data": pages[p["start"]], "total": 3, "start": int(p["start"])})
+
+    respx_mock.get(f"{BASE}/history/historic-task-instances").mock(side_effect=reply)
+    client._page_size = 2
+    assert await client.historic_done_tasks("i-1") == [("t1", "review"), ("t2", "approve"), ("t3", "review")]
+
+
+async def test_historic_done_tasks_rejects_bad_ids_and_bad_rows(client, respx_mock):
+    route = respx_mock.get(f"{BASE}/history/historic-task-instances")
+    with pytest.raises(ValueError):
+        await client.historic_done_tasks("../x")
+    assert not route.called
+    route.mock(return_value=httpx.Response(200, json={"data": [{"id": "t1"}], "total": 1}))
+    with pytest.raises(WorkflowUnavailable):
+        await client.historic_done_tasks("i-1")
+    route.mock(return_value=httpx.Response(200, json={"data": [], "total": "x"}))
+    with pytest.raises(WorkflowUnavailable):
+        await client.historic_done_tasks("i-1")

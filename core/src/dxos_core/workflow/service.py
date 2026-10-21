@@ -234,16 +234,20 @@ async def _r1_precheck(ctx: Ctx, deps: WorkflowDeps, m: Manifest, subject: str) 
         raise await refuse("org_not_configured", "org-not-configured", "Organisation name not configured")
 
 
+def _inconsistent() -> ProblemError:
+    return ProblemError(409, "workflow-inconsistent", "Workflow state is inconsistent",
+                        "the workflow engine and the completion records disagree;"
+                        " an administrator must reconcile this record")
+
+
 async def _reconcile_or_problem(deps: WorkflowDeps, conn: asyncpg.Connection, rid: uuid.UUID, *,
                                 raise_pending: bool = True) -> None:
     """Đối soát dưới khóa; còn ý định chưa rõ kết quả → 503 ``workflow-pending`` kèm ``Retry-After``;
-    Flowable đã áp dụng một ý định đã bị bỏ → 409 ``workflow-inconsistent`` (admin xử lý)."""
+    Flowable và bản ghi hoàn thành lệch nhau → 409 ``workflow-inconsistent`` (admin xử lý)."""
     try:
         res = await reconcile.reconcile_record(deps, conn, rid)
     except reconcile.WorkflowInconsistent as exc:
-        raise ProblemError(409, "workflow-inconsistent", "Workflow state is inconsistent",
-                           "an abandoned completion was applied by the workflow engine;"
-                           " an administrator must reconcile this record") from exc
+        raise _inconsistent() from exc
     if raise_pending and res.retry_after_s is not None:
         raise ProblemError(503, "workflow-pending", "Previous completion outcome not yet known",
                            headers={"Retry-After": str(max(1, math.ceil(res.retry_after_s)))})
@@ -314,6 +318,12 @@ async def complete(ctx: Ctx, deps: WorkflowDeps, app: str, task_id: str, body: A
         row = await conn.fetchrow("SELECT * FROM core.records WHERE id=$1", rid)
         if task is None or row["wf_state"] != "running" or row["wf_instance_id"] != task.process_instance_id:
             raise _task_gone()
+        # Bất biến (fix vòng 2): mọi task đã xong của instance có bản ghi hoàn thành; không thì fail-closed
+        # trước khi đánh giá guard (not_same_actor sẽ đọc thiếu) và trước mọi lời gọi Flowable có ghi.
+        try:
+            await reconcile.check_completions(deps, conn, rid, task.process_instance_id)
+        except reconcile.WorkflowInconsistent as exc:
+            raise _inconsistent() from exc
         # 7–8. Version, decision, comment.
         if row["version"] != expected:
             raise _version_conflict(expected, row["version"])
@@ -356,6 +366,8 @@ async def complete(ctx: Ctx, deps: WorkflowDeps, app: str, task_id: str, body: A
             done = await reconcile.finalize(deps, conn, intent, task_assignee=task.assignee)
         except (ProblemError, WorkflowUnavailable):
             raise
+        except reconcile.WorkflowInconsistent as exc:
+            raise _inconsistent() from exc
         except Exception as exc:
             log.exception("hoàn tất phía DB của ý định #%s lỗi sau khi Flowable đã chạy", intent["id"])
             raise ProblemError(500, "workflow-finalize-failed", "Task completed but not yet recorded",

@@ -460,3 +460,38 @@ async def test_inbox_hides_tasks_of_records_the_caller_cannot_read(flow):
     denied = await flow.db.fetchval("SELECT count(*) FROM ledger_entries WHERE type='policy.denied'")
     assert await flow.inbox(as_="r1") == []
     assert await flow.db.fetchval("SELECT count(*) FROM ledger_entries WHERE type='policy.denied'") == denied
+
+
+
+# ---------- Fix vòng 2: bất biến "task đã xong ⇒ có bản ghi hoàn thành" ----------
+
+async def test_finished_task_without_completion_fails_closed(flow):
+    """Flowable cho thấy task review đã xong mà lõi không có task_completions (ví dụ commit muộn sau biên,
+    không ai gửi lại): mọi :complete tiếp theo bị chặn 409, không đánh giá guard, không gọi Flowable."""
+    rid = await flow.ready_record(author="a1")
+    await flow.start(rid, as_="a1")
+    tid = await flow.task_id("review", rid)
+    await flow.flowable.complete(tid, {"decision": "approve"})                 # đi vòng qua cầu nối
+    assert (await flow.pii_review(rid, as_="p1")).status_code == 200
+    dual = flow.token("r1", "reviewer", "approver")
+    for who in (dual, "p1"):
+        r = await flow.complete_task("approve", rid, "approve", as_=who)
+        assert r.status_code == 409 and r.json()["type"].endswith("/workflow-inconsistent"), r.text
+    assert await flow.task_exists("approve", rid)                              # Flowable không bị gọi
+    assert await flow.count("task_intents", rid) == 0 and await flow.count("task_completions", rid) == 0
+    body = (await flow.admin_post("/admin/v1/workflow:reconcile")).json()
+    assert body["inconsistent"] == [rid] and body["checked"] >= 1
+
+
+async def test_finalize_refuses_to_write_a_completion_over_a_missing_one(flow):
+    """Bất biến cũng được kiểm trong finalize: ý định của approve không được hoàn tất khi review đã xong trên
+    Flowable mà không có bản ghi hoàn thành."""
+    rid = await flow.ready_record(author="a1")
+    await flow.start(rid, as_="a1")
+    await flow.flowable.complete(await flow.task_id("review", rid), {"decision": "approve"})
+    intent = await flow.add_intent(rid, "approve", "p1")                      # ý định treo của approve
+    await flow.late_commit("approve", rid, intent)
+    body = (await flow.admin_post("/admin/v1/workflow:reconcile")).json()
+    assert body["inconsistent"] == [rid] and body["completed"] == 0
+    assert await flow.count("task_completions", rid) == 0
+    assert [i["outcome"] for i in await flow.intents(rid)] == [None]          # vẫn mở, vẫn được báo

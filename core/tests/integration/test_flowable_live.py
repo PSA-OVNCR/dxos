@@ -158,3 +158,19 @@ async def test_unreachable_flowable_is_unavailable():
     down = FlowableClient("http://127.0.0.1:1/flowable-rest/service", "u", "p", timeout_s=2.0)
     with pytest.raises(WorkflowUnavailable):
         await down.get_task("t1")
+
+
+async def test_historic_done_tasks_lists_only_finished_tasks_of_the_instance(definition_id,
+                                                                            flowable_client):
+    """Tham số lịch sử (processInstanceId, finished) đối chiếu với Flowable thật (Task 6, vòng 2)."""
+    c = flowable_client
+    _, iid, tid = await start(c, definition_id)
+    _, other_iid, other_tid = await start(c, definition_id)
+    try:
+        assert await c.historic_done_tasks(iid) == []
+        await c.complete(tid, {"decision": "approve"})
+        await c.complete(other_tid, {"decision": "approve"})
+        assert await c.historic_done_tasks(iid) == [(tid, "review")]          # task approve đang mở: không có
+    finally:
+        await c.cancel(iid, "dxos:test")
+        await c.cancel(other_iid, "dxos:test")
