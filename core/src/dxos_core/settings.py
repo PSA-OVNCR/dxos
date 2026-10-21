@@ -7,6 +7,7 @@ Bí mật (khóa S3, token OpenBao, khóa HMAC) không đặt trong biến môi 
 """
 
 from pathlib import Path
+from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import Field, field_validator
@@ -15,6 +16,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # Tên tổ chức mặc định: còn giá trị này thì lõi từ chối niêm phong (spec 25.3), để tên giữ chỗ không bị ghi
 # vĩnh viễn vào tuyên bố khóa chỉ-thêm. dxos_core.seal.keys dùng lại hằng này.
 ORG_NAME_DEFAULT = "Tổ chức chưa cấu hình"
+MAX_OTS_CALENDARS = 8
 
 
 class Settings(BaseSettings):
@@ -93,10 +95,15 @@ class Settings(BaseSettings):
     @field_validator("ots_calendars")
     @classmethod
     def _check_ots_calendars(cls, v: str) -> str:
-        urls = [u.strip().rstrip("/") for u in v.split(",") if u.strip()]
+        urls = split_ots_calendars(v)
+        if len(urls) > MAX_OTS_CALENDARS:
+            raise ValueError(f"DXOS_OTS_CALENDARS: tối đa {MAX_OTS_CALENDARS} calendar")
         for u in urls:
-            if not u.startswith("https://") or len(u) <= len("https://"):
-                raise ValueError(f"calendar OpenTimestamps phải là URL https://: {u!r}")
+            parts = urlsplit(u)
+            if (parts.scheme != "https" or not parts.hostname or parts.username is not None
+                    or parts.password is not None or parts.query or parts.fragment
+                    or any(c.isspace() or c == "," for c in u)):
+                raise ValueError(f"calendar OpenTimestamps phải là URL https://<máy>[/đường dẫn]: {u!r}")
         if len(set(urls)) != len(urls):
             raise ValueError("DXOS_OTS_CALENDARS có calendar trùng nhau")
         return v
@@ -109,6 +116,12 @@ class Settings(BaseSettings):
         except (ZoneInfoNotFoundError, ValueError) as exc:
             raise ValueError(f"múi giờ không hợp lệ: {v!r}") from exc
         return v
+
+
+def split_ots_calendars(value: str) -> list[str]:
+    """``DXOS_OTS_CALENDARS`` (phân tách bằng dấu phẩy) → URL đã chuẩn hóa: bỏ khoảng trắng hai đầu và ``/``
+    cuối, bỏ mục rỗng. Validator của ``Settings`` và ``ledger.ots`` dùng chung."""
+    return [u.strip().rstrip("/") for u in (value or "").split(",") if u.strip()]
 
 
 def org_configured(settings: Settings) -> bool:

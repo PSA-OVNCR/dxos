@@ -23,6 +23,7 @@ không dùng gói ``opentimestamps`` (LGPL-3.0), không thêm phụ thuộc.
   ghi đè như STH.
 """
 
+import asyncio
 import dataclasses
 import hashlib
 import logging
@@ -38,6 +39,7 @@ from dxos_core.jobs.context import WorkerContext
 from dxos_core.jobs.queue import Job, complete, fail, retry_later
 from dxos_core.ledger.anchor import AnchorError, ensure_clone, publish_files
 from dxos_core.ledger.sth import get_sth
+from dxos_core.settings import split_ots_calendars
 
 log = logging.getLogger("dxos_core.ledger.ots")
 
@@ -51,11 +53,17 @@ OTS_ATTEMPTS = 6                  # số lượt hỏi calendar còn thiếu, tr
 OTS_RETRY_S = 600
 PUSH_RETRY_S = 60
 
-_UNARY = {0x02, 0x03, 0x08, 0x67, 0xf2, 0xf3}     # sha1, ripemd160, sha256, keccak256, reverse, hexlify
-_BINARY = {0xf0, 0xf1}                            # append, prepend
-_MAX_ARG = 4096
+# Op của OpenTimestamps: thẻ → cỡ kết quả theo cỡ thông điệp vào (như ``opentimestamps.core.op``).
+_UNARY = {0x02: lambda n: 20, 0x03: lambda n: 20, 0x08: lambda n: 32, 0x67: lambda n: 32,  # sha1, ripemd160,
+          0xf2: lambda n: n, 0xf3: lambda n: 2 * n}                    # sha256, keccak256, reverse, hexlify
+_BINARY = {0xf0, 0xf1}                                                 # append, prepend: n + cỡ đối số
+_MAX_MSG = 4096                   # MAX_RESULT_LENGTH / MAX_MSG_LENGTH của client chính thức
 _MAX_PAYLOAD = 8192
 _MAX_DEPTH = 256
+_PENDING_TAG = bytes.fromhex("83dfe30d2ef90c8e")
+_BITCOIN_TAG = bytes.fromhex("0588960d73d71901")
+_MAX_URI = 1000
+_URI_CHARS = frozenset(b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._/:")
 
 
 class OtsFormatError(ValueError):
@@ -84,7 +92,7 @@ class _Node:
 
 def _op_order(item: tuple[bytes, _Node]) -> tuple[int, bytes]:
     op = item[0]
-    return op[0], _read_varbytes(op, 1, _MAX_ARG)[0] if op[0] in _BINARY else b""
+    return op[0], _read_varbytes(op, 1, _MAX_MSG)[0] if op[0] in _BINARY else b""
 
 
 def _read_varuint(buf: bytes, pos: int) -> tuple[int, int]:
@@ -109,21 +117,41 @@ def _read_varbytes(buf: bytes, pos: int, max_len: int, min_len: int = 0) -> tupl
     return buf[pos:pos + n], pos + n
 
 
-def _parse_branch(buf: bytes, pos: int, tag: int, node: _Node, depth: int) -> int:
+def _check_attestation(tag: bytes, payload: bytes) -> None:
+    """Như ``TimeAttestation.deserialize``: payload của thẻ đã biết phải đọc hết, không thừa byte."""
+    if tag == _PENDING_TAG:
+        uri, end = _read_varbytes(payload, 0, _MAX_URI)
+        if not set(uri) <= _URI_CHARS:
+            raise OtsFormatError("URI của biên nhận pending có ký tự không cho phép")
+    elif tag == _BITCOIN_TAG:
+        _, end = _read_varuint(payload, 0)
+    else:
+        return                    # thẻ lạ: client chính thức giữ nguyên (UnknownAttestation)
+    if end != len(payload):
+        raise OtsFormatError("payload biên nhận thừa byte")
+
+
+def _parse_branch(buf: bytes, pos: int, tag: int, node: _Node, depth: int, msg_len: int) -> int:
     if tag == 0x00:
         start = pos
         if pos + 8 > len(buf):
             raise OtsFormatError("thẻ biên nhận bị cụt")
-        _, pos = _read_varbytes(buf, pos + 8, _MAX_PAYLOAD)
+        payload, pos = _read_varbytes(buf, pos + 8, _MAX_PAYLOAD)
+        _check_attestation(buf[start:start + 8], payload)
         node.attestations.add(buf[start:pos])
         return pos
     start = pos - 1
     if tag in _BINARY:
-        _, pos = _read_varbytes(buf, pos, _MAX_ARG, min_len=1)
-    elif tag not in _UNARY:
+        arg, pos = _read_varbytes(buf, pos, _MAX_MSG, min_len=1)
+        result = msg_len + len(arg)
+    elif tag in _UNARY:
+        result = _UNARY[tag](msg_len)
+    else:
         raise OtsFormatError(f"thẻ op lạ 0x{tag:02x}")
+    if result > _MAX_MSG:
+        raise OtsFormatError(f"kết quả op 0x{tag:02x} dài {result} byte, quá {_MAX_MSG}")
     op = buf[start:pos]
-    child, pos = _parse_node(buf, pos, depth + 1)
+    child, pos = _parse_node(buf, pos, depth + 1, result)
     if op in node.ops:
         node.ops[op].merge(child)
     else:
@@ -131,7 +159,7 @@ def _parse_branch(buf: bytes, pos: int, tag: int, node: _Node, depth: int) -> in
     return pos
 
 
-def _parse_node(buf: bytes, pos: int, depth: int) -> tuple[_Node, int]:
+def _parse_node(buf: bytes, pos: int, depth: int, msg_len: int) -> tuple[_Node, int]:
     if depth > _MAX_DEPTH:
         raise OtsFormatError("timestamp lồng quá sâu")
     node = _Node()
@@ -141,17 +169,19 @@ def _parse_node(buf: bytes, pos: int, depth: int) -> tuple[_Node, int]:
         tag = buf[pos]
         pos += 1
         if tag != 0xFF:
-            return node, _parse_branch(buf, pos, tag, node, depth)
+            return node, _parse_branch(buf, pos, tag, node, depth, msg_len)
         if pos >= len(buf) or buf[pos] == 0xFF:
             raise OtsFormatError("sau 0xff phải là một nhánh")
-        pos = _parse_branch(buf, pos + 1, buf[pos], node, depth)
+        pos = _parse_branch(buf, pos + 1, buf[pos], node, depth, msg_len)
 
 
 def parse_timestamp(reply: bytes) -> _Node:
-    """Phân tích chặt timestamp (phản hồi calendar). Sai dạng, thừa byte hoặc quá cỡ → ``OtsFormatError``."""
+    """Phân tích chặt timestamp trên digest 32 byte (phản hồi calendar), ít nhất chặt như trình đọc chính
+    thức: thẻ biết trước, độ sâu, cỡ thông điệp qua từng op ≤ 4096, URI pending, không thừa byte.
+    Sai → ``OtsFormatError``."""
     if len(reply) > MAX_REPLY_BYTES:
         raise OtsFormatError(f"phản hồi quá {MAX_REPLY_BYTES} byte")
-    node, pos = _parse_node(bytes(reply), 0, 0)
+    node, pos = _parse_node(bytes(reply), 0, 0, 32)
     if pos != len(reply):
         raise OtsFormatError(f"thừa {len(reply) - pos} byte sau timestamp")
     return node
@@ -184,28 +214,50 @@ def ots_path(tree_size: int) -> str:
 
 # ---------------------------------------------------------------- calendar
 def calendar_urls(settings) -> list[str]:
-    """``DXOS_OTS_CALENDARS`` (phân tách bằng dấu phẩy) → danh sách URL, bỏ ``/`` cuối. Rỗng = tắt."""
-    return [u.strip().rstrip("/") for u in (settings.ots_calendars or "").split(",") if u.strip()]
+    """Danh sách calendar đã cấu hình (``Settings`` đã kiểm từng URL, tối đa 8); rỗng = tắt."""
+    return split_ots_calendars(settings.ots_calendars)
 
 
 async def submit_digest(client: httpx.AsyncClient, calendar: str, digest: bytes) -> bytes:
-    """``POST <calendar>/digest`` với thân là 32 byte digest (như client chính thức); trả phản hồi đã kiểm."""
-    r = await client.post(f"{calendar}/digest", content=digest, timeout=CALENDAR_TIMEOUT_S, headers={
-        "content-type": "application/x-www-form-urlencoded", "accept": "application/vnd.opentimestamps.v1",
-        "user-agent": "dxos-trust-core"})
-    r.raise_for_status()
-    parse_timestamp(r.content)
-    return r.content
+    """``POST <calendar>/digest`` với thân là 32 byte digest (như client chính thức); trả phản hồi đã kiểm.
+
+    Hạn **tổng** ``CALENDAR_TIMEOUT_S`` cho cả lời gọi (timeout của httpx chỉ tính từng lần đọc: calendar
+    nhỏ giọt từng byte sẽ giữ worker mãi) → ``TimeoutError``. Đọc dòng, dừng ngay khi quá
+    ``MAX_REPLY_BYTES``."""
+    async with asyncio.timeout(CALENDAR_TIMEOUT_S):
+        async with client.stream("POST", f"{calendar}/digest", content=digest, timeout=CALENDAR_TIMEOUT_S,
+                                 headers={"content-type": "application/x-www-form-urlencoded",
+                                          "accept": "application/vnd.opentimestamps.v1",
+                                          "user-agent": "dxos-trust-core"}) as r:
+            r.raise_for_status()
+            body = bytearray()
+            async for chunk in r.aiter_bytes():
+                body += chunk
+                if len(body) > MAX_REPLY_BYTES:
+                    raise OtsFormatError(f"phản hồi quá {MAX_REPLY_BYTES} byte")
+    reply = bytes(body)
+    parse_timestamp(reply)
+    return reply
 
 
 # ---------------------------------------------------------------- việc nền ots_stamp
 async def _receipts(conn: asyncpg.Connection, tree_size: int) -> list[bytes]:
-    rows = await conn.fetch("SELECT reply FROM ots_receipts WHERE tree_size=$1 ORDER BY calendar", tree_size)
-    return [bytes(r["reply"]) for r in rows]
+    """Biên nhận đã lưu còn đọc được. Hàng không còn qua bộ phân tích (ví dụ sau khi siết luật) bị bỏ qua: gói
+    bằng chứng và tệp ``.ots`` không bao giờ hỏng vì một hàng cũ."""
+    out = []
+    for r in await conn.fetch("SELECT calendar, reply FROM ots_receipts WHERE tree_size=$1 ORDER BY calendar",
+                              tree_size):
+        try:
+            parse_timestamp(bytes(r["reply"]))
+        except OtsFormatError as exc:
+            log.warning("bỏ biên nhận không đọc được của %s cho STH %s: %s", r["calendar"], tree_size, exc)
+            continue
+        out.append(bytes(r["reply"]))
+    return out
 
 
 async def receipts_ots(conn: asyncpg.Connection, tree_size: int, sth: Mapping) -> bytes | None:
-    """Tệp ``.ots`` của STH ``tree_size`` dựng từ ``ots_receipts``; chưa có biên nhận → None."""
+    """Tệp ``.ots`` của STH ``tree_size`` dựng từ ``ots_receipts``; chưa có biên nhận dùng được → None."""
     replies = await _receipts(conn, tree_size)
     return detached_timestamp(ots_request_digest(sth), replies) if replies else None
 
@@ -223,22 +275,25 @@ async def process_ots_job(ctx: WorkerContext, job: Job) -> None:
             await complete(conn, job.id)
             return
         digest = ots_request_digest(dataclasses.asdict(th))
+        repo = Path(s.anchor_repo_dir)
+        # Tệp đã commit ở clone (đẩy lỗi lần trước): không hỏi calendar nữa, chỉ đẩy/so lại. Hỏi thêm sẽ đổi
+        # nội dung và thành ANCHOR_CONFLICT giả.
+        committed = (repo / ots_path(size)).is_file()
         have = {r["calendar"] for r in await conn.fetch(
             "SELECT calendar FROM ots_receipts WHERE tree_size=$1", size)}
         errors: list[str] = []
         missing = [c for c in cals if c not in have]
-        if missing and job.attempts <= OTS_ATTEMPTS:
+        if missing and not committed and job.attempts <= OTS_ATTEMPTS:
             async with httpx.AsyncClient(transport=ctx.http_transport) as client:
                 for cal in missing:
                     try:
                         reply = await submit_digest(client, cal, digest)
-                    except (httpx.HTTPError, OtsFormatError) as exc:
+                        await conn.execute(
+                            "INSERT INTO ots_receipts(tree_size, calendar, reply) VALUES ($1, $2, $3)"
+                            " ON CONFLICT DO NOTHING", size, cal, reply)
+                    except (httpx.HTTPError, OtsFormatError, TimeoutError, asyncpg.PostgresError) as exc:
                         log.warning("calendar %s không cấp biên nhận cho STH %s: %s", cal, size, exc)
                         errors.append(f"{cal}: {type(exc).__name__}: {exc}")
-                        continue
-                    await conn.execute(
-                        "INSERT INTO ots_receipts(tree_size, calendar, reply) VALUES ($1, $2, $3)"
-                        " ON CONFLICT DO NOTHING", size, cal, reply)
         replies = await _receipts(conn, size)
         if errors and job.attempts < OTS_ATTEMPTS:
             await retry_later(conn, job.id, OTS_RETRY_S, "; ".join(errors)[:500])
@@ -248,7 +303,6 @@ async def process_ots_job(ctx: WorkerContext, job: Job) -> None:
             await fail(conn, job.id, ("; ".join(errors) or "không có biên nhận")[:500])
             return
         content = detached_timestamp(digest, replies)
-        repo = Path(s.anchor_repo_dir)
         try:
             await ensure_clone(s.anchor_remote, repo, s.anchor_git_ssh_command)
             await publish_files([(ots_path(size), content)], repo, s.anchor_git_ssh_command,

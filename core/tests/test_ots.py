@@ -8,6 +8,7 @@ timestamp. Timestamp là một nút: mọi nhánh trừ nhánh cuối có tiền
 ``DXOS_OTS_CLIENT=ots`` (cần lệnh ``ots`` của opentimestamps-client trong PATH).
 """
 
+import asyncio
 import base64
 import dataclasses
 import hashlib
@@ -16,6 +17,7 @@ import os
 import shutil
 import subprocess
 import threading
+import time
 
 import httpx
 import pytest
@@ -114,12 +116,31 @@ def test_attestation_branches_come_before_op_branches():
     b"\x08" * 300 + pending("https://x"),                  # quá sâu
     b"\x00" + PENDING + b"\x80",                           # varuint cụt
     b"<html>502 Bad Gateway</html>",
+    # fix vòng 1: chặt như trình đọc chính thức (thông điệp qua op ≤ 4096, URI pending, payload đọc hết)
+    b"\xf0" + bytes([0xa0, 0x1f]) + b"a" * 4000 + b"\xf0" + bytes([0xa0, 0x1f]) + b"b" * 4000
+    + pending("https://x"),                                # 32 + 4000 + 4000 = 8032 > 4096
+    b"\xf3" * 8 + pending("https://x"),                    # hexlify ×8: 32·2⁸ = 8192 > 4096
+    pending("https://a b"),                                # khoảng trắng trong URI
+    b"\x00" + PENDING + vb(vb(b"\xff\xfe")),               # URI không phải ASCII cho phép
+    b"\x00" + PENDING + bytes([0xd2, 0x0f]) + bytes([0xd0, 0x0f]) + b"x" * 2000,   # URI 2000 > 1000
+    b"\x00" + PENDING + vb(vb(b"https://x") + b"rac"),     # payload pending thừa byte
+    b"\x00" + bytes.fromhex("0588960d73d71901") + vb(b"\x01\x02"),             # bitcoin: thừa byte
 ])
 def test_malformed_reply_rejected(bad):
     with pytest.raises(ots.OtsFormatError):
         ots.parse_timestamp(bad)
     with pytest.raises(ots.OtsFormatError):
         ots.detached_timestamp(DIGEST, [bad])
+
+
+def test_limits_of_official_reader_still_accepted():
+    ots.parse_timestamp(b"\xf3" * 7 + pending("https://x"))                      # 32·2⁷ = 4096: vừa đủ
+    ots.parse_timestamp(b"\xf0" + bytes([0xe0, 0x1f]) + b"a" * 4064 + pending("https://x"))   # 32 + 4064
+    ots.parse_timestamp(b"\x08\x00" + PENDING + bytes([0xea, 0x07, 0xe8, 0x07]) + b"x" * 1000)   # URI 1000
+    ots.parse_timestamp(b"\x00" + bytes.fromhex("0588960d73d71901") + vb(b"\x81\x01"))   # bitcoin, cao 129
+    ots.parse_timestamp(b"\x00" + b"\x11" * 8 + vb("thẻ lạ".encode()))           # thẻ lạ: giữ nguyên
+    with pytest.raises(ots.OtsFormatError):
+        ots.parse_timestamp(b"\xf0" + bytes([0xe1, 0x1f]) + b"a" * 4065 + pending("https://x"))
 
 
 def test_reply_size_limit():
@@ -166,6 +187,38 @@ async def test_submit_rejects_bad_responses(resp):
             await ots.submit_digest(client, "https://a.example", DIGEST)
 
 
+async def test_submit_has_total_deadline_against_trickling_calendar(monkeypatch):
+    """Timeout của httpx tính từng lần đọc: calendar nhỏ giọt từng byte phải bị cắt ở hạn tổng."""
+    monkeypatch.setattr(ots, "CALENDAR_TIMEOUT_S", 0.5)
+
+    async def trickle():
+        for b in R_A:
+            await asyncio.sleep(0.2)
+            yield bytes([b])
+
+    transport = httpx.MockTransport(lambda r: httpx.Response(200, content=trickle()))
+    t0 = time.monotonic()
+    async with httpx.AsyncClient(transport=transport) as client:
+        with pytest.raises(TimeoutError):
+            await ots.submit_digest(client, "https://a.example", DIGEST)
+    assert time.monotonic() - t0 < 2.0
+
+
+async def test_submit_stops_reading_oversized_stream():
+    sent = []
+
+    async def endless():
+        while True:
+            sent.append(1)
+            yield b"\x08" * 1000
+
+    transport = httpx.MockTransport(lambda r: httpx.Response(200, content=endless()))
+    async with httpx.AsyncClient(transport=transport) as client:
+        with pytest.raises(ots.OtsFormatError, match="10000"):
+            await ots.submit_digest(client, "https://a.example", DIGEST)
+    assert len(sent) <= 11                                 # dừng ngay khi quá 10000 byte, không đọc hết
+
+
 def test_calendar_setting(make_settings):
     assert make_settings().ots_calendars == ""
     assert ots.calendar_urls(make_settings()) == []
@@ -176,6 +229,15 @@ def test_calendar_setting(make_settings):
         make_settings(ots_calendars="http://a.pool.opentimestamps.org")
     with pytest.raises(ValueError, match="trùng"):
         make_settings(ots_calendars="https://a.example,https://a.example/")
+    assert ots.calendar_urls(make_settings(ots_calendars="https://a.example/cal/")) == ["https://a.example/cal"]
+    for bad in ("https://", "https:///x", "https://a b.example", "https://u:p@a.example",
+                "https://a.example?x=1", "https://a.example#f", "ftp://a.example", "a.example",
+                "https://a.example\t/x"):
+        with pytest.raises(ValueError, match="https"):
+            make_settings(ots_calendars=bad)
+    make_settings(ots_calendars=",".join(f"https://c{i}.example" for i in range(8)))
+    with pytest.raises(ValueError, match="tối đa 8"):
+        make_settings(ots_calendars=",".join(f"https://c{i}.example" for i in range(9)))
 
 
 # ---------- vector chuẩn: client chính thức (chỉ khi DXOS_OTS_CLIENT=ots) ----------

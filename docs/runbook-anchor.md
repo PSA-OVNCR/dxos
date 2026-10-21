@@ -84,12 +84,19 @@ gửi request).
   32 byte `SHA-256(canonical(STH))`, cũng là SHA-256 của tệp `sth/<n>.json` trong repo neo. Timeout 10 giây.
 - Phản hồi được kiểm định dạng, lưu nguyên văn vào bảng chỉ-thêm `ots_receipts`, rồi commit
   `ots/<n 12 chữ số>.ots` vào repo neo. Tệp này dựng lại tất định từ bảng, ghi một lần, không ghi đè.
+- Mỗi lời gọi calendar có hạn **tổng** 10 giây và phản hồi tối đa 10000 byte, đọc dòng và cắt ngay khi quá. Phản hồi
+  phải đọc được bằng trình đọc chính thức: thông điệp qua mỗi op ≤ 4096 byte, URI pending ≤ 1000 ký tự
+  `[A-Za-z0-9._/:-]`, không thừa byte. Tối đa 8 calendar.
+- Tệp `ots/<n>.ots` đã commit ở clone của worker nhưng chưa đẩy được: lượt sau không hỏi calendar nữa, chỉ đẩy lại.
 - Calendar lỗi: ghi log, thử lại sau 10 phút, tối đa 6 lượt. Sau lượt cuối, có biên nhận nào thì commit với biên
   nhận đó. Không có biên nhận nào thì việc `FAILED`. Việc neo STH **không bao giờ** bị chặn hay hỏng vì calendar.
 - Gói bằng chứng có thêm `"timestamps": [{"type": "opentimestamps", "tree_size": n, "ots": "<base64>"}]` cho STH
   đã neo, khi đã có biên nhận. `dxos-witness verify-bundle` và cổng đối soát trên trình duyệt **không** đổi
   kết quả hay mã thoát vì khóa này. Witness chỉ ghi chú "OTS: … đang chờ xác nhận trên Bitcoin — kiểm bằng
   `ots upgrade` rồi `ots verify`". Phần đầu tệp `.ots` không khớp `anchored.sth` thì witness ghi chú "bỏ qua".
+- `timestamps` trong gói được dựng lại từ bảng `ots_receipts` mỗi lần tải gói, bỏ qua hàng không còn đọc được. Khi
+  việc `ots_stamp` còn đang thử lại calendar thiếu, gói có thể có **ít nhánh hơn** tệp `ots/<n>.ots` sẽ commit sau.
+  Cả hai đều hợp lệ (mỗi nhánh tự kiểm được). Bản chuẩn để kiểm là tệp trong repo neo.
 
 **Người kiểm làm gì** (trên máy có Internet, trong bản clone repo neo):
 ```bash

@@ -73,12 +73,13 @@ def calendars():
 @pytest.fixture
 async def make_ctx(make_settings, core_dsn, bare_remote, tmp_path, calendars):
     pool = await create_pool(core_dsn)
+    signer = LocalSigner()                     # một khóa cho mọi ctx: tệp keys/ trong repo neo không đổi
 
     def make(ots_calendars: str) -> WorkerContext:
         s = make_settings(database_url=core_dsn, anchor_repo_dir=tmp_path / "worker-clone",
                           anchor_remote=f"file://{bare_remote}", anchor_git_ssh_command=GIT_SSH,
                           ots_calendars=ots_calendars)
-        return WorkerContext(pool=pool, store=None, settings=s, hmac_key=KEY, signer=LocalSigner(),
+        return WorkerContext(pool=pool, store=None, settings=s, hmac_key=KEY, signer=signer,
                              http_transport=httpx.MockTransport(calendars))
     try:
         yield make
@@ -253,3 +254,108 @@ async def test_bundle_carries_timestamps_and_witness_notes_it(flow, verify, loca
                                 "ots": base64.b64encode(expected).decode()}]
     r = verify_bundle(b, anchor_dir=None)
     assert r.ok and "OTS:" in r.detail and "ots verify" in r.detail, r.detail
+
+
+# ---------- fix vòng 1: calendar chậm/hỏng không giữ worker; hàng cũ không làm hỏng gói ----------
+
+async def test_trickling_calendar_cut_by_total_deadline(make_ctx, core_conn, calendars, monkeypatch):
+    import asyncio
+    import time
+
+    from dxos_core.ledger import ots
+
+    monkeypatch.setattr(ots, "CALENDAR_TIMEOUT_S", 0.5)
+
+    async def trickle():
+        for b in reply_for(CAL_A):
+            await asyncio.sleep(0.2)
+            yield bytes([b])
+
+    def handler(req):
+        if req.url.host == "a.calendar.test":
+            return httpx.Response(200, content=trickle())
+        return calendars(req)
+
+    ctx = make_ctx(f"{CAL_A},{CAL_B}")
+    ctx.http_transport = httpx.MockTransport(handler)
+    await enqueue(core_conn, "anchor_sth", {})
+    t0 = time.monotonic()
+    await run_all(ctx, core_conn)
+    assert time.monotonic() - t0 < 5
+    assert await core_conn.fetchval("SELECT count(*) FROM anchors") == 1
+    assert await core_conn.fetchval("SELECT calendar FROM ots_receipts") == CAL_B
+    job = await core_conn.fetchrow("SELECT state, last_error FROM jobs WHERE kind=$1", OTS_JOB)
+    assert job["state"] == "QUEUED" and f"{CAL_A}: TimeoutError" in job["last_error"]
+
+
+async def test_db_error_on_one_calendar_does_not_cut_the_loop(make_ctx, core_conn, owner_conn):
+    await owner_conn.execute(f"""
+        CREATE FUNCTION core.test_reject_a() RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN
+            IF NEW.calendar = '{CAL_A}' THEN RAISE EXCEPTION 'tu_choi_thu'; END IF;
+            RETURN NEW;
+        END $$;
+        CREATE TRIGGER test_reject_a BEFORE INSERT ON core.ots_receipts
+            FOR EACH ROW EXECUTE FUNCTION core.test_reject_a();
+    """)
+    ctx = make_ctx(f"{CAL_A},{CAL_B}")
+    await enqueue(core_conn, "anchor_sth", {})
+    await run_all(ctx, core_conn)
+    assert await core_conn.fetchval("SELECT calendar FROM ots_receipts") == CAL_B
+    job = await core_conn.fetchrow("SELECT state, last_error FROM jobs WHERE kind=$1", OTS_JOB)
+    assert job["state"] == "QUEUED" and "tu_choi_thu" in job["last_error"]
+
+
+async def test_committed_but_unpushed_file_is_pushed_not_requeried(make_ctx, core_conn, bare_remote,
+                                                                  calendars):
+    hook = bare_remote / "hooks" / "pre-receive"
+    await enqueue(core_conn, "anchor_sth", {})
+    await run_all(make_ctx(CAL_A), core_conn)        # lượt đầu bình thường: clone của worker đã có
+    size = await anchored_size(core_conn)
+    assert ots_path(size) in git(bare_remote, "ls-tree", "-r", "--name-only", "main")
+    # STH mới; lần đẩy tệp ots bị remote từ chối SAU khi đã commit ở clone.
+    from dxos_core.ledger.log import append
+    await append(core_conn, type="object.read", subject="s", body={}, hmac_key=KEY)
+    await enqueue(core_conn, "anchor_sth", {})
+    ctx_a = make_ctx(CAL_A)
+    async with ctx_a.pool.acquire() as c:            # chạy riêng job neo, để hook chỉ chặn lần đẩy tệp ots
+        from dxos_core.jobs.queue import claim
+        from dxos_core.ledger.anchor_job import process_anchor_job
+        await process_anchor_job(ctx_a, await claim(c, ["anchor_sth"]))
+    size2 = await core_conn.fetchval("SELECT max(tree_size) FROM anchors")
+    assert size2 > size
+    hook.write_text("#!/bin/sh\necho 'tam tu choi' >&2\nexit 1\n")
+    hook.chmod(0o755)
+    await run_all(ctx_a, core_conn)
+    job = await core_conn.fetchrow(
+        "SELECT state, last_error FROM jobs WHERE kind=$1 AND payload->>'tree_size'=$2", OTS_JOB, str(size2))
+    assert job["state"] == "QUEUED" and "PUSH_FAILED" in job["last_error"]
+    assert (ctx_a.settings.anchor_repo_dir / ots_path(size2)).is_file()           # đã commit ở clone
+    hook.unlink()
+    calendars.calls.clear()
+    await core_conn.execute("UPDATE jobs SET run_after=now() WHERE kind=$1", OTS_JOB)
+    await run_all(make_ctx(f"{CAL_A},{CAL_B}"), core_conn)    # thêm calendar B: không được hỏi nữa
+    assert calendars.calls == []
+    job = await core_conn.fetchrow("SELECT state FROM jobs WHERE kind=$1 AND payload->>'tree_size'=$2",
+                                   OTS_JOB, str(size2))
+    assert job["state"] == "DONE"
+    th = await get_sth(core_conn, size2)
+    assert git_bytes(bare_remote, "show", f"main:{ots_path(size2)}") == detached_timestamp(
+        ots_request_digest(dataclasses.asdict(th)), [reply_for(CAL_A)])
+
+
+async def test_unparseable_stored_rows_are_skipped_for_bundle(core_conn):
+    from dxos_core.ledger.ots import receipts_ots
+
+    th = await make_sth(core_conn, LocalSigner())
+    sth = dataclasses.asdict(th)
+    # Hàng mà bộ phân tích cũ (trước fix vòng 1) nhận, trình đọc chính thức từ chối: thông điệp 8032 byte.
+    bad = (b"\xf0\xa0\x1f" + b"a" * 4000 + b"\xf0\xa0\x1f" + b"b" * 4000
+           + b"\x00" + PENDING + b"\x0a\x09https://x")
+    await core_conn.execute("INSERT INTO ots_receipts(tree_size, calendar, reply) VALUES ($1, $2, $3)",
+                            th.tree_size, "https://cu.calendar.test", bad)
+    assert await receipts_ots(core_conn, th.tree_size, sth) is None                # chỉ có hàng hỏng
+    await core_conn.execute("INSERT INTO ots_receipts(tree_size, calendar, reply) VALUES ($1, $2, $3)",
+                            th.tree_size, CAL_A, reply_for(CAL_A))
+    assert await receipts_ots(core_conn, th.tree_size, sth) == detached_timestamp(
+        ots_request_digest(sth), [reply_for(CAL_A)])
