@@ -66,6 +66,11 @@ Trình duyệt sẽ cảnh báo chứng chỉ vì Caddy dùng CA nội bộ cho 
 3. Nạp manifest: `ops/seed_manifests.py` (hướng dẫn trong tệp).
 4. Chạy `ops/e2e/run_e2e.sh` trong container `python:3.12-slim` (lệnh `docker run` ở đầu tệp).
 
+## CLI quản trị `dxos`
+`make dev-install` cài sẵn `dxos-cli` ở chế độ editable (lệnh `dxos`); wheel riêng, chỉ cần `httpx` và `PyYAML`, không import `dxos-core`.
+Build wheel: `python -m pip install build && python -m build --wheel --outdir dist cli`.
+Test (không cần dịch vụ, dùng respx): `python -m pytest cli -q`. Cách dùng: `cli/README.md`.
+
 ## Phát hành
 Đẩy tag `vX.Y.Z` (đã có mục `## [X.Y.Z]` trong `CHANGELOG.md`). Workflow `release` đính kèm `dxos-X.Y.Z.tar.gz`,
-`sbom-X.Y.Z.cdx.json` và wheel của `dxos-proof`, `dxos-core`, `dxos-witness`.
+`sbom-X.Y.Z.cdx.json` và wheel của `dxos-proof`, `dxos-core`, `dxos-witness`, `dxos-cli`.

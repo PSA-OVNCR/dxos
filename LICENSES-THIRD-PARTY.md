@@ -20,8 +20,8 @@ Bảng kê giấy phép và nguồn gốc mọi mô-đun bên ngoài. Cập nh�
 | respx | ≥ 0.21 | BSD-3-Clause | Công cụ (test; dùng cho test client Flowable/OpenBao, đã nằm trong `requirements-dev.txt`) | Có (21/10/2026, metadata + `LICENSE.md` của wheel 0.23.1) |
 | ruff | ≥ 0.6 | MIT | Công cụ (lint) | Chưa |
 | reuse | ≥ 4 | GPL-3.0-or-later | Công cụ (kiểm tra giấy phép, không phân phối) | Chưa |
-| PyYAML | ≥ 6 | MIT | Thư viện (`dxos-core`) và công cụ (test) | Chưa |
-| httpx | ≥ 0.27 | BSD-3-Clause | Thư viện (`dxos-core`) và công cụ (test) | Chưa |
+| PyYAML | ≥ 6 | MIT | Thư viện (`dxos-core`; `dxos-cli`, Plan 02 Task 13, đọc `manifest.yaml` bằng `safe_load`) và công cụ (test) | Chưa |
+| httpx | ≥ 0.27 | BSD-3-Clause | Thư viện (`dxos-core`, `dxos-witness`; `dxos-cli`, Plan 02 Task 13, gọi API quản trị và Keycloak) và công cụ (test) | Chưa |
 | PyJWT (kèm `cryptography`) | ≥ 2.8 | MIT | Thư viện (`dxos-core`, Task 10) và công cụ (test) | Chưa |
 | FastAPI | ≥ 0.115 | MIT | Thư viện (`dxos-core`) | Chưa |
 | Starlette (phụ thuộc của FastAPI) | theo FastAPI | BSD-3-Clause | Thư viện | Chưa |
@@ -34,6 +34,7 @@ Bảng kê giấy phép và nguồn gốc mọi mô-đun bên ngoài. Cập nh�
 | pypdfium2 | ≥ 5.14, < 6 | Apache-2.0 OR BSD-3-Clause; wheel **nhúng PDFium** (BSD-3-Clause) kèm ICU (Unicode-3.0), FreeType (FTL hoặc GPL-2.0), libjpeg-turbo (IJG, BSD-3-Clause, Zlib), libpng (libpng-2.0), zlib (Zlib), OpenJPEG (BSD-2-Clause), Little-CMS (MIT), abseil (Apache-2.0), AGG 2.3, fast_float, simdutf, llvm-libc | Thư viện (`dxos-core`, kiểm PDF ở worker); cài lúc build image, không nằm trong kho mã (G4). **Trưởng nhóm đã duyệt 21/10/2026** (ngoại lệ so với danh sách MIT/BSD/Apache/PSF/ISC của Plan 01); bảng chi tiết: `docs/evidence/pypdfium2-giay-phep.md` | Có (20/10/2026, đọc `dist-info/licenses` của wheel 5.14.0) |
 | python-multipart | ≥ 0.0.9 | Apache-2.0 | Thư viện (`dxos-core`, nhận multipart upload) | Có (20/10/2026, metadata PyPI) |
 | defusedxml | ≥ 0.7, < 1 | PSF-2.0 | Thư viện (`dxos-core`, đọc BPMN không tin cậy, cấm DTD/entity — Plan 02 Task 3) | Có (21/10/2026, wheel 0.7.1: METADATA `License: PSFL`, `dist-info/LICENSE` là "PYTHON SOFTWARE FOUNDATION LICENSE VERSION 2") |
+| `dxos-cli` (gói của dự án, wheel `cli/`) | 0.1.0 | Apache-2.0 | Công cụ dòng lệnh `dxos`, phân phối kèm bản phát hành; chỉ phụ thuộc httpx và PyYAML ở trên, không thêm dependency mới, không import `dxos-core` | Có (21/10/2026, `cli/pyproject.toml`) |
 | pypdf | bất kỳ | BSD-3-Clause | Công cụ (chỉ để sinh `core/tests/fixtures/files/encrypted.pdf`) | Chưa |
 | gitleaks (image Docker) | v8.18.4 | MIT | Công cụ (CI) | Chưa |
 | syft (image Docker `anchore/syft`) | v1.18.1 | Apache-2.0 | Công cụ (CI, sinh SBOM khi phát hành) | Chưa |

@@ -25,7 +25,7 @@ help:
 
 dev-install:
 	$(PYTHON) -m pip install -r requirements-dev.txt
-	$(PYTHON) -m pip install -e libs/dxos-proof -e core -e witness
+	$(PYTHON) -m pip install -e libs/dxos-proof -e core -e witness -e cli
 
 lint:
 	ruff check .

@@ -1,0 +1,23 @@
+# SPDX-FileCopyrightText: 2026 PSA_OVNCR
+# SPDX-License-Identifier: Apache-2.0
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dxos-cli"
+version = "0.1.0"
+description = "dxos: CLI quản trị DX-OS Trust Core (đăng nhập device flow, cài/duyệt/vô hiệu hóa ứng dụng, health, ledger, neo)"
+license = "Apache-2.0"
+requires-python = ">=3.12"
+# Không phụ thuộc dxos-core: CLI là wheel riêng, chỉ nói chuyện với API quản trị qua HTTPS.
+dependencies = [
+    "httpx>=0.27",
+    "pyyaml>=6",
+]
+
+[project.scripts]
+dxos = "dxos_cli.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
