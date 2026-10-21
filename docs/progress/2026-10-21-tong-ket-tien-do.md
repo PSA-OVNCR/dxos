@@ -166,7 +166,7 @@ Test gần nhất (`d17c755`): `make check` 1110 passed, integration 395 passed,
 | V14 | Kiểm `dxos login` (device flow) và tự làm mới token với Keycloak thật | VPS / dev-lite | Chỉ test bằng server giả |
 | V15 | Quyết định: E2E trên VPS cần tạm thêm user dev (mật khẩu đã biết, có 2 admin) + client `dxos-test`; lệnh thêm/gỡ ở `docs/evidence/README.md` (lệnh gỡ chưa chạy thử) | Trưởng nhóm | Rủi ro bảo mật trên host công khai |
 | V16 | Chạy lại `ops/keycloak_upgrade.py --profile dev-lite` trên dev stack để có `admin2`, `chuyen_vien_tp1` | dev stack | User dev mới cho AT-07 |
-| V17 | E2E M2 trên dev-lite (A) và VPS p16 (B, gồm AT-19, AT-20 — cần root token tạm của OpenBao) | dev-lite / VPS | Cần Docker + APISIX thật; lệnh ở `task-15` mục "Việc cho VPS" (bản tóm tắt ở `BUILD.md`) |
+| V17 | E2E M2 trên dev-lite (A) và VPS p16 (B, gồm AT-19, AT-20 — cần root token tạm của OpenBao) | dev-lite / VPS | Cần Docker + APISIX thật; lệnh đầy đủ ở `docs/handoff/vps-checklist-plan02.md` |
 | V18 | Gắn tag v0.2.0: nâng version 4 gói lên 0.2.0, `make openapi`, điền ngày CHANGELOG, rồi tag (job `check` chặn nếu thiếu) | Trưởng nhóm | Hành động công khai; sau v0.1.0 |
 | V19 | Sau lần đẩy image đầu: đặt package `trust-core` trên GHCR là public (hoặc `docker login ghcr.io` trên VPS); ghi digest vào `LICENSES-THIRD-PARTY.md` | GitHub / VPS | Hành động công khai |
 | V20 | AT-13 trên VPS với image đã phát hành (`ops/at13_reuse.sh`), hai thành viên khác nhau nộp/duyệt, `DXOS_ALLOW_SELF_APPROVAL=false` | VPS | Cần image GHCR |
