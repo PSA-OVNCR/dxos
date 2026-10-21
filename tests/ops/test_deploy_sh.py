@@ -41,11 +41,15 @@ exit 0
 """
 FAKE_DOCKER = r"""#!/bin/sh
 echo "docker $*" >> "$FAKE_LOG"
+if [ "$1" = compose ]; then
+  echo "env digest=${DXOS_TRUST_CORE_DIGEST:-} tag=${DXOS_RELEASE_TAG:-}" >> "$FAKE_LOG.env"
+fi
 case "$*" in
   *"exec -T trust-core-api"*)
     if [ -n "${FAKE_READYZ_PRINT:-}" ]; then echo "$FAKE_READYZ_PRINT"; exit 0; fi
     if [ "${FAKE_READYZ:-200}" = 200 ]; then echo 200; exit 0; fi
     echo "urllib.error.HTTPError: HTTP Error ${FAKE_READYZ}: Service Unavailable" >&2; exit 1 ;;
+  *" pull "*) [ -z "${FAKE_PULL_FAIL:-}" ] || { echo "pull access denied" >&2; exit 1; } ;;
   *" up "*) [ -z "${FAKE_UP_FAIL:-}" ] || { echo "container dxos-x-1 is unhealthy" >&2; exit 1; } ;;
 esac
 exit 0
@@ -194,7 +198,8 @@ def test_happy_path_order(run):
         "git -c advice.detachedHead=false checkout --detach v0.3.0",
         "curl -fsSL https://github.com/PSA-OVNCR/dxos/releases/download/v0.3.0/trust-core-image-0.3.0.txt",
         "web_build_docker.sh",
-        "docker compose",
+        " pull --ignore-buildable",
+        " up -d --wait --wait-timeout 600",
         "exec -T trust-core-api",
         "curl -fsk",
     ]), r.text
@@ -224,6 +229,34 @@ def test_compose_command_line(run):
                   "-f deploy/compose.yaml -f deploy/compose.p16.yaml -f deploy/compose.release.yaml "
                   "up -d --wait --wait-timeout 600")
     assert "compose.anchor.yaml" not in up
+
+
+def test_pull_precedes_up_with_the_same_compose_files(run, stubs):
+    stubs.env = "DXOS_DOMAIN=d.test\nDXOS_ANCHOR_REMOTE=git@github.com:o/r.git\n"
+    r = run("v0.3.0")
+    pull = next(c for c in r.calls if " pull " in c)
+    up = next(c for c in r.calls if " up " in c)
+    assert r.calls.index(pull) < r.calls.index(up)
+    assert pull == up.replace(" up -d --wait --wait-timeout 600", " pull --ignore-buildable")
+    assert "compose.anchor.yaml" in pull and "compose.release.yaml" in pull
+
+
+def test_pull_failure_logs_fail_and_does_not_run_up(run, stubs):
+    stubs.extra["FAKE_PULL_FAIL"] = "1"
+    r = run("v0.3.0")
+    assert r.returncode == 1 and not any(" up " in c for c in r.calls)
+    assert r.log_last().endswith("\tFAIL") and "Triển khai v0.3.0 hỏng." in r.stdout
+
+
+def test_inherited_digest_and_tag_env_never_reach_compose(run, stubs, tmp_path):
+    stubs.extra.update({"DXOS_TRUST_CORE_DIGEST": "f" * 64, "DXOS_RELEASE_TAG": "v9.9.9"})
+    r = run("v0.3.0")
+    assert r.returncode == 0, r.stdout + r.stderr
+    seen = (tmp_path / "calls.log.env").read_text(encoding="utf-8").splitlines()
+    assert len(seen) >= 3                                       # pull, up, exec
+    assert set(seen) == {"env digest= tag="}                    # compose chỉ đọc deploy/release.env
+    assert r.file("deploy/release.env") == f"DXOS_TRUST_CORE_DIGEST={DIGEST}\nDXOS_RELEASE_TAG=v0.3.0\n"
+    assert r.log_last().split("\t")[3] == DIGEST and "f" * 64 not in r.log_last()
 
 
 def test_profile_p8_selected(run):

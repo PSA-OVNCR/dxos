@@ -16,7 +16,8 @@
 #      ghcr.io/psa-ovncr/trust-core@sha256:<64 hex>, hoặc chỉ 64 hex). Sai định dạng thì thoát 1 TRƯỚC khi gọi compose.
 #      Ghi deploy/release.env (DXOS_TRUST_CORE_DIGEST, DXOS_RELEASE_TAG).
 #   7. ops/web_build_docker.sh: dựng SPA từ mã nguồn của tag vào volume apps-static (thoát 3 nếu image Node chưa ghim).
-#   8. docker compose up -d --wait: lõi chạy đúng image theo digest (compose.release.yaml); thêm compose.anchor.yaml
+#   8. docker compose pull --ignore-buildable rồi up -d --wait (spec 16.3: pull && up -d): lõi chạy đúng image theo
+#      digest (compose.release.yaml); thêm compose.anchor.yaml
 #      chỉ khi .env có DXOS_ANCHOR_REMOTE khác rỗng.
 #   9. Kiểm sức khỏe: /readyz của trust-core-api trả 200 và https://$DXOS_DOMAIN/verify/v1/keys trả 200.
 #  10. Ghi một dòng vào deploy/deployments.log: <UTC>\t<tag>\t<commit>\t<digest>\tOK|FAIL.
@@ -36,6 +37,9 @@ usage() {
 }
 
 main() {
+    # Compose ưu tiên biến môi trường của tiến trình hơn --env-file: bỏ giá trị người vận hành đã export để compose
+    # chỉ thấy digest và tag đã kiểm trong deploy/release.env (dòng log phải khớp thứ thực sự chạy).
+    unset DXOS_TRUST_CORE_DIGEST DXOS_RELEASE_TAG
     # Biến trạng thái cho on_exit (EXIT trap) là biến toàn cục: bash có thể đã bỏ biến local khi trap chạy sau set -e.
     tag="" log_file=deploy/deployments.log previous=none commit=- digest=- started=0
     local profile=p16 repo_url=$DEFAULT_REPO_URL
@@ -148,7 +152,8 @@ main() {
     [ -z "$anchor_remote" ] || compose+=(-f deploy/compose.anchor.yaml)
     compose+=(-f deploy/compose.release.yaml)
 
-    echo "deploy.sh: docker compose up (hồ sơ $profile, digest $digest)"
+    echo "deploy.sh: docker compose pull + up (hồ sơ $profile, digest $digest)"
+    "${compose[@]}" pull --ignore-buildable
     "${compose[@]}" up -d --wait --wait-timeout 600
 
     echo "deploy.sh: kiểm sức khỏe"

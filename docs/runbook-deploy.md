@@ -37,8 +37,11 @@ Theo đúng thứ tự, dừng ở bước đầu tiên hỏng:
    và `ghcr.io/psa-ovncr/trust-core@sha256:<64 hex>`; script lấy phần sau `@sha256:` (cũng nhận tệp chỉ có 64 hex).
    Digest phải khớp `^[0-9a-f]{64}$`, nếu không thoát 1 **trước** khi gọi compose. Ghi `deploy/release.env`.
 7. `ops/web_build_docker.sh`: dựng SPA từ mã nguồn của tag vào volume `apps-static`.
-8. `docker compose -p dxos --env-file .env --env-file deploy/release.env -f deploy/compose.yaml
-   -f deploy/compose.<profile>.yaml [-f deploy/compose.anchor.yaml] -f deploy/compose.release.yaml up -d --wait --wait-timeout 600`.
+8. Với cùng một bộ tệp: `docker compose -p dxos --env-file .env --env-file deploy/release.env -f deploy/compose.yaml
+   -f deploy/compose.<profile>.yaml [-f deploy/compose.anchor.yaml] -f deploy/compose.release.yaml` rồi chạy lần lượt
+   `pull --ignore-buildable` và `up -d --wait --wait-timeout 600` (spec 16.3: `compose pull && up -d`). Script bỏ
+   `DXOS_TRUST_CORE_DIGEST` và `DXOS_RELEASE_TAG` khỏi môi trường của tiến trình ngay từ đầu: compose ưu tiên biến môi
+   trường hơn `--env-file`, nên giá trị đã `export` trong shell sẽ lấn digest đã kiểm.
 9. Kiểm sức khỏe: `/readyz` của `trust-core-api` (trong container) in `200`, và `https://$DXOS_DOMAIN/verify/v1/keys`
    trả 200 (`curl -k`: chấp nhận CA nội bộ của Caddy).
 10. Ghi dòng kết quả vào `deploy/deployments.log`.
