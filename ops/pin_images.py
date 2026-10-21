@@ -51,7 +51,7 @@ def find_refs(root: Path) -> list[tuple[Path, str]]:
 def docker_resolver(ref: str) -> str:
     cmd = ["docker", "buildx", "imagetools", "inspect", ref, "--format", "{{json .Manifest}}"]
     out = subprocess.run(  # noqa: S603 - lệnh cố định, ref lấy từ tệp trong repo
-        cmd, capture_output=True, text=True, check=True, timeout=120
+        cmd, capture_output=True, text=True, encoding="utf-8", check=True, timeout=120
     ).stdout
     return json.loads(out)["digest"]
 

@@ -462,3 +462,17 @@ def test_cleanup_error_does_not_mask_original_error():
     text = out.getvalue()
     assert rc == 1 and "UpgradeError" in text and "realms/dxos" in text   # lỗi gốc vẫn được báo
     assert "CẢNH BÁO" in text and "docker biến mất" in text               # lỗi dọn dẹp chỉ là cảnh báo
+
+
+def test_runner_decodes_kcadm_output_as_utf8_on_any_locale(monkeypatch):
+    """Windows mặc định giải mã stdout bằng cp1252 → kcadm trả JSON UTF-8 (tên tiếng Việt) làm vỡ script
+    (lỗi gặp khi chạy trên máy trưởng nhóm 21/10). Runner phải luôn dùng UTF-8."""
+    seen = {}
+
+    def fake_run(argv, **kw):
+        seen.update(kw)
+        return ku.subprocess.CompletedProcess(argv, 0, "{}", "")
+
+    monkeypatch.setattr(ku.subprocess, "run", fake_run)
+    assert ku.subprocess_runner(["kcadm.sh"], None, {}) == (0, "{}", "")
+    assert seen.get("encoding") == "utf-8" and seen.get("text") is True

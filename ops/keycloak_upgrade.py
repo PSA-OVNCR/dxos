@@ -66,7 +66,8 @@ class UpgradeError(RuntimeError):
 
 
 def subprocess_runner(argv: list[str], stdin: str | None, env: dict[str, str]) -> tuple[int, str, str]:
-    proc = subprocess.run(argv, input=stdin, capture_output=True, text=True,  # noqa: S603
+    # encoding cố định: Windows mặc định cp1252 làm vỡ JSON UTF-8 của kcadm (tên tiếng Việt).
+    proc = subprocess.run(argv, input=stdin, capture_output=True, text=True, encoding="utf-8",  # noqa: S603
                           env={**os.environ, **env}, check=False, timeout=120)
     return proc.returncode, proc.stdout, proc.stderr
 
