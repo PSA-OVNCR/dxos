@@ -9,15 +9,22 @@ Tên endpoint và tham số đã đối chiếu với Flowable thật, xem ``doc
 - ``complete`` gặp 404/409, hoặc 500 mà task đã xong trong lịch sử (thua cuộc đua) -> ``TaskGone``;
 - ``get_task`` 404 -> ``None``; ``cancel`` 404 không phải lỗi.
 
+Ngữ nghĩa 404 -> ``None``/``TaskGone`` giả định ``base_url`` đúng: nơi khởi động (app, bridge) phải gọi
+``ping()`` trước, vì base URL sai thì mọi đường dẫn đều 404 và bị đọc nhầm là "task không còn".
+Mọi id đặt vào đường dẫn URL phải qua ``_seg`` (``ValueError`` nếu không khớp ``[A-Za-z0-9._:@-]{1,255}`` hoặc
+toàn dấu chấm), để id thô không thể đổi đích request (``..``, ``?``, ``#``). Bên gọi map ValueError thành 404.
+
 Thông báo lỗi không bao giờ chứa mật khẩu hay nội dung phản hồi của Flowable.
 Mọi biến gửi lên Flowable đều có ``type: "string"``; client không tự thêm biến nào.
 """
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -29,6 +36,8 @@ if TYPE_CHECKING:
 INTENT_VARIABLE = "dxos_intent_id"
 _BPMN_SUFFIX = ".bpmn20.xml"
 _MAX_TASKS = 10_000
+# Id Flowable đặt vào đường dẫn URL: uuid, `key:phiên-bản:uuid`, ... Không có `/ ? # % \` hay khoảng trắng.
+_SEGMENT = re.compile(r"[A-Za-z0-9._:@-]{1,255}")
 
 
 class WorkflowUnavailable(Exception):  # noqa: N818 (tên theo spec F8)
@@ -56,6 +65,17 @@ class Outcome:
     end_event: str | None      # endActivityId khi đã kết thúc; None nếu bị hủy (không qua end event)
 
 
+def _seg(value: object) -> str:
+    """Id hợp lệ để đặt vào một đoạn đường dẫn URL, nếu không thì ``ValueError`` (lỗi của người gọi).
+
+    httpx chuẩn hóa dấu chấm (``..``) và không mã hóa ``?``/``#``, nên id thô như
+    ``../../repository/deployments/x`` sẽ đổi đích của request sang endpoint khác với quyền rest-admin.
+    """
+    if not isinstance(value, str) or not _SEGMENT.fullmatch(value) or not value.strip("."):
+        raise ValueError("id không hợp lệ để đặt vào đường dẫn Flowable")
+    return value
+
+
 def _variables(variables: Mapping[str, str], *, local: bool = False) -> list[dict[str, str]]:
     """Dựng danh sách biến Flowable. Chỉ nhận ``str``; không bao giờ suy đoán kiểu khác."""
     out: list[dict[str, str]] = []
@@ -73,6 +93,9 @@ def _variables(variables: Mapping[str, str], *, local: bool = False) -> list[dic
 
 class FlowableClient:
     def __init__(self, base_url: str, user: str, password: str, *, timeout_s: float = 10.0) -> None:
+        parts = urlsplit(base_url)
+        if parts.username is not None or parts.password is not None or "@" in parts.netloc:
+            raise ValueError("base_url không được chứa thông tin đăng nhập (dùng user/password)")
         self.base_url = base_url.rstrip("/")
         self._auth = httpx.BasicAuth(user, password)
         self._timeout = timeout_s
@@ -85,7 +108,7 @@ class FlowableClient:
     async def _send(self, method: str, path: str, *, ok: tuple[int, ...], **kwargs: Any) -> httpx.Response:
         """Gửi một request; trả phản hồi nếu mã nằm trong ``ok``, ngược lại ``WorkflowUnavailable``."""
         try:
-            async with httpx.AsyncClient(timeout=self._timeout, auth=self._auth) as client:
+            async with httpx.AsyncClient(timeout=self._timeout, auth=self._auth, trust_env=False) as client:
                 resp = await client.request(method, f"{self.base_url}{path}", **kwargs)
         except httpx.HTTPError as exc:
             raise WorkflowUnavailable(f"Flowable {type(exc).__name__}") from exc
@@ -131,7 +154,10 @@ class FlowableClient:
             raise WorkflowUnavailable("Flowable trả task thiếu trường") from exc
 
     async def ping(self) -> None:
-        """``GET /management/engine``: dùng cho kiểm tra sẵn sàng; lỗi -> ``WorkflowUnavailable``."""
+        """``GET /management/engine`` phải trả 200; mã khác hay lỗi mạng -> ``WorkflowUnavailable``.
+
+        Dùng lúc khởi động để phân biệt base URL sai (404 ở mọi nơi) với "task đã mất".
+        """
         await self._send("GET", "/management/engine", ok=(200,))
 
     # ------------------------------------------------------------ deploy
@@ -179,8 +205,8 @@ class FlowableClient:
 
     async def business_key(self, instance_id: str) -> str | None:
         """Business key của instance, đang chạy hoặc đã kết thúc (đọc lịch sử); không có instance -> None."""
-        for path in (f"/runtime/process-instances/{instance_id}",
-                     f"/history/historic-process-instances/{instance_id}"):
+        seg = _seg(instance_id)
+        for path in (f"/runtime/process-instances/{seg}", f"/history/historic-process-instances/{seg}"):
             resp = await self._send("GET", path, ok=(200, 404))
             if resp.status_code == 200:
                 value = self._json(resp).get("businessKey")
@@ -189,15 +215,16 @@ class FlowableClient:
 
     async def cancel(self, instance_id: str, reason: str) -> None:
         """Hủy instance đang chạy; 404 (đã xong hoặc không có) không phải lỗi."""
-        await self._send("DELETE", f"/runtime/process-instances/{instance_id}", ok=(200, 204, 404),
+        await self._send("DELETE", f"/runtime/process-instances/{_seg(instance_id)}", ok=(200, 204, 404),
                          params={"deleteReason": reason})
 
     async def outcome(self, instance_id: str) -> Outcome:
         """Đang chạy -> ``Outcome(False, None)``; đã kết thúc -> ``endActivityId`` lịch sử (None: bị hủy)."""
-        running = await self._send("GET", f"/runtime/process-instances/{instance_id}", ok=(200, 404))
+        seg = _seg(instance_id)
+        running = await self._send("GET", f"/runtime/process-instances/{seg}", ok=(200, 404))
         if running.status_code == 200:
             return Outcome(ended=False, end_event=None)
-        hist = await self._send("GET", f"/history/historic-process-instances/{instance_id}", ok=(200, 404))
+        hist = await self._send("GET", f"/history/historic-process-instances/{seg}", ok=(200, 404))
         if hist.status_code == 404:
             raise WorkflowUnavailable("Flowable không còn instance này (cả runtime lẫn lịch sử)")
         data = self._json(hist)
@@ -206,7 +233,7 @@ class FlowableClient:
 
     # ------------------------------------------------------------ task
     async def get_task(self, task_id: str) -> FlowTask | None:
-        resp = await self._send("GET", f"/runtime/tasks/{task_id}", ok=(200, 404))
+        resp = await self._send("GET", f"/runtime/tasks/{_seg(task_id)}", ok=(200, 404))
         return None if resp.status_code == 404 else self._task(self._json(resp))
 
     async def list_tasks(self, candidate_groups: list[str], process_key_prefix: str) -> list[FlowTask]:
@@ -230,15 +257,18 @@ class FlowableClient:
                 "candidateGroups": ",".join(candidate_groups),
                 "processDefinitionKeyLike": f"{process_key_prefix}%",
                 "size": self._page_size, "start": start})
+            page = self._json(resp)
             rows = self._rows(resp)
-            total = self._json(resp).get("total")
+            total = page.get("total")
+            if not isinstance(total, int) or isinstance(total, bool):
+                raise WorkflowUnavailable("Flowable không trả tổng số task (total)")
             for row in rows:
                 task = self._task(row)
                 # LIKE coi `_` và `%` là ký tự đại diện: lọc lại chính xác để không rò sang app khác.
                 if task.process_definition_key.startswith(process_key_prefix):
                     found[task.id] = task
             start += len(rows)
-            if not rows or not isinstance(total, int) or start >= total:
+            if not rows or start >= total:
                 break
             if start >= _MAX_TASKS:
                 raise WorkflowUnavailable("quá nhiều task đang mở để liệt kê")
@@ -247,12 +277,13 @@ class FlowableClient:
     async def complete(self, task_id: str, variables: Mapping[str, str], *,
                        local_variables: Mapping[str, str] | None = None) -> None:
         """Hoàn thành task. ``local_variables`` gắn vào chính task (``scope: local``), vd. dxos_intent_id."""
+        seg = _seg(task_id)
         glob = _variables(variables)
         local = _variables(local_variables or {}, local=True)
         clash = {v["name"] for v in glob} & {v["name"] for v in local}
         if clash:
             raise ValueError(f"biến trùng tên giữa toàn cục và cục bộ: {sorted(clash)}")
-        resp = await self._send("POST", f"/runtime/tasks/{task_id}", ok=(200, 204, 404, 409, 500),
+        resp = await self._send("POST", f"/runtime/tasks/{seg}", ok=(200, 204, 404, 409, 500),
                                 json={"action": "complete", "variables": glob + local})
         if resp.status_code in (404, 409):
             raise TaskGone(task_id)
@@ -263,17 +294,17 @@ class FlowableClient:
             # Task chưa xong thì 500 là lỗi thật (vd. quyết định không khớp cổng) -> WorkflowUnavailable.
             if await self.historic_task_done(task_id):
                 raise TaskGone(task_id)
-            raise WorkflowUnavailable(f"Flowable trả HTTP 500 cho POST /runtime/tasks/{task_id}")
+            raise WorkflowUnavailable(f"Flowable trả HTTP 500 cho POST /runtime/tasks/{seg}")
 
     # ------------------------------------------------------------ đối soát ý định (P2-D20)
     async def historic_task_done(self, task_id: str) -> bool:
-        resp = await self._send("GET", f"/history/historic-task-instances/{task_id}", ok=(200, 404))
+        resp = await self._send("GET", f"/history/historic-task-instances/{_seg(task_id)}", ok=(200, 404))
         return resp.status_code == 200 and self._json(resp).get("endTime") is not None
 
     async def historic_intent_id(self, task_id: str) -> str | None:
         """Biến ``dxos_intent_id`` (task-local) lúc task hoàn thành; chưa có -> None."""
         resp = await self._send("GET", "/history/historic-variable-instances", ok=(200,), params={
-            "taskId": task_id, "variableName": INTENT_VARIABLE})
+            "taskId": _seg(task_id), "variableName": INTENT_VARIABLE})
         for row in self._rows(resp):
             variable = row.get("variable")
             if isinstance(variable, dict) and isinstance(variable.get("value"), str):

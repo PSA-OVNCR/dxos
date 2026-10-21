@@ -412,3 +412,90 @@ def test_factory_fails_closed_when_secret_unreadable(make_settings, tmp_path):
     for path in (tmp_path / "missing", empty):
         with pytest.raises(WorkflowUnavailable):
             flowable_from_settings(make_settings(flowable_password_file=path))
+
+
+# ---------------------------------------------------------------- id đặt vào đường dẫn URL (fix round 1)
+BAD_IDS = ["../../repository/deployments/x", "a?b=c", "a#b", "..", ".", "", "a/b", "a b", "a\\b", "x" * 256,
+           "a%2Fb", "é"]
+
+
+@pytest.mark.parametrize("bad", BAD_IDS)
+async def test_ids_in_url_paths_are_validated_before_any_request(client, respx_mock, bad):
+    respx_mock.route().mock(return_value=httpx.Response(200, json={}))
+    calls = [
+        client.cancel(bad, "r"), client.outcome(bad), client.get_task(bad), client.complete(bad, {"d": "x"}),
+        client.business_key(bad), client.historic_task_done(bad), client.historic_intent_id(bad),
+    ]
+    for coro in calls:
+        with pytest.raises(ValueError):
+            await coro
+    assert respx_mock.calls.call_count == 0
+
+
+@pytest.mark.parametrize("bad", [None, 7, b"x"])
+async def test_non_string_ids_are_rejected(client, respx_mock, bad):
+    respx_mock.route().mock(return_value=httpx.Response(200, json={}))
+    with pytest.raises(ValueError):
+        await client.get_task(bad)
+    assert respx_mock.calls.call_count == 0
+
+
+@pytest.mark.parametrize("good", ["test-flow.review:1:42", "ad32d484-cd16-11f1-b9f8-02fc00000001", "a@b_c",
+                                  "x" * 255])
+async def test_real_shaped_ids_are_accepted(client, respx_mock, good):
+    respx_mock.get(f"{BASE}/runtime/tasks/{good}").mock(return_value=httpx.Response(404))
+    assert await client.get_task(good) is None
+
+
+# ---------------------------------------------------------------- các điểm nhỏ của fix round 1
+@pytest.mark.parametrize("body", [{"data": []}, {"data": [], "total": "5"}, {"data": [], "total": None}])
+async def test_list_tasks_unknown_total_is_unavailable(client, respx_mock, body):
+    respx_mock.get(f"{BASE}/runtime/tasks").mock(return_value=httpx.Response(200, json=body))
+    with pytest.raises(WorkflowUnavailable):
+        await client.list_tasks(["g"], "test-flow.")
+
+
+async def test_list_tasks_beyond_page_cap_is_unavailable(client, respx_mock, monkeypatch):
+    monkeypatch.setattr("dxos_core.workflow.flowable._MAX_TASKS", 6)
+    client._page_size = 2
+    respx_mock.get(f"{BASE}/runtime/tasks").mock(side_effect=lambda r: httpx.Response(200, json={
+        "total": 10**9, "data": [task_json(id=f"t{r.url.params['start']}-{i}") for i in range(2)]}))
+    with pytest.raises(WorkflowUnavailable):
+        await client.list_tasks(["g"], "test-flow.")
+
+
+@pytest.mark.parametrize("url", ["http://u:p@flowable.test/x", "http://u@flowable.test/x"])
+def test_base_url_with_userinfo_is_rejected(url):
+    with pytest.raises(ValueError) as e:
+        FlowableClient(url, "rest-admin", PASSWORD)
+    assert "u:p" not in str(e.value) and PASSWORD not in str(e.value)
+
+
+async def test_proxy_environment_is_ignored(client, respx_mock, monkeypatch):
+    monkeypatch.setenv("HTTPS_PROXY", "http://proxy.invalid:3128")
+    monkeypatch.setenv("HTTP_PROXY", "http://proxy.invalid:3128")
+    monkeypatch.setenv("ALL_PROXY", "http://proxy.invalid:3128")
+    created = []
+    real = httpx.AsyncClient
+
+    def spy(*args, **kwargs):
+        created.append(kwargs)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr("dxos_core.workflow.flowable.httpx.AsyncClient", spy)
+    respx_mock.get(f"{BASE}/runtime/tasks/t1").mock(return_value=httpx.Response(404))
+    await client.get_task("t1")
+    assert created and all(kw.get("trust_env") is False for kw in created)
+
+
+async def test_ping_ok_and_failures(client, respx_mock):
+    route = respx_mock.get(f"{BASE}/management/engine").mock(
+        return_value=httpx.Response(200, json={"version": "7.1.0"}))
+    assert await client.ping() is None
+    for resp in (httpx.Response(404), httpx.Response(401), httpx.Response(503)):
+        route.mock(return_value=resp)
+        with pytest.raises(WorkflowUnavailable):
+            await client.ping()
+    route.mock(side_effect=httpx.ConnectError("x"))
+    with pytest.raises(WorkflowUnavailable):
+        await client.ping()

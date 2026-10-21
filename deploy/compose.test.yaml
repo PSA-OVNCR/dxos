@@ -55,17 +55,13 @@ services:
       interval: 2s
       retries: 30
 
-  # Flowable REST 7.1.0 (cùng image ghim digest với production) chạy H2 trong bộ nhớ, không cần DB riêng.
+  # Flowable REST 7.1.0 (cùng image ghim digest với production) chạy H2 mặc định của image (không đặt SPRING_DATASOURCE_*), không cần DB riêng.
   # Dữ liệu sống đến khi container dừng và dùng chung giữa các lần chạy test: test phải chịu được dữ liệu cũ.
   # Healthcheck chỉ kiểm cổng (image Alpine có nc; actuator đòi xác thực); CI còn gọi thử REST (xem ci.yml).
   flowable:
     <<: *test
     image: flowable/flowable-rest:7.1.0@sha256:b7ae287502cd5c243b577a0ca2894172e1c18cd75aea4fd67dc7d58f1b40db44
     environment:
-      SPRING_DATASOURCE_DRIVER-CLASS-NAME: org.h2.Driver
-      SPRING_DATASOURCE_URL: jdbc:h2:mem:flowable;DB_CLOSE_DELAY=-1
-      SPRING_DATASOURCE_USERNAME: sa
-      SPRING_DATASOURCE_PASSWORD: ""
       FLOWABLE_REST_APP_ADMIN_USER-ID: rest-admin
       FLOWABLE_REST_APP_ADMIN_PASSWORD: changeme-test
       JAVA_TOOL_OPTIONS: "-Xmx384m"

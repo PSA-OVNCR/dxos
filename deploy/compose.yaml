@@ -142,6 +142,7 @@ services:
       DXOS_FLOWABLE_USER: ${FLOWABLE_REST_USER:-rest-admin}
       DXOS_FLOWABLE_PASSWORD_FILE: /run/secrets/flowable-rest-password
     # Chỉ trust-core-api gọi Flowable (net-wf) nên chỉ nó có flowable-rest-password; worker thì không.
+    # Danh sách chép tay: phải luôn bằng *core-secrets (x-core-secrets) cộng flowable-rest-password.
     secrets: [s3-access-key, s3-secret-key, openbao-core-token, actor-hmac-key, flowable-rest-password]
     depends_on:
       core-db: {condition: service_healthy}

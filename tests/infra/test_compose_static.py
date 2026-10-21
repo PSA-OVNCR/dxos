@@ -147,6 +147,7 @@ def test_integration_flowable_is_h2_on_loopback_with_healthcheck():
     assert cfg["healthcheck"]["test"]
     env = cfg.get("environment") or {}
     assert not any("postgres" in str(v).lower() for v in env.values())   # H2, không DB riêng
+    assert not [k for k in env if k.startswith("SPRING_DATASOURCE")]   # dùng H2 mặc định của image
 
 
 def test_keycloak_served_under_same_path_inside_and_outside(compose_cfg):
