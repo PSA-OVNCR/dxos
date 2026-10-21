@@ -267,3 +267,33 @@ async def flowable_client():
             pytest.fail(msg)
         pytest.skip(msg)
     return client
+
+
+# ---------------------------------------------------------------- guard (Plan 02 Task 5)
+@pytest.fixture
+async def flow_record_with_uploads(core_conn: asyncpg.Connection) -> dict:
+    """Kwargs của ``load_guard_input`` cho một bản ghi test-flow/doc (owner ``author-1``, người gọi ``rev-1``
+    có role reviewer) với ba upload: một CLEAN (có object_ref ``original``), một INFECTED (không có
+    object_ref), một STAGING."""
+    from helpers.manifests import P, manifest
+
+    m = manifest("test-flow")
+    await ensure_app(core_conn, "test-flow", "0.1.0")
+    rid = await core_conn.fetchval(
+        "INSERT INTO records(app_id, collection, data, owner_sub)"
+        " VALUES ('test-flow', 'doc', $1::jsonb, 'author-1') RETURNING id", '{"title": "Hồ sơ"}')
+    clean, infected = "c" * 64, "f" * 64
+    await core_conn.execute(
+        "INSERT INTO objects(sha256, size, mime_sniffed, status, storage_key)"
+        " VALUES ($1, 1, 'application/pdf', 'CLEAN', 'k-clean'),"
+        " ($2, 1, 'application/pdf', 'INFECTED', 'k-bad')",
+        clean, infected)
+    await core_conn.execute("INSERT INTO object_refs(record_id, sha256, role) VALUES ($1, $2, 'original')",
+                            rid, clean)
+    for status, sha in (("CLEAN", clean), ("INFECTED", infected), ("STAGING", None)):
+        await core_conn.execute(
+            "INSERT INTO uploads(record_id, staging_key, original_name_hash, size, status, sha256)"
+            " VALUES ($1, 'k', $2, 1, $3, $4)", rid, "b" * 64, status, sha)
+    record = await core_conn.fetchrow("SELECT * FROM records WHERE id=$1", rid)
+    return {"record": record, "spec": m.collections["doc"], "m": m,
+            "p": P("rev-1", ["app:test-flow:reviewer"]), "task_assignee": None}
