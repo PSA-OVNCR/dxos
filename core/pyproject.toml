@@ -26,6 +26,7 @@ dependencies = [
     "cryptography>=43",
     "pypdfium2>=5.14,<6",
     "python-multipart>=0.0.9",
+    "defusedxml>=0.7,<1",
 ]
 
 [tool.setuptools.packages.find]

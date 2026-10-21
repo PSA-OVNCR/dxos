@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+             xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
+             xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
+             xmlns:flowable="http://flowable.org/bpmn"
+             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+             id="test-review-definitions" targetNamespace="urn:dxos:test">
+  <process id="test-flow.review" name="Xem xét và phê duyệt" isExecutable="true">
+    <startEvent id="start" name="Bắt đầu"/>
+    <sequenceFlow id="f_start" sourceRef="start" targetRef="creator"/>
+    <userTask id="creator" name="Xem xét" flowable:candidateGroups="app:test-flow:reviewer"/>
+    <sequenceFlow id="f_review" sourceRef="creator" targetRef="gw_review"/>
+    <exclusiveGateway id="gw_review" name="Kết quả xem xét"/>
+    <sequenceFlow id="f_review_ok" sourceRef="gw_review" targetRef="approve">
+      <conditionExpression xsi:type="tFormalExpression">${decision == 'approve'}</conditionExpression>
+    </sequenceFlow>
+    <sequenceFlow id="f_review_no" sourceRef="gw_review" targetRef="rejected">
+      <conditionExpression xsi:type="tFormalExpression">${decision == 'reject'}</conditionExpression>
+    </sequenceFlow>
+    <userTask id="approve" name="Phê duyệt" flowable:candidateGroups="app:test-flow:approver"/>
+    <sequenceFlow id="f_approve" sourceRef="approve" targetRef="gw_approve"/>
+    <exclusiveGateway id="gw_approve" name="Kết quả phê duyệt"/>
+    <sequenceFlow id="f_approve_ok" sourceRef="gw_approve" targetRef="approved">
+      <conditionExpression xsi:type="tFormalExpression">${decision == 'approve'}</conditionExpression>
+    </sequenceFlow>
+    <sequenceFlow id="f_approve_no" sourceRef="gw_approve" targetRef="rejected">
+      <conditionExpression xsi:type="tFormalExpression">${decision == 'reject'}</conditionExpression>
+    </sequenceFlow>
+    <endEvent id="approved" name="Đã duyệt"/>
+    <endEvent id="rejected" name="Từ chối"/>
+  </process>
+  <bpmndi:BPMNDiagram id="diagram">
+    <bpmndi:BPMNPlane id="plane" bpmnElement="test-flow.review">
+      <bpmndi:BPMNShape id="s_start" bpmnElement="start"><dc:Bounds x="20" y="102" width="36" height="36"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="s_review" bpmnElement="creator"><dc:Bounds x="100" y="80" width="100" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="s_gw_review" bpmnElement="gw_review" isMarkerVisible="true"><dc:Bounds x="245" y="95" width="50" height="50"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="s_approve" bpmnElement="approve"><dc:Bounds x="340" y="80" width="100" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="s_gw_approve" bpmnElement="gw_approve" isMarkerVisible="true"><dc:Bounds x="485" y="95" width="50" height="50"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="s_approved" bpmnElement="approved"><dc:Bounds x="580" y="102" width="36" height="36"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="s_rejected" bpmnElement="rejected"><dc:Bounds x="580" y="222" width="36" height="36"/>
+        <bpmndi:BPMNLabel id="l_rejected"><dc:Bounds x="570" y="262" width="56" height="14"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="e_start" bpmnElement="f_start"><di:waypoint x="56" y="120"/><di:waypoint x="100" y="120"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="e_review" bpmnElement="f_review"><di:waypoint x="200" y="120"/><di:waypoint x="245" y="120"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="e_review_ok" bpmnElement="f_review_ok"><di:waypoint x="295" y="120"/><di:waypoint x="340" y="120"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="e_review_no" bpmnElement="f_review_no"><di:waypoint x="270" y="145"/><di:waypoint x="270" y="240"/><di:waypoint x="580" y="240"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="e_approve" bpmnElement="f_approve"><di:waypoint x="440" y="120"/><di:waypoint x="485" y="120"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="e_approve_ok" bpmnElement="f_approve_ok"><di:waypoint x="535" y="120"/><di:waypoint x="580" y="120"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="e_approve_no" bpmnElement="f_approve_no"><di:waypoint x="510" y="145"/><di:waypoint x="510" y="240"/><di:waypoint x="580" y="240"/></bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</definitions>

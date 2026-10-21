@@ -33,6 +33,7 @@ Bảng kê giấy phép và nguồn gốc mọi mô-đun bên ngoài. Cập nh�
 | cryptography | ≥ 43 | Apache-2.0 OR BSD-3-Clause | Thư viện (`dxos-core`) | Chưa |
 | pypdfium2 | ≥ 5.14, < 6 | Apache-2.0 OR BSD-3-Clause; wheel **nhúng PDFium** (BSD-3-Clause) kèm ICU (Unicode-3.0), FreeType (FTL hoặc GPL-2.0), libjpeg-turbo (IJG, BSD-3-Clause, Zlib), libpng (libpng-2.0), zlib (Zlib), OpenJPEG (BSD-2-Clause), Little-CMS (MIT), abseil (Apache-2.0), AGG 2.3, fast_float, simdutf, llvm-libc | Thư viện (`dxos-core`, kiểm PDF ở worker); cài lúc build image, không nằm trong kho mã (G4). **Trưởng nhóm đã duyệt 21/10/2026** (ngoại lệ so với danh sách MIT/BSD/Apache/PSF/ISC của Plan 01); bảng chi tiết: `docs/evidence/pypdfium2-giay-phep.md` | Có (20/10/2026, đọc `dist-info/licenses` của wheel 5.14.0) |
 | python-multipart | ≥ 0.0.9 | Apache-2.0 | Thư viện (`dxos-core`, nhận multipart upload) | Có (20/10/2026, metadata PyPI) |
+| defusedxml | ≥ 0.7, < 1 | PSF-2.0 | Thư viện (`dxos-core`, đọc BPMN không tin cậy, cấm DTD/entity — Plan 02 Task 3) | Có (21/10/2026, wheel 0.7.1: METADATA `License: PSFL`, `dist-info/LICENSE` là "PYTHON SOFTWARE FOUNDATION LICENSE VERSION 2") |
 | pypdf | bất kỳ | BSD-3-Clause | Công cụ (chỉ để sinh `core/tests/fixtures/files/encrypted.pdf`) | Chưa |
 | gitleaks (image Docker) | v8.18.4 | MIT | Công cụ (CI) | Chưa |
 | syft (image Docker `anchore/syft`) | v1.18.1 | Apache-2.0 | Công cụ (CI, sinh SBOM khi phát hành) | Chưa |

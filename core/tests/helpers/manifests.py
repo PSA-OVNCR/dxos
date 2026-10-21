@@ -23,6 +23,11 @@ def raw(name: str) -> dict:
     return copy.deepcopy(yaml.safe_load(PATHS[name].read_text(encoding="utf-8")))
 
 
+def load(name: str) -> dict:
+    """Bản sao dict của manifest ``name`` (như ``raw``), test sửa tự do rồi đưa vào ``validate_manifest``."""
+    return raw(name)
+
+
 def manifest(name: str) -> Manifest:
     return validate_manifest(raw(name))
 
