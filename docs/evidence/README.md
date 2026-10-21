@@ -26,3 +26,30 @@ Lệnh đầy đủ ở `BUILD.md` (mục E2E, "Chạy bằng image đã phát h
    khác người nộp; `DXOS_ALLOW_SELF_APPROVAL=false`).
 5. Ghi kết quả vào các tệp ở bảng trên; điền bảng "Thành viên đã đọc toàn văn" trong `docs/legal-mapping.md`.
 
+## Người dùng dev tạm trên VPS (quyết định của trưởng nhóm)
+
+> **Cảnh báo:** E2E M2 và bước e2e App B của AT-13 lấy token bằng client `dxos-test` và người dùng dev có **mật khẩu
+> đã biết** (`dev-only-password`, gồm hai tài khoản `dxos-admin`). Realm production trên VPS không có chúng. Thêm tạm
+> là quyết định của trưởng nhóm; gỡ ngay sau khi chạy xong. Các lệnh dưới đây chưa được chạy thử.
+
+Thêm (sau `git pull`, trên VPS):
+```bash
+python ops/keycloak_upgrade.py --profile dev-lite
+```
+Gỡ người dùng dev và client `dxos-test`:
+```bash
+read -rs KC_CLI_PASSWORD && export KC_CLI_PASSWORD      # KEYCLOAK_ADMIN_PASSWORD trong .env
+KC="docker exec -e KC_CLI_PASSWORD dxos-keycloak-1 /opt/keycloak/bin/kcadm.sh"
+$KC config credentials --config /tmp/kc.cfg --server http://localhost:8080/auth --realm master --user admin
+for u in chuyen_vien1 chuyen_vien_tp1 truong_phong1 giam_doc1 van_thu1 nhan_vien1 can_bo_clb1 truong_clb1 owner_a1 owner_b1 admin1 admin2; do
+  id=$($KC get users --config /tmp/kc.cfg -r dxos -q username=$u -q exact=true --fields id --format csv --noquotes)
+  [ -n "$id" ] && $KC delete users/$id --config /tmp/kc.cfg -r dxos
+done
+cid=$($KC get clients --config /tmp/kc.cfg -r dxos -q clientId=dxos-test --fields id --format csv --noquotes)
+[ -n "$cid" ] && $KC delete clients/$cid --config /tmp/kc.cfg -r dxos
+docker exec dxos-keycloak-1 rm -f /tmp/kc.cfg
+unset KC_CLI_PASSWORD
+```
+Kiểm đã gỡ: `python ops/keycloak_upgrade.py` (hồ sơ p16) không còn báo người dùng thừa, và password grant của
+`dxos-test` trả lỗi `invalid_client`.
+

@@ -43,9 +43,11 @@ print(m["app"]["id"], m["app"]["version"])
 PY
 }
 
-# Trạng thái của <id> <version> theo `dxos app list --json` (chuỗi rỗng nếu chưa nộp).
+# Trạng thái của <id> <version> theo `dxos app list --json` (chuỗi rỗng nếu chưa nộp). Mã thoát của dxos (2: mạng/5xx,
+# 3: token) được giữ nguyên: lấy JSON trước, rồi mới phân tích.
 status_of() {
-    dx --json app list | "$PY" -c '
+    json=$(dx --json app list) || return $?
+    printf '%s' "$json" | "$PY" -c '
 import json, sys
 rows = json.load(sys.stdin)
 print(next((r["status"] for r in rows if r["app_id"] == sys.argv[1] and r["version"] == sys.argv[2]), ""))

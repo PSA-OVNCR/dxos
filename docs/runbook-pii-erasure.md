@@ -20,9 +20,10 @@ không xóa được (Điều 14 khoản 5) là **việc vận hành**, ghi ở 
 ### Mã lý do (`reason_code`)
 
 Năm mã là các trường hợp xóa của Điều 14 khoản 1 Luật 91/2025 (spec 25.2). Spec chưa ghi mã nào ứng với điểm nào của
-khoản 1, nên cột "Điểm" để trống cho tới khi thành viên đọc toàn văn Điều 14 và điền; không đoán.
+khoản 1, nên cột "Điểm" để trống cho tới khi thành viên đọc toàn văn Điều 14 và điền; không đoán. Cột "Dùng khi" là
+diễn giải của đội theo tên mã, chưa đối chiếu với lời văn của luật.
 
-| `reason_code` | Dùng khi | Điểm của Điều 14 khoản 1 |
+| `reason_code` | Dùng khi ([ĐX] diễn giải của đội) | Điểm của Điều 14 khoản 1 |
 |---|---|---|
 | `data_subject_request` | chủ thể dữ liệu (người có CCCD, email trong bản ghi) yêu cầu xóa | chưa đối chiếu |
 | `purpose_completed` | mục đích xử lý dữ liệu đã hoàn thành, không cần giữ trường đó nữa | chưa đối chiếu |

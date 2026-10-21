@@ -49,6 +49,11 @@ def test_every_job_builds_from_the_tag_commit():
         assert checkout["with"]["ref"] == "${{ github.ref }}", job
 
 
+def test_check_job_sets_up_python_before_running_ops_scripts():
+    steps = _wf()["jobs"]["check"]["steps"]
+    assert steps[1] == {"uses": "actions/setup-python@v5", "with": {"python-version": "3.12"}}
+
+
 def test_check_job_refuses_unreleased_changelog_and_version_mismatch():
     runs = "\n".join(s.get("run", "") for s in _wf()["jobs"]["check"]["steps"])
     assert 'python ops/changelog_section.py "$VERSION"' in runs
@@ -142,8 +147,10 @@ def test_ops_scripts_parse_and_are_executable(script):
 
 def test_run_e2e_installs_apps_with_the_cli_not_the_seed_script():
     text = (ROOT / "ops/e2e/run_e2e.sh").read_text(encoding="utf-8")
-    assert "install_apps.sh" in text and "DXOS_APPROVER_TOKEN=$(token admin2)" in text
-    assert "DXOS_TOKEN=$(token admin1)" in text
+    assert "install_apps.sh" in text
+    # mỗi token một dòng: lấy token lỗi thì set -e dừng ngay
+    assert "\nADMIN1_TOKEN=$(token admin1)\nADMIN2_TOKEN=$(token admin2)\n" in text
+    assert "DXOS_TOKEN=$ADMIN1_TOKEN DXOS_APPROVER_TOKEN=$ADMIN2_TOKEN" in text
     assert "python -m dxos_core.registry.seed" not in text and "python ops/seed_manifests.py" not in text
     assert "DXOS_ALLOW_SELF_APPROVAL" not in text
 

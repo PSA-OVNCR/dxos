@@ -6,11 +6,13 @@
 #   docker compose -p dxos --env-file .env -f deploy/compose.yaml -f deploy/compose.p16.yaml \
 #     -f deploy/compose.release.yaml up -d
 # DXOS_TRUST_CORE_DIGEST (64 hex, không có tiền tố sha256:) lấy từ trang GitHub Release của tag, đặt trong .env.
-x-release-image: &release-image
-  image: ghcr.io/psa-ovncr/trust-core@sha256:${DXOS_TRUST_CORE_DIGEST:?đặt DXOS_TRUST_CORE_DIGEST (digest trên trang Release) trong .env}
-  build: !reset null
-  pull_policy: missing
-
+# Không dùng anchor YAML: compose v2 làm mất tag !reset khi đi qua alias (build còn nguyên, máy chủ sẽ build từ nguồn).
 services:
-  trust-core-api: *release-image
-  trust-core-worker: *release-image
+  trust-core-api:
+    image: ghcr.io/psa-ovncr/trust-core@sha256:${DXOS_TRUST_CORE_DIGEST:?đặt DXOS_TRUST_CORE_DIGEST (digest trên trang Release) trong .env}
+    build: !reset null
+    pull_policy: missing
+  trust-core-worker:
+    image: ghcr.io/psa-ovncr/trust-core@sha256:${DXOS_TRUST_CORE_DIGEST:?đặt DXOS_TRUST_CORE_DIGEST (digest trên trang Release) trong .env}
+    build: !reset null
+    pull_policy: missing

@@ -3,7 +3,7 @@
 Mọi thay đổi đáng kể được ghi tại đây, theo định dạng [Keep a Changelog](https://keepachangelog.com/vi/1.1.0/) và [Semantic Versioning](https://semver.org/lang/vi/).
 
 ## [Unreleased]
-- Chưa có thay đổi nào sau 0.2.0.
+- Chưa có thay đổi nào ngoài các mục bên dưới.
 
 ## [0.2.0] - Chưa phát hành
 Mốc M2 (Tier-0 hoàn tất: workflow, niêm phong, đối soát, installer). Spec bản 1.0.3. Trưởng nhóm thay "Chưa phát hành"

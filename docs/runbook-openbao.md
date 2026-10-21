@@ -21,15 +21,20 @@ docker compose -p dxos exec openbao bao operator init -key-shares=1 -key-thresho
 
 ## 2. Mở khóa (sau mỗi lần OpenBao khởi động lại)
 ```bash
-docker compose -p dxos exec openbao bao operator unseal <unseal-key>
+read -rs BAO_UNSEAL_KEY                                  # dán unseal key (không hiện, không vào lịch sử shell)
+printf '%s\n' "$BAO_UNSEAL_KEY" | docker compose -p dxos exec -T openbao bao operator unseal -   # "-": đọc từ stdin
+unset BAO_UNSEAL_KEY
 docker compose -p dxos exec openbao bao status          # Sealed: false
 ```
+Không gõ unseal key hay root token thẳng trên dòng lệnh: chúng sẽ nằm trong lịch sử shell và danh sách tiến trình.
 Khi OpenBao còn khóa, lõi **từ chối** lập STH và niêm phong (fail-closed, F8): `/verify/v1/keys` trả 503
 `kms-unavailable`, việc neo STH được thử lại sau.
 
 ## 3. Bật transit, tạo khóa, cấp token cho trust-core (một lần)
 ```bash
-docker compose -p dxos exec -e BAO_TOKEN=<root-token> openbao sh /openbao/dxos/init.sh
+read -rs BAO_TOKEN && export BAO_TOKEN                  # dán root token
+docker compose -p dxos exec -e BAO_TOKEN openbao sh /openbao/dxos/init.sh   # -e BAO_TOKEN không có "=": lấy từ môi trường
+unset BAO_TOKEN
 ```
 Dòng cuối là **token của trust-core**. `init.sh` thu hồi root token khi xong (tạo lại bằng `bao operator generate-root`
 nếu cần quản trị). Ghi token vào `.env`:
@@ -47,7 +52,9 @@ token tạo lại.
 
 ## 4. Xoay khóa
 ```bash
-docker compose -p dxos exec -e BAO_TOKEN=<root-token> openbao bao write -f transit/keys/sth-key/rotate
+read -rs BAO_TOKEN && export BAO_TOKEN                  # dán root token tạo lại
+docker compose -p dxos exec -e BAO_TOKEN openbao bao write -f transit/keys/sth-key/rotate
+unset BAO_TOKEN
 ```
 STH mới ký bằng phiên bản mới nhất; STH cũ vẫn kiểm được bằng phiên bản cũ (`/verify/v1/keys` trả mọi phiên bản).
 Sau khi xoay, công bố khóa công khai mới vào repo neo (Task 16) để witness cập nhật.

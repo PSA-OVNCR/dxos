@@ -216,3 +216,100 @@ duy nhất trong năm; spec 25.4).
 - Chuyển một trường từ `never` sang `yearly` khi nâng phiên bản: bộ đếm của năm hiện tại **tiếp nối** giá trị cũ, nên
   không trùng số trong năm; từ năm sau mới đếm lại từ 1.
 - Đổi `format`, `reset` là thay đổi tự do khi nâng phiên bản (không phải đổi kiểu).
+
+## Mã lỗi và lý do từ chối
+
+Mọi lỗi của API là `application/problem+json` với `type = https://dxos.dev/problems/<slug>`. Mọi lần bị từ chối vì
+quyền hay chính sách đều ghi một lá ledger `policy.denied {action, reason}` (F3; chỉ có `actor_ref`, không có dữ liệu).
+Danh sách dưới đây khớp mã lõi; test `tests/repo/test_docs_m2.py` đỏ khi lõi thêm hay bỏ một tên mà mục này chưa sửa.
+
+### Lý do từ chối (`reason` trong `policy.denied`)
+
+Ghi bởi `pdp.deny` (từ chối ngoài bảng quyền, Plan 02):
+
+| Lý do | `action` | Ý nghĩa | HTTP |
+|---|---|---|---|
+| `guard:<guard>:<lý do>` | `complete` | guard của task trượt; `<lý do>` là một trong `attachments_not_clean`, `pii_not_reviewed`, `same_actor`, `role_not_allowed`, `field_missing`, `record_sealed`, `not_assignee` (bảng [Danh mục guard](#danh-mục-guard)) | 403 hoặc 409 theo guard (`guard-failed`); guard sai **sau** khi Flowable đã chạy thì 409 và instance bị hủy |
+| `not_task_role` | `complete` | người gọi không giữ role của task theo bản manifest đã ghim | 404 |
+| `kms_unavailable` | `complete` | R-1: OpenBao không ký được trước task niêm phong; Flowable chưa bị gọi | 503 `kms-unavailable` |
+| `seal_key_expired` | `complete` | R-1: tuyên bố khóa `seal-key` hết hạn | 503 `seal-key-expired` |
+| `org_not_configured` | `complete` | R-1: `DXOS_ORG_NAME` chưa đặt thật | 503 `org-not-configured` |
+| `not_pii_reviewer` | `pii_review` | người gọi không thuộc `pii.reveal_roles` | 404 |
+| `not_revoker` | `revoke` | người gọi không thuộc `seal.revoke_roles` của bản đã niêm phong | 404 |
+| `not_eraser` | `erase_pii` | người gọi không thuộc `pii.erase_roles` của bản ACTIVE | 404 |
+| `self_approval` | `approve` | người duyệt app là người nộp (bốn mắt) | 403 `forbidden`, kèm `reason: self_approval` |
+| `no_app_role` | `list_tasks` | người gọi không có role nào của app | 403 `forbidden` |
+| `admin_no_data_access` | `list_tasks` | người gọi là `dxos-admin` nhưng không có role của app (admin không mặc nhiên đọc dữ liệu app) | 403 `forbidden` |
+
+Ghi bởi `pdp.enforce` (bảng quyền `access` của manifest, Plan 01); `read`/`update` trả 404 (không lộ bản ghi có tồn
+tại), `list`/`create` trả 403:
+
+| Lý do | `action` | Ý nghĩa |
+|---|---|---|
+| `no_app_role` | `list`, `read`, `create`, `update` | không có role nào của app |
+| `admin_no_data_access` | `list`, `read`, `create`, `update` | `dxos-admin` không có role của app |
+| `unknown_collection` | `list`, `read`, `create`, `update` | collection không có trong manifest |
+| `not_in_access_list` | `list`, `read`, `create`, `update` | role của người gọi không có trong `access`, và không phải chủ bản ghi khi `owner` được phép |
+
+`reveal_pii` chỉ được hỏi (`decide`), không ghi `policy.denied`: người không thuộc `reveal_roles` nhận bản che.
+
+### Problem type (`type` của lỗi)
+
+| Slug | HTTP | Ý nghĩa |
+|---|---|---|
+| `already-running` | 409 | bản ghi đã có quy trình đang chạy |
+| `app-not-active` | 404 | app không có phiên bản ACTIVE (chưa cài hoặc đã vô hiệu hóa) |
+| `app-not-deployed` | 409 | phiên bản ACTIVE chưa có BPMN đã deploy |
+| `app-version-conflict` | 409 | version đã nộp với nội dung khác, hoặc đã ACTIVE/DISABLED |
+| `app-version-not-found` | 404 | không có phiên bản app đó |
+| `app-version-not-pending` | 409 | phiên bản không còn PENDING (đã DISABLED) nên không duyệt được |
+| `attachments-not-clean` | 409 | chưa đủ tệp `CLEAN` để bắt đầu quy trình |
+| `attachments-pending` | 409 | còn tệp đang quét (`STAGING`) |
+| `bad-request` | 400 | request sai dạng (JSON hỏng, `If-Match` sai dạng, cursor sai…) |
+| `deployment-mismatch` | 409 | phiên bản đã có bản deploy khác hash |
+| `forbidden` | 403 | không có quyền (list/create, tự duyệt app, hộp việc không có role) |
+| `guard-failed` | 403, 409 | guard trượt; thân lỗi có `guard` và `reason` |
+| `idp-admin-unavailable` | 503 | không gọi được Admin API Keycloak, hoặc chưa cấu hình secret của `dxos-installer` |
+| `idp-unavailable` | 503 | không lấy được JWKS của Keycloak để kiểm token |
+| `install-in-progress` | 409 | đang có thao tác cài đặt khác của cùng app; thử lại sau (CLI tự thử lại) |
+| `integrity-error` | 500 | tệp trong kho không khớp sha256 khi đọc |
+| `internal` | 500 | lỗi không lường trước |
+| `invalid-comment` | 422 | `comment` của `:complete` sai kiểu hoặc quá 1000 ký tự |
+| `invalid-decision` | 422 | `decision` sai dạng hoặc không thuộc các giá trị của cổng sau task |
+| `invalid-note` | 422 | ghi chú thu hồi sai kiểu hoặc dài quá |
+| `invalid-reason-code` | 422 | mã lý do thu hồi không thuộc danh sách |
+| `invalid-request` | 422 | thân request sai cấu trúc (`:erase-pii`, `:revoke`, `:check`, nộp app…) |
+| `keys-unavailable` | 503 | OpenBao khóa và phiên bản khóa công khai cần dùng chưa có trong cache |
+| `kms-unavailable` | 503 | OpenBao không ký được |
+| `length-required` | 411 | upload thiếu `Content-Length` |
+| `manifest-invalid` | 422 | manifest/BPMN/nâng phiên bản sai; thân lỗi có `code` và `path` |
+| `no-workflow` | 409 | app không khai `workflow` |
+| `not-found` | 404 | không có, hoặc không được phép biết là có |
+| `not-ready` | 503 | `/readyz`: DB chưa sẵn sàng hoặc chưa chạy migration |
+| `not-sealed` | 409 | thu hồi bản ghi chưa niêm phong hoặc đã thu hồi |
+| `org-not-configured` | 503 | `DXOS_ORG_NAME` chưa đặt thật; không niêm phong |
+| `payload-too-large` | 413 | thân request vượt trần |
+| `precondition-required` | 428 | thiếu `If-Match` |
+| `record-in-workflow` | 409 | bản ghi đang trong quy trình (sửa, xóa PII) |
+| `record-not-open` | 409 | bản ghi không còn nhận tệp đính kèm (đang chạy quy trình hoặc đã niêm phong) |
+| `record-sealed` | 409 | bản ghi đã niêm phong |
+| `schema` | 422 | dữ liệu bản ghi không khớp collection |
+| `seal-key-expired` | 503 | tuyên bố khóa `seal-key` hết hạn; cần xoay khóa |
+| `seal-pending` | 409 | bản ghi đang chờ niêm phong |
+| `storage-unavailable` | 503 | không tới được kho đối tượng |
+| `task-gone` | 409 | task không còn mở (đã có người hoàn thành) |
+| `task-unknown` | 409 | task không có trong bản manifest đã ghim |
+| `unauthenticated` | 401 | thiếu hoặc sai token |
+| `unsupported-media-type` | 415 | `Content-Type` không được nhận |
+| `version-conflict` | 409 | `If-Match` khác version hiện tại |
+| `version-not-newer` | 409 | version nộp không lớn hơn bản ACTIVE |
+| `workflow-finalize-failed` | 500 | Flowable đã hoàn thành task nhưng lõi chưa ghi xong; sẽ được đối soát |
+| `workflow-inconsistent` | 409 | Flowable và bản ghi hoàn thành của lõi lệch nhau; admin phải đối soát |
+| `workflow-model-mismatch` | 500 | BPMN đã deploy không khớp manifest đã ghim |
+| `workflow-pending` | 503 | kết quả lần hoàn thành trước chưa rõ; thử lại sau |
+| `workflow-unavailable` | 503 | Flowable không tới được hoặc chưa cấu hình |
+
+Lỗi HTTP chung (`HTTPException` của FastAPI, ví dụ route không có) dùng slug theo mã: `bad-request`, `unauthorized`,
+`forbidden`, `not-found`, `method-not-allowed`, `not-acceptable`, `conflict`, `precondition-failed`,
+`payload-too-large`, `unsupported-media-type`, `invalid-request`, `precondition-required`, `rate-limited`,
+`internal`, `unavailable`; mã khác dùng `http-error`. Gateway (APISIX) trả 429 riêng khi vượt rate-limit `/verify`.

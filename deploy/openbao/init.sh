@@ -3,7 +3,8 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Thiết lập transit cho DX-OS trên OpenBao ĐÃ init và ĐÃ unseal (xem docs/runbook-openbao.md).
-#   BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN=<root token> sh deploy/openbao/init.sh
+#   read -rs BAO_TOKEN && export BAO_TOKEN    # root token: không gõ thẳng trên dòng lệnh
+#   BAO_ADDR=http://127.0.0.1:8200 sh deploy/openbao/init.sh
 # In ra token của trust-core (policy dxos-core) ở dòng cuối. Cuối cùng thu hồi root token,
 # trừ khi đặt DXOS_KEEP_ROOT=1 (chỉ dùng cho môi trường thử).
 set -eu

@@ -13,7 +13,9 @@
 #
 # - Người nộp: DXOS_TOKEN, hoặc token đã lưu của `dxos login`. Người duyệt PHẢI là thành viên khác. Không có
 #   DXOS_APPROVER_TOKEN thì script in lệnh duyệt rồi chờ (tối đa AT13_WAIT_S giây, mặc định 1800) tới khi App B ACTIVE.
-# - DXOS_ALLOW_SELF_APPROVAL phải là false trên stack (script kiểm trong container trust-core-api).
+# - DXOS_ALLOW_SELF_APPROVAL phải là false trên stack (script đọc Settings() trong container trust-core-api).
+# - CẢNH BÁO: bước e2e App B lấy token bằng client dxos-test và người dùng dev (mật khẩu đã biết), chỉ có ở realm dev.
+#   Thêm tạm chúng vào realm VPS là quyết định của trưởng nhóm; gỡ ngay sau khi chạy (lệnh gỡ: docs/evidence/README.md).
 # - Kết quả: bảng so sánh ở docs/evidence/at13-reuse.txt (đổi bằng AT13_OUT). Mã thoát 0 chỉ khi mọi giá trị trước và
 #   sau giống hệt, `git diff` của core/ và cấu hình gateway rỗng, và test_m2_app_b.py đạt.
 # - Script không in token.
@@ -41,7 +43,9 @@ read -r APP VER < <("$PY" -c 'import sys, yaml; m = yaml.safe_load(open(sys.argv
 print(m["id"], m["version"])' "$APP_DIR/manifest.yaml")
 
 status_of() {
-    dx --json app list | "$PY" -c '
+    local json
+    json=$(dx --json app list) || return $?        # giữ mã thoát 2/3 của dxos
+    printf '%s' "$json" | "$PY" -c '
 import json, sys
 rows = json.load(sys.stdin)
 print(next((r["status"] for r in rows if r["app_id"] == sys.argv[1] and r["version"] == sys.argv[2]), ""))' "$APP" "$VER"
@@ -72,8 +76,11 @@ for svc in trust-core-api trust-core-worker; do
     got=$(docker inspect -f '{{.Config.Image}}' "$PROJECT-$svc-1") || die "không thấy container $PROJECT-$svc-1"
     [[ $got == "$EXPECTED_IMAGE" ]] || die "$svc chạy image '$got', không phải $EXPECTED_IMAGE (dùng deploy/compose.release.yaml)"
 done
-self=$(docker exec "$PROJECT-trust-core-api-1" printenv DXOS_ALLOW_SELF_APPROVAL || true)
-[[ ${self,,} != "true" && ${self} != "1" ]] || die "DXOS_ALLOW_SELF_APPROVAL đang bật; AT-13 phải duyệt bốn mắt"
+# Giá trị HIỆU LỰC (Settings của lõi, đúng cách lõi đọc biến môi trường); kiểm không được thì dừng, không coi là "tắt".
+self=$(docker exec "$PROJECT-trust-core-api-1" python -c \
+    'from dxos_core.settings import Settings; print(Settings().allow_self_approval)') \
+    || die "không đọc được DXOS_ALLOW_SELF_APPROVAL hiệu lực trong $PROJECT-trust-core-api-1"
+[[ $self == "False" ]] || die "DXOS_ALLOW_SELF_APPROVAL hiệu lực là '$self'; AT-13 phải duyệt bốn mắt (cần False)"
 st=$(status_of)
 [[ $st != "ACTIVE" ]] || die "$APP $VER đã ACTIVE từ trước; AT-13 cần cài App B trong lần chạy này"
 

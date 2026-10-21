@@ -25,6 +25,7 @@ class FakeAdmin:
     def __init__(self) -> None:
         self.apps: dict[tuple[str, str], dict] = {}
         self.calls: list[tuple[str, str, str]] = []          # (method, path, token)
+        self.list_status = 200                               # đặt 500/401 để giả lỗi của GET /admin/v1/apps
 
     def rows(self) -> list[dict]:
         return [{"app_id": k[0], "version": k[1], "status": v["status"], "manifest_sha256": "0" * 64,
@@ -50,7 +51,10 @@ def _server(state: FakeAdmin) -> ThreadingHTTPServer:
 
         def do_GET(self) -> None:  # noqa: N802
             state.calls.append(("GET", self.path, self._token()))
-            if self.path == "/admin/v1/apps":
+            if self.path == "/admin/v1/apps" and state.list_status != 200:
+                self._send(state.list_status, {"type": "https://dxos.dev/problems/x", "title": "x",
+                                               "status": state.list_status}, PROBLEM)
+            elif self.path == "/admin/v1/apps":
                 self._send(200, state.rows())
             elif m := DIFF.match(self.path):
                 self._send(200, {"app_id": m[1], "version": m[2], "against": None, "roles_added": []})

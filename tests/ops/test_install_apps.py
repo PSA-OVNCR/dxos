@@ -58,3 +58,12 @@ def test_same_token_for_both_steps_fails_with_cli_exit_1(fake_admin, tmp_path):
     assert out.returncode == 1, out.stdout + out.stderr
     assert state.apps[("phong-ho-so", "1.1.0")]["status"] == "PENDING"
     assert ("chung-nhan", "1.1.0") not in state.apps            # dừng ngay, không nộp app kế tiếp
+
+
+def test_cli_network_and_token_exit_codes_are_preserved(fake_admin, tmp_path):
+    state, server = fake_admin
+    state.list_status = 500
+    assert _run(server, tmp_path, DXOS_TOKEN="t1", DXOS_APPROVER_TOKEN="t2").returncode == 2   # 5xx
+    state.list_status = 401
+    assert _run(server, tmp_path, DXOS_TOKEN="t1", DXOS_APPROVER_TOKEN="t2").returncode == 3   # token sai
+    assert [c for c in state.calls if c[0] == "POST"] == []

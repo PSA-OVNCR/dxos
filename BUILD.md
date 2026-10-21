@@ -106,6 +106,10 @@ Chi tiết manifest, guard, BPMN, luật nâng phiên bản: [docs/manifest-guid
 `ops/seed_manifests.py` ghi thẳng manifest vào DB, bỏ qua installer: **chỉ dùng cho test lõi**.
 
 ## E2E (stack dev-lite đang chạy)
+> E2E dùng client `dxos-test` và người dùng dev có mật khẩu đã biết, chỉ có ở realm dev. Chạy trên VPS (kể cả bước
+> e2e của AT-13) cần thêm tạm chúng vào realm production: quyết định của trưởng nhóm; lệnh thêm và gỡ ở
+> `docs/evidence/README.md`, mục "Người dùng dev tạm trên VPS".
+
 1. `.env`: đặt `DXOS_ORG_NAME` thật (ví dụ `Công ty TNHH Sao Mai`), rồi
    `docker compose -p dxos --env-file .env -f deploy/compose.yaml -f deploy/compose.dev-lite.yaml -f deploy/compose.e2e.yaml up -d --build`
 2. Init và unseal OpenBao, chạy `init.sh`, ghi `OPENBAO_CORE_TOKEN` (`docs/runbook-openbao.md`).

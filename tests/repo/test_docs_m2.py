@@ -182,3 +182,99 @@ def test_evidence_readme_lists_m2_items_without_results():
     doc = _doc("docs/evidence/README.md")
     for item in ("at13-reuse.txt", "AT-19", "AT-20", "AT-18"):
         assert item in doc, item
+    rows = {key: next(line for line in doc.splitlines() if line.startswith("| " + key))
+            for key in ("E2E mốc M2", "AT-13", "AT-19", "AT-20", "Cổng năng suất M2")}
+    for key, row in rows.items():
+        # chưa chạy: cột trạng thái không được ghi kết quả
+        assert row.rstrip(" |").split("|")[-1].strip().startswith("Chưa có"), key
+
+
+def test_vps_dev_user_warning_points_to_removal_commands():
+    for rel in ("BUILD.md", "ops/at13_reuse.sh"):
+        text = _doc(rel)
+        assert "mật khẩu" in text and "docs/evidence/README.md" in text, rel
+    ev = _section(_doc("docs/evidence/README.md"),
+                  "## Người dùng dev tạm trên VPS (quyết định của trưởng nhóm)")
+    assert "mật khẩu" in ev and "kcadm.sh" in ev and "read -rs KC_CLI_PASSWORD" in ev
+    assert "delete users" in ev and "delete clients" in ev
+
+
+def test_docs_never_put_openbao_secrets_on_the_command_line():
+    for rel in ("docs/runbook-openbao.md", "BUILD.md", "docs/evidence/README.md", "deploy/openbao/init.sh"):
+        text = _doc(rel)
+        assert "BAO_TOKEN=<" not in text and "unseal <" not in text, rel
+
+
+# ---------------------------------------------------------------- mã lỗi và lý do từ chối (fix vòng 1)
+CORE = ROOT / "core/src/dxos_core"
+SLUG_PATTERNS = [r'\b(?:ProblemError|problem)\([^"()]*?"([a-z][a-z0-9-]*)"',
+                 r'\b_conflict\(\s*"([a-z][a-z0-9-]*)"',
+                 r'\brefuse\(\s*"[a-z_]+",\s*"([a-z][a-z0-9-]*)"']
+
+
+def _core_sources() -> list[str]:
+    return [p.read_text(encoding="utf-8") for p in sorted(CORE.rglob("*.py"))]
+
+
+def _first_column(section: str, sub: str) -> set[str]:
+    """Các mã trong cột đầu (``| `x` |``) của bảng ngay dưới tiêu đề ``sub``."""
+    part = _section(section, sub)
+    return set(re.findall(r"^\| `([^`]+)` \|", part, re.M))
+
+
+def _deny_reasons() -> set[str]:
+    out: set[str] = set()
+    for t in _core_sources():
+        for call in re.findall(r"\bdeny\((.*?)\)\n", t, re.S):
+            out |= set(re.findall(r'reason="([a-z_]+)"', call))
+            if 'reason=f"guard:{failure.guard}:{failure.reason}"' in call:
+                out.add("guard:<guard>:<lý do>")
+        out |= set(re.findall(r'\brefuse\(\s*"([a-z_]+)"', t))
+        for a, b in re.findall(r'reason="([a-z_]+)" if [\w.]+\.is_admin else "([a-z_]+)"', t):
+            out |= {a, b}
+    return out
+
+
+def _deny_actions() -> set[str]:
+    return {a for t in _core_sources() for a in re.findall(r'\bdeny\([^()]*?action="([a-z_]+)"', t, re.S)}
+
+
+def _slugs() -> set[str]:
+    return {s for t in _core_sources() for p in SLUG_PATTERNS for s in re.findall(p, t)}
+
+
+def test_deny_reasons_documented_exactly():
+    sec = _section(_doc("docs/manifest-guide.md"), "## Mã lỗi và lý do từ chối")
+    reasons = _deny_reasons()
+    assert {"self_approval", "not_task_role", "kms_unavailable", "guard:<guard>:<lý do>"} <= reasons
+    assert _first_column(sec, "### Lý do từ chối (`reason` trong `policy.denied`)") == reasons | {
+        "unknown_collection", "not_in_access_list"}
+
+
+def test_enforce_reasons_and_guard_reasons_documented():
+    sec = _section(_doc("docs/manifest-guide.md"), "## Mã lỗi và lý do từ chối")
+    pdp = (CORE / "policy/pdp.py").read_text(encoding="utf-8")
+    for r in re.findall(r'Decision\(False, "([a-z_]+)"', pdp) + ["admin_no_data_access", "no_app_role"]:
+        assert f"| `{r}` |" in sec, r
+    guards_src = (CORE / "workflow/guards.py").read_text(encoding="utf-8")
+    for r in re.findall(r'_fail\(guard, "([a-z_]+)"', guards_src):
+        assert f"`{r}`" in sec, r
+
+
+def test_deny_actions_documented():
+    sec = _section(_doc("docs/manifest-guide.md"), "## Mã lỗi và lý do từ chối")
+    actions = _deny_actions()
+    assert actions == {"approve", "complete", "erase_pii", "list_tasks", "pii_review", "revoke"}
+    for a in actions | {"list", "read", "create", "update"}:
+        assert f"`{a}`" in sec, a
+
+
+def test_problem_slugs_documented_exactly():
+    from dxos_core.errors import HTTP_SLUGS
+
+    sec = _section(_doc("docs/manifest-guide.md"), "## Mã lỗi và lý do từ chối")
+    slugs = _slugs()
+    assert {"guard-failed", "install-in-progress", "workflow-model-mismatch", "keys-unavailable"} <= slugs
+    assert _first_column(sec, "### Problem type (`type` của lỗi)") == slugs
+    for s in [*HTTP_SLUGS.values(), "http-error"]:
+        assert f"`{s}`" in sec, s

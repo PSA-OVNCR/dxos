@@ -40,13 +40,18 @@ import httpx
 r = httpx.post("https://localhost/auth/realms/dxos/protocol/openid-connect/token", timeout=20, data={
     "grant_type": "password", "client_id": "dxos-test", "username": sys.argv[1],
     "password": os.environ.get("DXOS_E2E_PASSWORD", "dev-only-password"), "scope": "openid"})
-r.raise_for_status()
+if r.status_code != 200:                 # in lỗi của Keycloak (error, error_description), không có token
+    sys.exit(f"Keycloak từ chối cấp token cho {sys.argv[1]}: HTTP {r.status_code} {r.text[:500]}")
 print(r.json()["access_token"])
 PY
 }
-DXOS_TOKEN=$(token admin1) DXOS_APPROVER_TOKEN=$(token admin2) \
+# Mỗi token một dòng: lấy token lỗi thì `set -e` dừng ngay tại đây, kèm thông báo của Keycloak.
+ADMIN1_TOKEN=$(token admin1)
+ADMIN2_TOKEN=$(token admin2)
+DXOS_TOKEN=$ADMIN1_TOKEN DXOS_APPROVER_TOKEN=$ADMIN2_TOKEN \
     DXOS_SERVER=https://admin.localhost DXOS_CA_FILE="$SSL_CERT_FILE" PYTHON=python \
     sh /src/ops/e2e/install_apps.sh /src/apps/phong-ho-so /src/apps/chung-nhan
+unset ADMIN1_TOKEN ADMIN2_TOKEN
 
 cd /src
 python -m pytest -p no:cacheprovider -m e2e tests/e2e -v -rs --junitxml=/out/e2e-junit.xml

@@ -141,11 +141,13 @@ def test_public_verify_is_rate_limited_even_with_forged_forwarded_for(stack):   
 
 
 # ---------------------------------------------------------------- AT-20
-def _bao(*args: str, env: dict[str, str]) -> subprocess.CompletedProcess:
-    """``docker exec`` vào container OpenBao; bí mật chỉ đi qua biến môi trường, không nằm trong argv."""
+def _bao(*args: str, env: dict[str, str], stdin: str | None = None) -> subprocess.CompletedProcess:
+    """``docker exec`` vào container OpenBao; bí mật chỉ đi qua biến môi trường hoặc stdin, không nằm trong
+    argv."""
     names = [k for k in env if k.startswith("BAO_")]
-    cmd = ["docker", "exec", *[x for k in names for x in ("-e", k)], OPENBAO, *args]
-    return subprocess.run(cmd, check=False, capture_output=True, text=True,  # noqa: S603
+    cmd = ["docker", "exec", *(["-i"] if stdin is not None else []), *[x for k in names for x in ("-e", k)],
+           OPENBAO, *args]
+    return subprocess.run(cmd, check=False, capture_output=True, text=True, input=stdin,  # noqa: S603
                           env={**os.environ, **env})
 
 
@@ -168,8 +170,8 @@ def openbao_control():
         for key in keys.split(","):
             if not sealed():
                 break
-            out = _bao("sh", "-c", 'bao operator unseal "$BAO_UNSEAL_KEY" >/dev/null',
-                       env={"BAO_UNSEAL_KEY": key.strip()})
+            # "-": bao đọc unseal key từ stdin
+            out = _bao("bao", "operator", "unseal", "-", env={}, stdin=key.strip() + "\n")
             assert out.returncode == 0, out.stderr
         assert not sealed(), "OpenBao vẫn khóa sau khi dùng hết unseal key"
 

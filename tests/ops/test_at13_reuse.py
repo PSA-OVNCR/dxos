@@ -33,7 +33,7 @@ case "$1" in
         else echo 2026-11-01T00:00:00Z; fi ;;
     esac ;;
   image) echo "$FAKE_IMAGE" ;;
-  exec) echo "${FAKE_SELF_APPROVAL:-false}" ;;
+  exec) [ -z "${FAKE_EXEC_FAIL:-}" ] || exit 1; echo "${FAKE_SELF_APPROVAL:-False}" ;;
 esac
 """
 
@@ -143,8 +143,15 @@ def test_unreleased_image_is_refused_before_install(repo, fake_admin, tmp_path):
 
 def test_self_approval_enabled_is_refused(repo, fake_admin, tmp_path):
     state, server = fake_admin
-    out = _run(repo, server, tmp_path, FAKE_SELF_APPROVAL="true")
+    out = _run(repo, server, tmp_path, FAKE_SELF_APPROVAL="True")
     assert out.returncode == 1 and "DXOS_ALLOW_SELF_APPROVAL" in out.stderr
+    assert _posts(state) == []
+
+
+def test_unreadable_self_approval_setting_aborts(repo, fake_admin, tmp_path):
+    state, server = fake_admin
+    out = _run(repo, server, tmp_path, FAKE_EXEC_FAIL="1")
+    assert out.returncode == 1 and "không đọc được DXOS_ALLOW_SELF_APPROVAL" in out.stderr
     assert _posts(state) == []
 
 

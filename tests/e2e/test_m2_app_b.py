@@ -49,8 +49,8 @@ def test_m2_app_b_batch_certificates(stack):
         assert view["public_fields"]["ho_ten"] == row["ho_ten"]
         assert "email" not in view["public_fields"]
         assert row["email"] not in json.dumps(view, ensure_ascii=False)
-        if stack.ORG_NAME:
-            assert view["issuer"]["name"] == stack.ORG_NAME                                     # AT-28
+        assert stack.ORG_NAME, "đặt DXOS_ORG_NAME (giống .env của stack) để kiểm issuer.name (AT-28)"
+        assert view["issuer"]["name"] == stack.ORG_NAME                                         # AT-28
         bundle = httpx.get(f"{stack.base}/verify/v1/seals/{sid}/bundle", timeout=30)
         assert bundle.status_code == 200, bundle.text
         assert bundle.json()["format"] == "dxos-seal-bundle/1"
