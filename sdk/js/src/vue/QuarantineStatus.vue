@@ -10,7 +10,14 @@ import type { UploadStatus } from '../types'
 import ProblemMessage from './ProblemMessage.vue'
 
 const props = withDefaults(
-  defineProps<{ client: DxosClient; uploadId: string; intervalMs?: number; timeoutMs?: number }>(),
+  defineProps<{
+    client: DxosClient
+    uploadId: string
+    intervalMs?: number
+    timeoutMs?: number
+    /** Trạng thái đã biết từ danh sách tệp của máy chủ: đã xong thì hiện luôn, không thăm dò; STAGING thì vẫn thăm dò. */
+    initial?: UploadStatus
+  }>(),
   { intervalMs: 2000, timeoutMs: 180000 },
 )
 const emit = defineEmits<{ settled: [status: UploadStatus] }>()
@@ -46,9 +53,13 @@ function stop(): void {
 function start(): void {
   stop()
   const mine = run
-  status.value = { status: 'STAGING' }
   timedOut.value = false
   failure.value = null
+  if (props.initial && props.initial.status !== 'STAGING') {
+    status.value = props.initial // máy chủ đã chốt, không cần hỏi lại
+    return
+  }
+  status.value = { status: 'STAGING' }
   deadline = setTimeout(() => {
     if (mine !== run) return
     timedOut.value = true

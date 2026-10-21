@@ -262,6 +262,29 @@ describe('QuarantineStatus', () => {
     expect(c.uploadStatus.mock.calls.length).toBe(n)
   })
 
+  test.each([
+    [{ status: 'CLEAN', sha256: 'd'.repeat(64) } as const, /Sạch/],
+    [{ status: 'INFECTED', reason: 'Eicar' } as const, /Nhiễm mã độc/],
+    [{ status: 'REJECTED', reason: 'ENCRYPTED' } as const, /PDF có mật khẩu/],
+  ])('an already settled initial status %j is shown without polling', async (initial, text) => {
+    vi.useFakeTimers()
+    const c = fakeClient({ uploadStatus: { status: 'STAGING' } })
+    const w = mount(QuarantineStatus, { props: { client: c, uploadId: 'u', intervalMs: 10, initial } })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(w.text()).toMatch(text)
+    expect(c.uploadStatus).not.toHaveBeenCalled()
+    expect(w.emitted('settled')).toBeUndefined()
+  })
+
+  test('an initial STAGING status still polls', async () => {
+    vi.useFakeTimers()
+    const c = fakeClient({ uploadStatus: { status: 'CLEAN', sha256: 'e'.repeat(64) } })
+    const w = mount(QuarantineStatus, { props: { client: c, uploadId: 'u', intervalMs: 10, initial: { status: 'STAGING' } } })
+    await vi.advanceTimersByTimeAsync(20)
+    expect(w.text()).toMatch(/Sạch/)
+    expect(c.uploadStatus).toHaveBeenCalled()
+  })
+
   test('a network failure is retried', async () => {
     vi.useFakeTimers()
     const c = fakeClient({ uploadStatus: [new TypeError('Failed to fetch'), { status: 'CLEAN', sha256: 'b'.repeat(64) }] })
