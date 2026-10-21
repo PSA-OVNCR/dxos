@@ -37,6 +37,17 @@ jobs:
       - run: make dev-install
       - run: python -m pytest -m "not integration and not infra"
 
+  # Workspace npm (SDK, cổng xác minh, ứng dụng Tầng 2): typecheck + test đơn vị + build. npm ghim 11.6.2 (npm 10 lỗi khi cài bộ phụ thuộc này).
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - run: npm i -g npm@11.6.2
+      - run: npm ci
+      - run: npm run check
+
   integration:
     runs-on: ubuntu-latest
     env:

@@ -12,3 +12,5 @@ dist/
 build/
 node_modules/
 .secrets/
+test-results/
+playwright-report/

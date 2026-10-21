@@ -8,7 +8,7 @@ ENV_FILE ?= .env
 COMPOSE = docker compose -p dxos --env-file $(ENV_FILE) -f deploy/compose.yaml -f deploy/compose.$(PROFILE).yaml
 
 .PHONY: help dev-install lint test reuse check up down ps logs netcheck test-infra test-db-up test-integration pin-images \
-	openapi
+	openapi web-check
 
 help:
 	@echo "make dev-install  - cài công cụ phát triển và các gói Python ở chế độ editable"
@@ -24,6 +24,7 @@ help:
 	@echo "make test-integration - integration test (marker integration), cần make test-db-up"
 	@echo "make pin-images   - ghim digest mọi image trong deploy/ (cần Docker có buildx)"
 	@echo "make openapi      - sinh lại docs/api/openapi.json từ ứng dụng FastAPI (không cần dịch vụ)"
+	@echo "make web-check    - workspace npm: typecheck + test + build (cần Node 22 và npm 11.6.2, đã chạy npm ci)"
 
 dev-install:
 	$(PYTHON) -m pip install -r requirements-dev.txt
@@ -72,3 +73,6 @@ openapi:
 
 netcheck:
 	$(PYTHON) ops/netcheck.py --matrix deploy/network-matrix.yaml --project dxos
+
+web-check:
+	npm run check

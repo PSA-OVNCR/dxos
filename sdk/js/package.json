@@ -1,0 +1,23 @@
+{
+  "name": "dxos-sdk-js",
+  "version": "0.3.0",
+  "private": true,
+  "type": "module",
+  "description": "SDK trình duyệt cho DX-OS Tầng 2: client HTTP, đăng nhập OIDC, kiểm chứng offline, thành phần Vue.",
+  "license": "Apache-2.0",
+  "exports": {
+    ".": "./src/index.ts",
+    "./vue": "./src/vue/index.ts"
+  },
+  "scripts": {
+    "typecheck": "vue-tsc --noEmit -p .",
+    "test": "vitest run",
+    "build": "vite build"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "vite": "8.1.6",
+    "vitest": "5.0.3",
+    "vue-tsc": "3.3.12"
+  }
+}
