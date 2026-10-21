@@ -29,8 +29,12 @@ export interface MockOptions {
   view?: Record<string, unknown>
   /** Mã HTTP của GET công khai (mặc định 200). */
   viewStatus?: number
-  /** vector: phục vụ tệp neo của vector; down: mạng đứt; empty: repo neo trả 404 cho mọi tệp. */
-  anchor?: 'vector' | 'down' | 'empty'
+  /**
+   * vector: phục vụ tệp neo của vector; down: mạng đứt; empty: repo neo trả 404 cho mọi tệp;
+   * poisoned: repo neo ổn (đường dẫn cố định keys/sth-key/v1.pub trả lời) nhưng mọi đường dẫn khác bị hủy,
+   * như khi máy chủ chọn đường dẫn làm fetch thất bại.
+   */
+  anchor?: 'vector' | 'down' | 'empty' | 'poisoned'
 }
 
 export interface Calls { urls: string[] }
@@ -86,6 +90,7 @@ export async function mockVerifyApi(page: Page, o: MockOptions): Promise<Calls> 
     const path = new URL(route.request().url()).pathname.replace(/^\/__anchor\//, '')
     calls.urls.push(`ANCHOR ${path}`)
     if (o.anchor === 'down') return route.abort('failed')
+    if (o.anchor === 'poisoned' && path !== 'keys/sth-key/v1.pub') return route.abort('failed')
     const file = o.anchor === 'empty' ? undefined : v.anchor_files[path]
     if (file === undefined) return route.fulfill({ status: 404, body: 'not found' })
     return route.fulfill({ status: 200, contentType: 'application/octet-stream', body: Buffer.from(file, 'base64') })

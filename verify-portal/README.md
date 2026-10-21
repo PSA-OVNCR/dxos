@@ -27,7 +27,7 @@ Kết quả tự kiểm trên trình duyệt thắng `status` của máy chủ. 
 | `UNSUPPORTED_CRYPTO` (trình duyệt thiếu Ed25519) | nhãn của máy chủ, kèm "Trình duyệt này không tự kiểm được chữ ký" |
 | chưa có gói (máy chủ báo VALID) | Chưa tự kiểm trên trình duyệt (không bao giờ "Hợp lệ" trần) |
 
-- **Repo neo không truy cập được** (mạng, CORS, 5xx): kiểm lại không ghim, nhãn "Hợp lệ — chưa đối chiếu repo neo" kèm "Không truy cập được repo neo — chưa đối chiếu". Repo neo trả 404 hay tệp khác gói là hỏng thật, nhãn "Không hợp lệ".
+- **Repo neo không truy cập được** (mạng, CORS, 5xx): nguồn neo ném lỗi thì cổng thăm dò đường dẫn cố định `keys/sth-key/v1.pub`; chỉ khi thăm dò cũng hỏng mới kiểm lại không ghim (nếu thăm dò trả lời, lỗi do đường dẫn gói chọn, ví dụ `key_version` khổng lồ, nên vẫn là "Không hợp lệ"), nhãn "Hợp lệ — chưa đối chiếu repo neo" kèm "Không truy cập được repo neo — chưa đối chiếu". Repo neo trả 404 hay tệp khác gói là hỏng thật, nhãn "Không hợp lệ".
 - `payload.seal_id` trong gói phải bằng mã đang kiểm: gói thật của niêm phong khác không thay được.
 - Khi tự kiểm đạt, đơn vị niêm phong, trường công khai và thời điểm lấy từ payload đã ký; nhãn trường (`public_labels`) vẫn là chữ do máy chủ trả.
 - 404, 429, 503 `keys-unavailable` và mọi lỗi mạng là "Không tìm thấy" / "Chưa kiểm được", không bao giờ "Không hợp lệ".

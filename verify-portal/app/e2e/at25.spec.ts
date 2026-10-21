@@ -153,3 +153,31 @@ test('typing a code and pressing Enter loads it; the input has a label', async (
   await expect(page.getByTestId('verdict')).toHaveText(OK_PINNED)
   await expect(page).toHaveURL(new RegExp(`#${SEAL_ID}$`))
 })
+
+test('server-chosen anchor path fails while the anchor repo answers → Không hợp lệ, not the unpinned fallback', async ({ page }) => {
+  // Mô phỏng máy chủ bị chiếm chọn key_version khổng lồ: mọi đường dẫn do gói chọn bị hủy, còn
+  // keys/sth-key/v1.pub (đường dẫn cố định dùng để thăm dò) vẫn trả lời.
+  const calls = await mockVerifyApi(page, { requireFile: false, anchor: 'poisoned' })
+  await page.goto(PAGE)
+  await expect(page.getByTestId('verdict')).toHaveText('Không hợp lệ')
+  await expect(page.getByText('Không truy cập được repo neo')).toHaveCount(0)
+  await expect(page.getByText('Đơn vị niêm phong')).toHaveCount(0)
+  expect(calls.urls).toContain('ANCHOR keys/sth-key/v1.pub')
+})
+
+test('WAIT_STH with require_file: the file can be checked (:check only), no bundle and no local verdict', async ({ page }) => {
+  const sent: string[] = []
+  page.on('request', (r) => { if (r.postDataBuffer()) sent.push(new URL(r.url()).pathname) })
+  const calls = await mockVerifyApi(page, {
+    requireFile: true, sha256: sha256hex(ORIGINAL),
+    view: { inclusion: { leaf_index: 5, tree_size: null, verified: false, anchored: null } },
+  })
+  await page.goto(PAGE)
+  await expect(page.getByTestId('verdict')).toHaveText('Chữ ký hợp lệ — đang chờ công bố vào sổ cái')
+  await page.setInputFiles('input[type=file]', { name: 'van-ban.pdf', mimeType: 'application/pdf', buffer: ORIGINAL })
+  await expect(page.getByText('Khớp: tệp này đúng là tệp đã được niêm phong.')).toBeVisible()
+  await expect(page.getByTestId('verdict')).toHaveText('Chữ ký hợp lệ — đang chờ công bố vào sổ cái')
+  expect(sent).toEqual([`/verify/v1/seals/${SEAL_ID}:check`])
+  expect(calls.urls.filter((u) => u.includes('bundle') || u.startsWith('ANCHOR'))).toEqual([])
+  await expect(page.getByRole('button', { name: /Tải gói/ })).toHaveCount(0)
+})

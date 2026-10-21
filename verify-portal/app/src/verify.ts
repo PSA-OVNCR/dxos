@@ -56,10 +56,27 @@ async function verifyPinnedOrNot(
     },
   }
   const pinned = await verifyBundle(text, { anchor: watched, fileSha256 })
-  if (!pinned.ok && threw) {
+  if (!pinned.ok && threw && !(await anchorReachable(anchor))) {
     return { result: await verifyBundle(text, { fileSha256 }), anchorNote: NOTE_ANCHOR_UNREACHABLE }
   }
   return { result: pinned, anchorNote: '' }
+}
+
+/** Đường dẫn cố định, không phụ thuộc gói/máy chủ, để thăm dò repo neo (404 cũng là "đã với tới repo"). */
+export const ANCHOR_PROBE_PATH = 'keys/sth-key/v1.pub'
+
+/**
+ * Nguồn neo ném lỗi ở đường dẫn do GÓI chọn (`keys/seal-key/v<key_version>.pub`, key_version không bị chặn) chưa
+ * chứng tỏ repo neo hỏng: máy chủ bị chiếm có thể chọn đường dẫn làm fetch thất bại (URL quá dài...) để ép về kiểu
+ * kiểm không ghim. Chỉ khi chính đường dẫn cố định cũng thất bại thì mới coi repo neo là không truy cập được.
+ */
+async function anchorReachable(anchor: AnchorSource): Promise<boolean> {
+  try {
+    await anchor.file(ANCHOR_PROBE_PATH)
+    return true
+  } catch {
+    return false
+  }
 }
 
 /**

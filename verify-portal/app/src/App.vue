@@ -143,7 +143,7 @@ async function onFile(ev: Event): Promise<void> {
       fileMsg.value = { text: 'Niêm phong đang chờ hoàn tất: chưa đối chiếu được, thử lại sau.', tone: 'warn' }
     } else if (r.match === true) {
       fileMsg.value = { text: 'Khớp: tệp này đúng là tệp đã được niêm phong.', tone: 'ok' }
-      await fetchAndVerify(mine, id, hex)
+      if (state.value !== null && HAS_BUNDLE.has(state.value)) await fetchAndVerify(mine, id, hex)
     } else {
       fileMsg.value = { text: 'Không khớp: tệp này khác tệp đã được niêm phong (đã bị sửa hoặc là tệp khác).', tone: 'bad' }
     }
@@ -169,7 +169,9 @@ const verdict = computed(() => {
 
 const localInvalid = computed(() => local.value !== null && !local.value.result.ok && local.value.result.code !== 'UNSUPPORTED_CRYPTO')
 const showDetails = computed(() => state.value !== null && WITH_DATA.has(state.value) && !localInvalid.value)
-const showFileCheck = computed(() => showDetails.value && requireFile.value && HAS_BUNDLE.has(state.value as PortalState))
+// WAIT_STH: vẫn cho chọn tệp để chạy `:check` (như trang tối giản), nhưng chưa có gói nên không có kết quả tự kiểm.
+const showFileCheck = computed(() => showDetails.value && requireFile.value
+  && (HAS_BUNDLE.has(state.value as PortalState) || state.value === 'WAIT_STH'))
 
 /** Payload đã ký (chỉ khi tự kiểm đạt): nguồn đáng tin cho giá trị hiển thị. */
 const signed = computed(() => (local.value?.result.ok ? local.value.result.payload : null))

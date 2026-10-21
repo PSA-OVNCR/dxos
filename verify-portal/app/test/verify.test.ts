@@ -3,7 +3,7 @@
 // Tự kiểm gói trên trình duyệt có repo neo: repo không truy cập được ≠ gói không hợp lệ (quyết định điều phối 1).
 import { rawAnchor, type AnchorSource } from 'dxos-sdk-js'
 import { describe, expect, test } from 'vitest'
-import { explainFailure, verifyInBrowser } from '../src/verify'
+import { ANCHOR_PROBE_PATH, explainFailure, verifyInBrowser } from '../src/verify'
 
 interface Vector { bundle_text: string; anchor_files: Record<string, string>; file_sha256?: string }
 const VECTORS = import.meta.glob<Vector>('../../../sdk/js/test/vectors/*.json', { eager: true, import: 'default' })
@@ -52,6 +52,43 @@ describe('verifyInBrowser', () => {
     const r = await verifyInBrowser(v.bundle_text, { anchor: throwing })
     expect(r.result.ok).toBe(false)
     expect(r.result.code).toBe('SIGNATURE')
+  })
+
+  test('máy chủ chọn đường dẫn làm fetch hỏng nhưng repo neo vẫn trả lời → không hợp lệ, không rơi về không ghim', async () => {
+    const v = vec('ok-anchored')
+    const real = fromVector(v)
+    // Đường dẫn do gói chọn (keys/seal-key/v<key_version>.pub) bị hỏng; đường dẫn cố định vẫn trả lời.
+    const poisoned: AnchorSource = {
+      file: async (p) => {
+        if (p.startsWith('keys/seal-key/')) throw new Error('414 URI Too Long')
+        return real.file(p)
+      },
+    }
+    const r = await verifyInBrowser(v.bundle_text, { anchor: poisoned })
+    expect(r.result.ok).toBe(false)
+    expect(r.result.pinned).toBe(true)
+    expect(r.anchorNote).toBe('')
+    // Repo neo trả 404 cho đường dẫn thăm dò cũng là "đã với tới repo".
+    const notFound: AnchorSource = {
+      file: async (p) => {
+        if (p === ANCHOR_PROBE_PATH) return null
+        throw new Error('boom')
+      },
+    }
+    const r2 = await verifyInBrowser(v.bundle_text, { anchor: notFound })
+    expect(r2.result.ok).toBe(false)
+    expect(r2.anchorNote).toBe('')
+  })
+
+  test('đường dẫn thăm dò cũng ném lỗi → repo neo thật sự không truy cập được → không ghim kèm ghi chú', async () => {
+    const v = vec('ok-anchored')
+    const probed: string[] = []
+    const down: AnchorSource = { file: async (p) => { probed.push(p); throw new Error('mạng đứt') } }
+    const r = await verifyInBrowser(v.bundle_text, { anchor: down })
+    expect(r.result.ok).toBe(true)
+    expect(r.result.pinned).toBe(false)
+    expect(r.anchorNote).toBe('Không truy cập được repo neo — chưa đối chiếu')
+    expect(probed).toContain(ANCHOR_PROBE_PATH)
   })
 
   test('repo neo trả 404 → KEY_NOT_ANCHORED là không hợp lệ thật (không rơi về không ghim)', async () => {
