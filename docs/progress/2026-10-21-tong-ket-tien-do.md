@@ -22,7 +22,7 @@ SPDX-License-Identifier: Apache-2.0
 |---|---|---|---|
 | M0 | 26/10 | Hạ tầng chạy được, đo RAM, spike Flowable | Gần xong: thiếu đo RAM và chạy trên VPS |
 | **M1** | **09/11** | Lõi Tier-0 phần 1, release **v0.1.0** | **Mã xong**; chờ E2E trên VPS + tag |
-| M2 | 16/11 | v0.2.0: guard + BPMN, niêm phong, installer, App A và B cài bằng manifest, witness độc lập | **Đang làm**: Plan 02 xong 15/15 task phần cloud, đang review toàn nhánh; còn việc VPS (mục 12) |
+| M2 | 16/11 | v0.2.0: guard + BPMN, niêm phong, installer, App A và B cài bằng manifest, witness độc lập | **Mã xong (cloud)**: Plan 02 15/15 task + review toàn nhánh; còn việc VPS và tag v0.2.0 (mục 12) |
 | M3 | 23/11 | v0.3.0: SDK, SPA A và B, cổng đối soát, triển khai VPS theo tag | Chưa bắt đầu |
 | M4 | 30/11 | v0.9.0: SHOULD, chạy thử với người dùng, tài liệu + SBOM | Chưa bắt đầu |
 | M5 | 04/12 | v1.0.0, máy sạch, đóng băng mã | Chưa bắt đầu |
@@ -122,7 +122,7 @@ Chi tiết: `BUILD.md`, `docs/runbook-openbao.md`, `docs/runbook-anchor.md`.
 
 ---
 
-## 11. Plan 02 (M2) — cập nhật 21/10/2026 21:40
+## 11. Plan 02 (M2) — cập nhật 21/10/2026 23:00
 
 *Chạy bằng subagent, mỗi task qua review (spec + chất lượng) và sửa xong mới đóng. Mọi commit đã push lên main.*
 
@@ -143,9 +143,9 @@ Chi tiết: `BUILD.md`, `docs/runbook-openbao.md`, `docs/runbook-anchor.md`.
 | 13 | CLI `dxos` (device flow, refresh token gắn server) | `616a95b` | Xong |
 | 14 | BPMN + manifest 1.1.0 App A/B, AT-14 quét toàn bộ image lõi | `cb8e2a2` | Xong |
 | 15 | E2E M2 (viết sẵn, chạy trên VPS), AT-13 script, release GHCR, OpenAPI, tài liệu pháp lý/manifest/runbook xóa PII | `d17c755` | Xong phần cloud |
-| — | Review toàn nhánh (model mạnh nhất) | — | Đang chạy |
+| — | Review toàn nhánh (model mạnh nhất) + 1 vòng sửa (treo pool kết nối; nâng cấp sau disable lọt luật P2-D14; 10 lỗi nhỏ) | `2b78542` | Xong |
 
-Test gần nhất (`d17c755`): `make check` 1110 passed, integration 395 passed, witness 86 passed; CI GitHub xanh — chạy ở cloud không có Docker (PostgreSQL 16, OpenBao 2.2.0, SeaweedFS, Flowable 7.1.0, Keycloak 26.3.0, Caddy 2.10.0 chạy trực tiếp).
+Test gần nhất (`2b78542`): `make check` 1125 passed (không cảnh báo), integration 409 passed, witness 86, CLI 145; CI GitHub xanh. Sổ quyết định đầy đủ: `docs/handoff/plan02/ledger.md` — chạy ở cloud không có Docker (PostgreSQL 16, OpenBao 2.2.0, SeaweedFS, Flowable 7.1.0, Keycloak 26.3.0, Caddy 2.10.0 chạy trực tiếp).
 
 ## 12. Việc cần VPS / trưởng nhóm làm sau (gom từ Plan 02)
 
@@ -173,4 +173,7 @@ Test gần nhất (`d17c755`): `make check` 1110 passed, integration 395 passed,
 | V21 | `docs/legal-mapping.md`: từng thành viên đọc toàn văn từng điều và tự điền tên + ngày; điền cột "Điểm" của Điều 14 k1 và chốt thời hạn giữ backup trong `docs/runbook-pii-erasure.md` | Cả đội | Không được để agent điền thay |
 | V22 | VPS phải dùng Docker Compose ≥ 2.24 (overlay phát hành dùng `!reset`) | VPS | Lỗi CI 21/10 cho thấy phụ thuộc phiên bản |
 | V23 | Cổng năng suất M2: viết `docs/progress/2026-11-16.md` sau khi V17–V20 xong | Trưởng nhóm | Không ghi kết quả chưa chạy |
+| V24 | Bật NTP trên VPS (lệch giờ giữa API và worker làm niêm phong bị báo "khóa hết hạn", job sẽ thử lại) | VPS | — |
+| V25 | Viết runbook xử lý bản ghi bị chặn `workflow-inconsistent` (task bị xóa/hoàn thành ngoài lõi trên Flowable) | Trưởng nhóm | Cần quyết định nghiệp vụ |
+| V26 | Chụp lại minh chứng trang `/apps/verify/`: tiêu đề giờ là "Hợp lệ — chưa neo công khai" cho tới khi STH được neo; kịch bản demo phải tính tới | dev-lite / VPS | Tài liệu minh chứng cũ còn tiêu đề "Hợp lệ" |
 | V13 | (Từ Plan 01) Task 7 đo RAM; E2E Task 17; tag `v0.1.0`; repo neo + ruleset + khóa deploy + ảnh AT-18; witness độc lập; duyệt giấy phép pypdfium2; duyệt push GHCR | VPS / trưởng nhóm | Hành động công khai hoặc cần máy thật |
