@@ -22,7 +22,7 @@ SPDX-License-Identifier: Apache-2.0
 |---|---|---|---|
 | M0 | 26/10 | Hạ tầng chạy được, đo RAM, spike Flowable | Gần xong: thiếu đo RAM và chạy trên VPS |
 | **M1** | **09/11** | Lõi Tier-0 phần 1, release **v0.1.0** | **Mã xong**; chờ E2E trên VPS + tag |
-| M2 | 16/11 | v0.2.0: guard + BPMN, niêm phong, installer, App A và B cài bằng manifest, witness độc lập | Chưa bắt đầu (cần viết Plan 02) |
+| M2 | 16/11 | v0.2.0: guard + BPMN, niêm phong, installer, App A và B cài bằng manifest, witness độc lập | **Đang làm**: Plan 02 xong 11/15 task (mục 11) |
 | M3 | 23/11 | v0.3.0: SDK, SPA A và B, cổng đối soát, triển khai VPS theo tag | Chưa bắt đầu |
 | M4 | 30/11 | v0.9.0: SHOULD, chạy thử với người dùng, tài liệu + SBOM | Chưa bắt đầu |
 | M5 | 04/12 | v1.0.0, máy sạch, đóng băng mã | Chưa bắt đầu |
@@ -119,3 +119,48 @@ make test-db-up && DXOS_TEST_REQUIRE_DB=1 make test-integration
 cp .env.example .env && make up PROFILE=dev-lite
 ```
 Chi tiết: `BUILD.md`, `docs/runbook-openbao.md`, `docs/runbook-anchor.md`.
+
+---
+
+## 11. Plan 02 (M2) — cập nhật 21/10/2026 19:20
+
+*Chạy bằng subagent, mỗi task qua review (spec + chất lượng) và sửa xong mới đóng. Mọi commit đã push lên main.*
+
+| Task | Nội dung | Commit cuối | Trạng thái |
+|---|---|---|---|
+| 1 | Manifest 1.0.3: revoke_roles, tham số guard, nhãn, đánh số theo năm | `15003fa` | Xong |
+| 2 | Migration 003+004: bảng workflow/niêm phong, salt theo bản ghi, bằng chứng xóa PII, chống bảng tạm che bảng thật | `c57e006` | Xong |
+| 3 | Bộ kiểm BPMN theo danh sách cho phép, lõi tự dựng lại BPMN rồi mới deploy | `4e37fb5` | Xong |
+| 4 | Client Flowable (kiểm với Flowable 7.1.0 thật) | `2e81007` | Xong |
+| 5 | Danh mục guard | `762d42a` | Xong |
+| 6 | Cầu nối workflow: ý định + đối soát, khóa theo bản ghi, bất biến chống lệch Flowable/DB | `2ac5789` | Xong |
+| 7 | Niêm phong (ảnh chụp), thu hồi, xóa PII, tuyên bố khóa | `d25bd40` | Xong |
+| 8 | API kiểm tra công khai, gói bằng chứng, khóa công khai + tuyên bố khóa lên repo neo | `cdb8f21` | Xong |
+| 9 | `dxos-witness verify-bundle` (AT-17, AT-28) | `d7e06b2` | Xong |
+| 10 | Trang kiểm tra tối giản (WebCrypto, CSP chặt); sửa lỗi Plan 01: danh sách IP admin không có hiệu lực | `fbf074c` | Xong |
+| 11 | Keycloak: service account installer, client `dxos-cli`, script nâng cấp realm | `3b2c0e6` | Xong |
+| 12 | Installer, duyệt bốn mắt, health, quarantine | `84b329c` | Đang sửa vòng 1 |
+| 13 | CLI `dxos` | — | Chưa |
+| 14 | BPMN + manifest 1.1.0 App A/B, mở rộng AT-14 | — | Chưa |
+| 15 | Tài liệu (`docs/legal-mapping.md`…) + e2e | — | Chưa |
+| — | Review toàn nhánh (model mạnh nhất) | — | Chưa |
+
+Test gần nhất (`84b329c`): `make check` 891 passed, integration 390 passed, witness 86 passed — chạy ở cloud không có Docker (PostgreSQL 16, OpenBao 2.2.0, SeaweedFS, Flowable 7.1.0, Keycloak 26.3.0, Caddy 2.10.0 chạy trực tiếp).
+
+## 12. Việc cần VPS / trưởng nhóm làm sau (gom từ Plan 02)
+
+| # | Việc | Ở đâu | Vì sao chưa làm ở cloud |
+|---|---|---|---|
+| V1 | Chạy `python ops/keycloak_upgrade.py` (prod) và `--profile dev-lite` (dev stack); chạy 2 lần, lần 2 phải "không thay đổi gì" | VPS + dev stack | Keycloak bỏ qua import khi realm đã có; nhánh `docker exec` chỉ mới unit test |
+| V2 | Lấy secret client `dxos-installer` trong Keycloak → đặt vào `.env` (`DXOS_INSTALLER_CLIENT_SECRET`) → tạo lại `trust-core-api` | VPS + dev stack | Secret thật không được vào repo |
+| V3 | Nếu mật khẩu bootstrap admin đã đổi: chạy script với `--admin-user` | VPS | — |
+| V4 | Đặt `DXOS_ORG_NAME` (tên thật của tổ chức) và `DXOS_ORG_ID`; lõi **từ chối niêm phong** khi tên trống/mặc định/bắt đầu bằng `changeme` | VPS | Tên ghi vĩnh viễn vào tuyên bố khóa (chỉ thêm, đã neo) |
+| V5 | Kiểm `trust-core-api` gọi được `http://keycloak:8080/auth/admin/realms/dxos` khi bật `KC_HOSTNAME*` của prod | VPS | Cloud không có Docker |
+| V6 | Kiểm APISIX định tuyến đúng `…/seals/{id}:check` và `:bundle` (dấu `:` trong đường dẫn) | dev-lite/VPS | Chỉ kiểm qua Caddy → uvicorn |
+| V7 | Kiểm `remote_ip` của Caddy thấy IP thật sau Docker (danh sách IP admin vừa được sửa để có hiệu lực) | VPS | — |
+| V8 | Chụp lại ảnh + `curl` trang `/apps/verify/` trên dev-lite/VPS (ảnh hiện có lấy từ Caddy + uvicorn không Docker) | dev-lite/VPS | — |
+| V9 | Xem lần chạy CI đầu của job `caddy-live` (tải Caddy 2.10.0, kiểm sha512) | GitHub Actions | Chưa push lên Actions lần nào với job này |
+| V10 | Flowable phải giữ history level ≥ `audit` (mặc định); bất biến chống lệch dựa vào lịch sử Flowable | VPS | — |
+| V11 | Task bị xóa thẳng trên console Flowable sẽ làm bản ghi bị chặn (`workflow-inconsistent`) — cần người xử lý tay; đừng thao tác trên console Flowable | VPS | Chủ ý an toàn |
+| V12 | Đồng bộ `witness/template/README.md` sang repo `PSA-OVNCR/dxos-witness-kit` | GitHub | Repo riêng, chưa gắn vào phiên |
+| V13 | (Từ Plan 01) Task 7 đo RAM; E2E Task 17; tag `v0.1.0`; repo neo + ruleset + khóa deploy + ảnh AT-18; witness độc lập; duyệt giấy phép pypdfium2; duyệt push GHCR | VPS / trưởng nhóm | Hành động công khai hoặc cần máy thật |
