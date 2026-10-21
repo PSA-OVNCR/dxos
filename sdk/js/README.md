@@ -10,6 +10,8 @@ test. Hợp đồng HTTP mà SDK bám theo: [docs/api/contract-tier2.md](../../d
   tạo thêm bản thư viện `dist/` (`index`, `vue`) nhưng bản đó chưa được ai dùng.
 - Đã kiểm bằng test đơn vị (Vitest + jsdom) và Playwright với API giả. **Chưa kiểm với Keycloak và lõi thật trên trình
   duyệt thật** (V27, xem `docs/progress/2026-10-21-tong-ket-tien-do.md` mục 13).
+- `verifyBundle` bám `dxos-witness verify-bundle` và chạy chung bộ vector, nhưng **không** hứa trùng tuyệt đối với Python. Hai khác biệt đã
+  biết: JS chỉ nhận tối đa 2 dấu `=` đệm base64, và số nguyên dài hơn 4300 chữ số cho `MALFORMED` ở Python nhưng JS vẫn chấp nhận.
 - SDK chỉ để hiển thị và gọi API cho tiện. Mọi quyết định về quyền, guard, niêm phong đều do lõi; vai trò trong token
   (`auth.roles()`) chỉ dùng để ẩn hiện nút.
 
@@ -88,7 +90,7 @@ Các phương thức khác: `whoami`, `list`, `get`, `bulk`, `attachments`, `dow
 
 ## Tự kiểm gói bằng chứng: `verifyBundle`
 Bản dịch từng bước của `dxos-witness verify-bundle` sang TypeScript, dùng WebCrypto (Ed25519, SHA-256); hai bên chạy chung
-một bộ vector trong test để không lệch kết quả. Tệp gốc của người dùng chỉ được băm tại máy, không được tải lên.
+một bộ vector trong test để phát hiện lệch kết quả (còn hai khác biệt đã biết ở mục "Phạm vi và giới hạn"). Tệp gốc của người dùng chỉ được băm tại máy, không được tải lên.
 
 ```ts
 import { DxosClient, rawAnchor, sha256Hex, verifyBundle } from 'dxos-sdk-js'
@@ -163,7 +165,11 @@ Ví dụ đầy đủ chạy được: [examples/so-muon-sach](../../examples/so
 Chỉ import trong test (nó nhập `vitest`; hai `index.ts` không bao giờ nhắc tới nó, có test kiểm).
 
 ```ts
-import { fakeClient, fakeFetch, problem } from 'dxos-sdk-js/testing'
+import type { ManifestView } from 'dxos-sdk-js'
+import { fakeClient, fakeFetch, problem, rec, sealInfo } from 'dxos-sdk-js/testing'
+
+const view = {} as ManifestView        // thay bằng manifest mẫu của ứng dụng (kiểu trả về của client.manifest())
+const record1 = rec({ id: 'r1' })       // bản ghi mẫu
 
 // Client giả: mỗi phương thức của DxosClient là vi.fn.
 const client = fakeClient({
@@ -177,7 +183,7 @@ const client = fakeClient({
 // fetch giả cho DxosClient thật:
 const f = fakeFetch([{ json: { items: [] } }, { status: 403, problem: { type: 'https://dxos.dev/problems/guard-failed', title: 'x', status: 403 } }])
 ```
-Ngoài ra có `client`, `rec`, `task`, `att`, `sealInfo` (dữ liệu mẫu) và `apiErr` (tên khác của `problem`).
+Ngoài ra có `client` (DxosClient thật trên fetch giả), `rec`, `task`, `att`, `sealInfo` (dữ liệu mẫu) và `apiErr` (tên khác của `problem`).
 Với phương thức trả mảng (`listAll`, `attachments`, `tasks`, `bulk`), một mảng phẳng là *giá trị*, không phải chuỗi
 kết quả lần lượt; muốn lần lượt thì bọc mỗi lần trong một mảng.
 

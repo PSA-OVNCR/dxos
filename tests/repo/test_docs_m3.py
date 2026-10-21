@@ -151,3 +151,35 @@ def test_plan00_row_03_updated():
     row = next(ln for ln in _doc(PLAN00).splitlines() if ln.startswith("| 03 |"))
     assert "15/15" in row
     assert "chờ duyệt" not in row
+
+
+_REVIEW_CLAIMS = ("mỗi task đã qua review", "mỗi task qua review")
+
+
+def test_no_all_tasks_reviewed_claim_while_a_task_is_unreviewed():
+    """Còn task "Chưa review" thì không được nói "mỗi task qua review" (progress mục 13, plan 00)."""
+    progress = _doc(PROGRESS)
+    sec = progress[progress.index("## 13. Plan 03"):]
+    m3_row = next(ln for ln in progress.splitlines() if ln.startswith("| M3 |"))
+    plan_row = next(ln for ln in _doc(PLAN00).splitlines() if ln.startswith("| 03 |"))
+    for name, text in (("progress mục 13", sec), ("progress hàng M3", m3_row), ("plan 00 hàng 03", plan_row)):
+        for claim in _REVIEW_CLAIMS:
+            assert claim not in text, f"{name}: '{claim}'"
+    if "Chưa review" in sec:
+        # Task 15 chờ review: các nơi nhắc review phải nói rõ phạm vi Task 1–14
+        assert "Task 1–14 đã qua review" in m3_row and "Task 15 đang chờ review" in m3_row
+        assert "Task 1–14 đã qua review" in plan_row
+
+
+def test_build_md_web_section_says_images_unpinned_and_not_run():
+    text = _doc("BUILD.md")
+    sec = text[text.index("## Dựng SPA Tầng 2"):]
+    assert "V35" in sec and "V27" in sec
+    assert "make pin-images" in sec and "chưa từng chạy" in sec
+
+
+def test_verify_parity_gap_is_disclosed():
+    for rel in ("sdk/js/README.md", "CHANGELOG.md"):
+        text = _doc(rel)
+        assert "4300" in text, rel
+    assert "4300" in _doc(PROGRESS)

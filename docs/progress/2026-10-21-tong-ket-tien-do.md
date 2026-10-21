@@ -4,11 +4,12 @@ SPDX-License-Identifier: Apache-2.0
 -->
 # Tổng kết tiến độ DX-OS Trust Core — 21/10/2026
 
-*Đội PSA_OVNCR · Kho mã: https://github.com/PSA-OVNCR/dxos (public, Apache-2.0) · Cập nhật đến commit `56bac6e`.*
+*Đội PSA_OVNCR · Kho mã: https://github.com/PSA-OVNCR/dxos (public, Apache-2.0) · Mục 1–12 cập nhật đến commit `56bac6e` (Plan 01) và Plan 02 (mục 11–12); mục 13 (Plan 03) xem bên dưới.*
 *Thay cho bản 20/10 (`2026-10-20-tong-ket-tien-do.md`, giữ lại làm lịch sử).*
 *Mục 13 (Plan 03, M3) cập nhật 22/10/2026 đến commit `59758be` (Task 14) và commit tài liệu của Task 15.*
 
 ## 1. Tóm tắt trong 30 giây
+- **Cập nhật 22/10: Plan 03 (M3, v0.3.0) có mã xong ở cloud, chưa gắn tag, chưa chạy trên stack thật.** Xem mục 13 (task, số test, việc V27–V36). Các gạch đầu dòng còn lại của mục này là hiện trạng cũ của Plan 01.
 - **Plan 01 (M0 → M1): xong phần mã của cả 17 task.** Task 1–6 và 8–16 đã xong; Task 7 (đo RAM) dời sang VPS;
   Task 17 còn chạy lại E2E trên VPS và gắn tag `v0.1.0`.
 - Lõi Tầng 1 đã có: SSO/JWT, kho manifest, PDP + che PII, Records API, tải tệp → kiểm dịch → kho theo nội dung,
@@ -26,7 +27,7 @@ SPDX-License-Identifier: Apache-2.0
 | M0 | 26/10 | Hạ tầng chạy được, đo RAM, spike Flowable | Gần xong: thiếu đo RAM và chạy trên VPS |
 | **M1** | **09/11** | Lõi Tier-0 phần 1, release **v0.1.0** | **Đã phát hành v0.1.0 (22/10)**; còn E2E trên VPS |
 | M2 | 16/11 | v0.2.0: guard + BPMN, niêm phong, installer, App A và B cài bằng manifest, witness độc lập | **Mã xong (cloud)**: Plan 02 15/15 task + review toàn nhánh; còn việc VPS và tag v0.2.0 (mục 12) |
-| M3 | 23/11 | v0.3.0: SDK, SPA A và B, cổng đối soát, triển khai VPS theo tag | **Mã xong (cloud)**: Plan 03 15/15 task, mỗi task đã qua review; **chưa gắn tag**; còn việc máy thật V27–V36 (mục 13) và tag `v0.3.0` sau `v0.2.0` (V33) |
+| M3 | 23/11 | v0.3.0: SDK, SPA A và B, cổng đối soát, triển khai VPS theo tag | **Mã xong (cloud)**: Plan 03 15/15 task; Task 1–14 đã qua review, Task 15 đang chờ review; **chưa gắn tag**; còn việc máy thật V27–V36 (mục 13) và tag `v0.3.0` sau `v0.2.0` (V33) |
 | M4 | 30/11 | v0.9.0: SHOULD, chạy thử với người dùng, tài liệu + SBOM | Chưa bắt đầu |
 | M5 | 04/12 | v1.0.0, máy sạch, đóng băng mã | Chưa bắt đầu |
 | Nộp bài | 17:00 06/12 | Điểm PoF chấm theo hiện trạng kho lúc gửi (G16) | |
@@ -185,7 +186,7 @@ Test gần nhất (`2b78542`): `make check` 1125 passed (không cảnh báo), in
 
 ## 13. Plan 03 (M3) — cập nhật 22/10/2026
 
-*Chạy bằng subagent trên main, mỗi task qua review (spec + chất lượng) rồi sửa xong mới đóng. Sổ điều phối từng quyết định: `.superpowers/sdd/2026-10-22-dxos-03-tier1-m3/progress.md`; báo cáo từng task cùng thư mục (`task-N-report.md`). Dựng ở cloud không có Docker, VPS hay Keycloak thật: mọi thứ cần chúng nằm ở bảng V-việc bên dưới, **không** tính là đã kiểm.*
+*Chạy bằng subagent trên main; Task 1–14 đã qua review (spec + chất lượng) và sửa xong mới đóng, Task 15 đang chờ review. Sổ điều phối từng quyết định: `.superpowers/sdd/2026-10-22-dxos-03-tier1-m3/progress.md`; báo cáo từng task cùng thư mục (`task-N-report.md`). Dựng ở cloud không có Docker, VPS hay Keycloak thật: mọi thứ cần chúng nằm ở bảng V-việc bên dưới, **không** tính là đã kiểm.*
 
 ### 13.1. Từng task
 Cột "Review" ghi kết quả vòng đầu và số vòng sửa. "Test" là số liệu do chính task báo lúc đóng, không phải số cuối (số cuối ở 13.2).
@@ -196,7 +197,7 @@ Cột "Review" ghi kết quả vòng đầu và số vòng sửa. "Test" là s�
 | 2 | npm workspace, job CI `web`, SDK `DxosClient` (`If-Match`, không tự thử lại) | `7969a5c` | 32 test client | Duyệt, không phải sửa |
 | 3 | SDK: đăng nhập OIDC PKCE, làm mới single-flight; ghim jsdom 29.1.1 | `ab2c862`, `854cc3e` | 20 test auth | Duyệt, không phải sửa |
 | 4 | SDK: tự kiểm gói bằng chứng trên trình duyệt, vector dùng chung Python/JS | `c39d25c` | JS 111 test + Python (`witness/tests/test_web_vectors.py`) cùng một bộ vector | Duyệt (model mạnh), không phải sửa |
-| 5 | SDK: thành phần Vue (trạng thái kiểm dịch, QR, liên kết đối soát, biểu mẫu, thông báo lỗi) | `927c324` | 224 test SDK lúc đóng; test đối chiếu `CORE_SLUGS` với mã lõi | Duyệt, không phải sửa |
+| 5 | SDK: thành phần Vue (trạng thái kiểm dịch, QR, liên kết đối soát, biểu mẫu, thông báo lỗi) | `575bc7a`, `927c324` | 224 test SDK lúc đóng; test đối chiếu `CORE_SLUGS` với mã lõi | Duyệt, không phải sửa |
 | 6 | Cổng đối soát Vue `/apps/verify/` (AT-25); trang tối giản chuyển sang `/apps/verify-lite/` | `9956cf9`, `1b908dc` | 39 test cổng; Playwright (API giả) 15 passed | Vòng đầu **Critical**: lỗi repo neo hạ gói giả xuống "chưa đối chiếu"; **1 vòng sửa** (thăm dò khóa cố định trước khi rơi về không ghim; kiểm tệp khi chờ STH) rồi duyệt |
 | 7 | App A: danh sách, tạo, tệp kèm có trạng thái kiểm dịch, nộp duyệt | `1797f1b`, `ed906c6`, `9839fca`, `55e65b9` | 48 test App A lúc đóng | Vòng đầu **Important**: trang trắng khi không bắt đầu được đăng nhập; **1 vòng sửa** rồi duyệt |
 | 8 | App A: hộp việc, rà soát và xóa PII, niêm phong có QR, thu hồi, Sổ đăng ký văn bản đi | `fd2803d` | 109 test App A | Duyệt, không phải sửa |
@@ -209,7 +210,7 @@ Cột "Review" ghi kết quả vòng đầu và số vòng sửa. "Test" là s�
 | 15 | Tài liệu: README (VI, EN), BUILD.md, CHANGELOG `[0.3.0]`, `sdk/js/README.md`, mục này, `tests/repo/test_docs_m3.py` | commit `docs(m3)` ngay sau `59758be` | `test_docs_m3.py` (RED rồi GREEN) | Chưa review |
 
 ### 13.2. Số test cuối (do Task 15 chạy trên commit này, 22/10/2026, cloud không Docker)
-- `make check PYTHON=python`: **1508 passed, 6 skipped, 483 deselected** (mã thoát 0; ruff sạch; 5 test Caddy sống bỏ qua vì không có binary `caddy`, 1 test `ots` chính thức bỏ qua).
+- `make check PYTHON=python`: **1511 passed, 6 skipped, 483 deselected** (mã thoát 0; ruff sạch; 5 test Caddy sống bỏ qua vì không có binary `caddy`, 1 test `ots` chính thức bỏ qua).
 - `npm run check`: mã thoát 0. SDK **251**, cổng đối soát **39**, App A **100**, App B **101**, ví dụ `so-muon-sach` **10** test (tổng 501); typecheck và build cả 5 workspace đạt.
 - `reuse lint`: mã thoát 0, 565/565 tệp có bản quyền và giấy phép.
 - Integration (PostgreSQL 16 chạy tại chỗ, `DXOS_TEST_REQUIRE_DB=1 python -m pytest -m integration core/tests/integration`): **445 passed, 1 skipped** (bỏ qua: test trình duyệt cần `DXOS_TEST_BROWSER=1`). Bộ này không gồm test cần Docker (`-m infra`, `-m e2e`).
@@ -246,6 +247,7 @@ Thứ tự: `v0.2.0` (V18) rồi `v0.3.0` (V33). Mỗi tag:
 - **Sổ đăng ký (Task 8)**: năm của sổ lấy từ `issued_at` còn bộ đếm `so_hieu` theo năm tạo bản ghi; cần ghi vào runbook.
 - **Ma trận AT (Task 11)**: `2026-10-22-e2e-m2-docker-desktop.md` tự mâu thuẫn về AT-19 (bảng ghi PASSED, mục "Chưa làm" ghi chưa); ma trận ghi cả hai, trưởng nhóm cần xác nhận.
 - **OpenTimestamps (Task 14)**: thứ tự nhánh khi nhiều biên nhận cùng nút là tất định nhưng không cam kết trùng từng byte với `ots` chính thức (không ảnh hưởng tính hợp lệ).
+- **Khác biệt đã biết giữa bộ kiểm JS và Python** (Task 4, chưa sửa, không đổi kết quả hợp lệ/không hợp lệ của gói thật): `b64decodePy` chỉ chấp nhận tối đa 2 dấu `=` đệm trong khi Python chấp nhận nhiều hơn sau một nhóm đủ; số nguyên dài hơn 4300 chữ số cho `MALFORMED` ở Python nhưng JS vẫn chấp nhận (ở trường không được ký). Vì vậy không được nói hai bên "cùng mã lỗi" tuyệt đối.
 - Cổng đối soát: nếu GitHub trả được `v1.pub` nhưng lỗi tạm thời ở tệp khác, người dùng thấy "Không hợp lệ" thay vì "chưa đối chiếu" (đánh đổi đã chấp nhận ở Task 6).
 - Trên stack dev đang chạy, `/apps/verify/` trả 404 cho tới khi `make web-build` (trang cũ ở `/apps/verify-lite/`).
 - Ảnh minh chứng trong `docs/evidence/verify-page-*.png` chụp từ trang tối giản; ảnh của cổng Vue chưa có (nằm trong V27).

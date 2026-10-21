@@ -19,7 +19,7 @@ Mã đã xong và đã qua test đơn vị, integration và Playwright với API
 - **SDK `dxos-sdk-js`** (`sdk/js/`, npm workspace; chưa công bố lên npm): client HTTP `DxosClient` (`If-Match` luôn
   lấy từ một lần GET ngay trước, không tự thử lại yêu cầu ghi), đăng nhập OIDC Authorization Code + PKCE `createAuth`
   (token chỉ nằm trong `sessionStorage`, làm mới single-flight), bộ kiểm gói bằng chứng trên trình duyệt `verifyBundle`
-  (cùng thứ tự và mã lỗi với `dxos-witness verify-bundle`; hai bên chạy chung một bộ vector), thành phần Vue
+  (dịch từng bước `dxos-witness verify-bundle`, hai bên chạy chung một bộ vector; còn hai khác biệt đã biết, xem Known limitations), thành phần Vue
   (`QuarantineStatus`, `SealQr`, `VerifyLink`, `RecordForm`, `ProblemMessage`, `AppShell`, `SealPanel`, `PiiPanel`,
   `ConfirmDialog`, `boot`) và công cụ test `dxos-sdk-js/testing` (`fakeFetch`, `fakeClient`, `problem`). Hướng dẫn: `sdk/js/README.md`.
 - **Cổng đối soát Vue** `/apps/verify/` (`verify-portal/app/`, AT-25): hash tệp và tự kiểm gói bằng chứng ngay trên trình
@@ -94,6 +94,9 @@ calendar OpenTimestamps; việc cần làm ghi ở `docs/progress/2026-10-21-ton
   MIT-0, CC0-1.0 (`mdn-data`) chỉ nằm trong công cụ build, không vào bundle; chờ trưởng nhóm xác nhận (V30).
 - Nhập CSV của App B chưa lọc ký tự điều khiển C0 và NUL phía trình duyệt; lõi chưa chặn riêng ký tự này nên một dòng như vậy
   có thể làm lô nhập bị lỗi máy chủ giữa chừng (đã ghi để rà soát cuối).
+- `verifyBundle` (JS) và `dxos-witness verify-bundle` (Python) dùng chung bộ vector nhưng còn hai khác biệt đã biết: JS chỉ nhận tối đa 2 dấu `=` đệm
+  trong base64 (Python nhận nhiều hơn sau một nhóm đủ), và số nguyên dài hơn 4300 chữ số cho `MALFORMED` ở Python nhưng JS vẫn chấp nhận.
+  Hai khác biệt này không làm gói thật đổi kết quả.
 - Gói npm `dxos-sdk-js` chưa công bố lên npm (`private: true`); ứng dụng dùng SDK qua npm workspace.
 
 ## [0.2.0] - Chưa phát hành

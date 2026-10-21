@@ -26,6 +26,14 @@ They are clients of the core API only; every security decision stays in the core
 | `/apps/verify-lite/` | The earlier minimal verification page (static HTML, no build), kept as a fallback | `verify-portal/minimal` |
 | `/apps/so-muon-sach/` | Example app of the 30-minute tutorial | `examples/so-muon-sach` |
 
+Scope of App B (spec section 14): it is a system to **manage and verify electronic certificates** (certificates of event
+participation). It is **not** a PKI certificate-issuing system, **not** a digital signature or digital-signature
+certification service, and it does **not** issue diplomas or certificates of the national education system. The "digital
+seal" is the operating organisation's special-purpose electronic signature and has **not** been certified as secure
+(section 25.1); for outsiders, verification is a technical integrity check.
+
+The tutorial's AT-26 test (an outside person follows the 30-minute guide) has not been organised yet (V31).
+
 ```bash
 npm ci && make web-check     # needs Node 22 and npm 11.6.2 (see BUILD.md)
 make web-build               # builds in a one-shot Node container into the apps-static volume

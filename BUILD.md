@@ -147,7 +147,13 @@ Chi tiết manifest, guard, BPMN, luật nâng phiên bản: [docs/manifest-guid
 ## Dựng SPA Tầng 2 và kiểm trên trình duyệt thật
 Bốn SPA (App A `/apps/phong-ho-so/`, App B `/apps/chung-nhan/`, cổng đối soát `/apps/verify/` và ví dụ của hướng dẫn 30 phút `/apps/so-muon-sach/`) nằm trong volume `apps-static`
 (`dxos_apps-static`, Caddy mount chỉ đọc ở `/srv/apps`). Stack không có dịch vụ build; `make web-build` chạy MỘT
-container Node dùng một lần (image ghim digest ở đầu `ops/web_build_docker.sh`, ghim bằng `make pin-images`):
+container Node dùng một lần (image ghim digest ở đầu `ops/web_build_docker.sh`, ghim bằng `make pin-images`).
+
+> **Chưa ghim, chưa chạy.** `NODE_IMAGE` (`ops/web_build_docker.sh`) và `PLAYWRIGHT_IMAGE` (`ops/web_live.sh`) hiện **chưa ghim digest**
+> (registry bị chặn 403 lúc viết), nên `make web-build` và `make web-live` thoát mã 3 cho tới khi ai đó chạy `make pin-images` trên
+> máy có Docker và commit kết quả (V35). Hai lệnh này, cùng bộ Playwright live, **chưa từng chạy** (V27). `make web-check` và
+> `sh ops/build_web.sh <thư mục>` (Node 22, npm 11.6.2) không cần Docker.
+
 
 ```bash
 make up                 # lần đầu: tạo volume apps-static
