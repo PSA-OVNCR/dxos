@@ -41,6 +41,7 @@ import base64
 import binascii
 import json
 import re
+import unicodedata
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -127,6 +128,24 @@ def _sth(v: Any, name: str) -> dict:
     return th
 
 
+def _no_nfc_collisions(v: Any, name: str) -> None:
+    """Mọi object lồng trong ``v`` không được có hai khóa trùng nhau sau chuẩn hóa NFC: ``canonical_bytes``
+    gộp chúng làm một, nên chữ ký/hash đúng mà người đọc gói có thể thấy giá trị khác → ``MALFORMED``."""
+    if isinstance(v, dict):
+        seen: set[str] = set()
+        for k, item in v.items():
+            if not isinstance(k, str):
+                _fail("MALFORMED", f"{name}: khóa phải là chuỗi")
+            n = unicodedata.normalize("NFC", k)
+            if n in seen:
+                _fail("MALFORMED", f"{name}: hai khóa trùng nhau sau chuẩn hóa NFC: {n!r}")
+            seen.add(n)
+            _no_nfc_collisions(item, f"{name}.{n}")
+    elif isinstance(v, list):
+        for i, item in enumerate(v):
+            _no_nfc_collisions(item, f"{name}[{i}]")
+
+
 def _b64_key(v: Any) -> bytes | None:
     """Khóa ed25519 thô từ base64 chặt; sai dạng → None."""
     if not isinstance(v, str):
@@ -195,10 +214,11 @@ def _anchored_statement(anchor_dir: Path, version: int, statement: Any) -> dict:
     if not f.is_file():
         _fail("KEY_STATEMENT_NOT_ANCHORED", f"repo neo không có keys/seal-key/v{version}.json")
     data = f.read_bytes()
-    if statement is not None:
-        if not isinstance(statement, dict) or canonical_bytes(statement) + b"\n" != data:
-            _fail("KEY_STATEMENT", f"tuyên bố khóa trong gói khác keys/seal-key/v{version}.json đã neo")
-        return statement
+    if statement is not None and (not isinstance(statement, dict)
+                                  or canonical_bytes(statement) + b"\n" != data):
+        _fail("KEY_STATEMENT", f"tuyên bố khóa trong gói khác keys/seal-key/v{version}.json đã neo")
+    # Luôn dùng bản ĐÃ NEO (không dùng bản trong gói, kể cả khi trùng byte sau chuẩn hóa): issuer hiển thị
+    # đúng chuỗi trong repo neo.
     try:
         st = json.loads(data)
     except ValueError:
@@ -250,6 +270,12 @@ def _verify(b: Any, anchor_dir: Path | None, file_sha256: str | None) -> BundleR
     if b.get("format") != BUNDLE_FORMAT:
         _fail("FORMAT", f"format phải là {BUNDLE_FORMAT}")
     payload = _obj(b.get("payload"), "payload")
+    sk_raw, ledger_raw, anchored_raw = (b.get(k) if isinstance(b.get(k), dict) else {}
+                                        for k in ("seal_key", "ledger", "anchored"))
+    for obj, name in ((payload, "payload"), (sk_raw.get("statement"), "seal_key.statement"),
+                      (ledger_raw.get("entry"), "ledger.entry"), (ledger_raw.get("body"), "ledger.body"),
+                      (b.get("sth"), "sth"), (anchored_raw.get("sth"), "anchored.sth")):
+        _no_nfc_collisions(obj, name)
     kv = _int(payload.get("key_version"), "payload.key_version")
     seal_id = _str(payload.get("seal_id"), "payload.seal_id")
 

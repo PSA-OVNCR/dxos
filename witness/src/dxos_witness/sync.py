@@ -139,6 +139,12 @@ def _pubkey(keys: dict, version: int) -> bytes | None:
         return None
 
 
+def _same_key(a: dict, b: dict, version: str) -> bool:
+    """Cùng khóa thô (base64 khác dạng mà cùng byte vẫn là cùng khóa); không giải mã được → coi là khác."""
+    ka, kb = _pubkey(a, int(version)), _pubkey(b, int(version))
+    return ka is not None and ka == kb
+
+
 def _read_anchors(anchor_dir: Path, keys: dict) -> tuple[list[dict], str | None]:
     """Mọi STH trong repo neo, sắp theo tree_size; lỗi thì trả (…, mô tả lỗi)."""
     out = []
@@ -203,11 +209,11 @@ def sync(server_url: str, anchor_dir: Path, state_dir: Path, *, timeout_s: float
 
         # 1. chữ ký + key pinning: khóa đã ghim luôn thắng khóa máy chủ đưa
         known = _load(state_dir / KEYS_FILE) or {}
-        for v, k in served.items():
-            if v in known and known[v] != k:
+        for v in served:
+            if v in known and not _same_key(known, served, v):         # so byte khóa, không so chuỗi base64
                 return SyncResult("BAD_SIGNATURE", size, f"khóa sth-key v{v} bị thay so với lần trước")
-        for v, k in anchored_keys.items():
-            if v in known and known[v] != k:
+        for v in anchored_keys:
+            if v in known and not _same_key(known, anchored_keys, v):
                 return SyncResult("BAD_SIGNATURE", size,
                                   f"key_mismatch_anchor: sth-key v{v} đã ghim lần trước khác"
                                   f" keys/sth-key/v{v}.pub")

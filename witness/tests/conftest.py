@@ -221,17 +221,19 @@ class BundleEnv:
                 "public_key": _b64(_raw(self.seal_sk)), "valid_from": valid_from, "valid_until": valid_until,
                 "purpose": "Niêm phong hồ sơ số (thử)", "policy_url": None}
 
-    def payload(self, issued_at: str) -> dict:
+    def payload(self, issued_at: str, public_fields: dict | None = None) -> dict:
+        pf = {"ref": "01/TF", "title": "Quyết định thử"} if public_fields is None else public_fields
         return {"seal_id": SEAL_ID, "app_id": "test-flow",
                 "record_id": "0b9f6c1e-4c39-4f61-9b2a-3a1d7f6e0c55",
                 "record_digest": _sha(b"digest"), "attachments": [_sha(ORIGINAL)], "issued_at": issued_at,
-                "public_fields": {"ref": "01/TF", "title": "Quyết định thử"}, "key_version": 1}
+                "public_fields": pf, "key_version": 1}
 
     def build(self, *, layout: str = "anchored_is_sth", issued_at: str = "2026-10-21T09:00:00Z",
-              statement: dict | None = None) -> tuple[dict, Path]:
-        """``(gói, repo neo)`` hợp lệ theo ``layout`` (xem ``LAYOUTS``)."""
+              statement: dict | None = None, public_fields: dict | None = None) -> tuple[dict, Path]:
+        """``(gói, repo neo)`` hợp lệ theo ``layout`` (xem ``LAYOUTS``); mọi chữ ký/hash tính bằng
+        ``canonical_bytes`` nên gói luôn tự nhất quán."""
         anchored_size, sth_size = LAYOUTS[layout]
-        payload = self.payload(issued_at)
+        payload = self.payload(issued_at, public_fields)
         st = statement if statement is not None else self.statement()
         body = {"seal_id": SEAL_ID, "payload_sha256": _sha(canonical_bytes(payload))}
         entries_obj = []

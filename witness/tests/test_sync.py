@@ -209,3 +209,23 @@ def test_previously_pinned_key_differing_from_anchor(fake_ledger, anchor_dir, st
     fake_ledger.keys_override = {"seal-key": {}, "sth-key": {}}                # máy chủ thôi phục vụ v1
     r = sync(fake_ledger.url, anchor_dir, state_dir)
     assert r.status == "BAD_SIGNATURE" and r.detail.startswith("key_mismatch_anchor")
+
+
+
+def _noncanonical_b64(b64: str) -> str:
+    """Cùng 32 byte khóa nhưng base64 khác: đổi 2 bit thừa của ký tự dữ liệu cuối (trước dấu ``=``)."""
+    alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+    i = alphabet.index(b64[42])
+    out = b64[:42] + alphabet[i ^ 1] + b64[43:]
+    assert out != b64 and base64.b64decode(out, validate=True) == base64.b64decode(b64)
+    return out
+
+
+def test_pinned_key_compared_as_bytes_not_base64(fake_ledger, anchor_dir, state_dir):            # m4
+    fake_ledger.publish_keys_to(anchor_dir)
+    assert sync(fake_ledger.url, anchor_dir, state_dir).status == "FIRST_RUN"
+    known = json.loads((state_dir / "known-keys.json").read_text())
+    known["1"] = _noncanonical_b64(known["1"])
+    (state_dir / "known-keys.json").write_text(json.dumps(known))
+    r = sync(fake_ledger.url, anchor_dir, state_dir)
+    assert r.status == "OK", r.detail

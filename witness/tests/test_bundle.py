@@ -10,6 +10,7 @@ import base64
 import copy
 import hashlib
 import json
+import unicodedata
 
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -365,3 +366,65 @@ def test_sign_sth_helper_matches_spec_signing_bytes(bundle_env):
     sig = base64.b64decode(th["signature"])
     bundle_env.sth_sk.public_key().verify(
         sig, canonical_bytes({k: th[k] for k in ("tree_size", "root_hash", "ts", "key_version")}))
+
+
+# ---------- Fix vòng 1 ----------
+
+def test_cli_deeply_nested_json_is_exit_2(tmp_path, capsys):                                        # m1
+    f = tmp_path / "sau.json"
+    f.write_text("[" * 200000 + "]" * 200000, encoding="utf-8")
+    assert main(["verify-bundle", str(f)]) == 2
+    assert capsys.readouterr().out.startswith("INVALID MALFORMED")
+
+
+def test_issuer_comes_from_anchored_statement(bundle_env, tmp_path, capsys):                        # m2
+    b, a = bundle_env.copy()
+    nfc = b["seal_key"]["statement"]["issuer"]["name"]
+    nfd = unicodedata.normalize("NFD", nfc)
+    assert nfd != nfc
+    b["seal_key"]["statement"]["issuer"]["name"] = nfd          # chuẩn hóa ra cùng byte với tệp neo
+    r = verify_bundle(b, anchor_dir=a)
+    assert r.status == "VALID" and r.issuer == "Trường Đại học Thử (TDHT-01)" and r.issuer.startswith(nfc)
+    f = tmp_path / "b.json"
+    f.write_text(json.dumps(b, ensure_ascii=False), encoding="utf-8")
+    assert main(["verify-bundle", str(f), "--anchor-dir", str(a)]) == 0
+    assert f"Niêm phong bởi: {nfc} (TDHT-01)\n" in capsys.readouterr().out
+
+
+def test_keys_colliding_after_nfc_are_rejected(bundle_env):                                         # m3
+    key = "tiêu đề"
+    pf = {"ref": "01/TF", key: "Bản A", unicodedata.normalize("NFD", key): "Bản B"}
+    assert len(set(pf)) == 3
+    b, a = bundle_env.build(public_fields=pf)                   # gói tự nhất quán: chữ ký/hash đều đúng
+    r = verify_bundle(b, anchor_dir=a)
+    assert r.status == "INVALID" and _code(r) == "MALFORMED", r.detail
+    assert "payload.public_fields" in r.detail and "NFC" in r.detail
+    assert _code(verify_bundle(b, anchor_dir=None)) == "MALFORMED"
+
+
+@pytest.mark.parametrize("where", ["statement", "entry", "body", "sth", "anchored_sth"])
+def test_nfc_colliding_keys_rejected_everywhere(bundle_env, where):                                # m3
+    b, a = bundle_env.copy()
+    obj = {"statement": b["seal_key"]["statement"], "entry": b["ledger"]["entry"],
+           "body": b["ledger"]["body"],
+           "sth": b["sth"], "anchored_sth": b["anchored"]["sth"]}[where]
+    obj["ghi chú"] = "1"
+    obj[unicodedata.normalize("NFD", "ghi chú")] = "2"
+    r = verify_bundle(b, anchor_dir=a)
+    assert _code(r) == "MALFORMED" and "NFC" in r.detail, r.detail
+
+
+def test_consistency_tamper_exact_code_with_and_without_anchor_dir(bundle_env):                     # m6
+    b, a = bundle_env.tampered("consistency_node")              # neo phủ lá → bước neo qua, consistency hỏng
+    assert b["anchored"]["sth"]["tree_size"] > b["inclusion"]["leaf_index"]
+    assert _code(verify_bundle(b, anchor_dir=a)) == "CONSISTENCY"
+    assert _code(verify_bundle(b, anchor_dir=None)) == "CONSISTENCY"
+
+
+def test_valid_until_boundary(bundle_env):                                                          # m6
+    b, a = bundle_env.build(issued_at="2026-10-21T09:00:00Z",
+                            statement=bundle_env.statement(valid_until="2026-10-21T09:00:00Z"))
+    assert verify_bundle(b, anchor_dir=a).status == "VALID"                      # issued_at == valid_until
+    b, a = bundle_env.build(issued_at="2026-10-21T09:00:01Z",
+                            statement=bundle_env.statement(valid_until="2026-10-21T09:00:00Z"))
+    assert _code(verify_bundle(b, anchor_dir=a)) == "KEY_NOT_VALID_AT_ISSUE"     # +1 s

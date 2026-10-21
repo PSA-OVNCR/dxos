@@ -47,8 +47,8 @@ def _file_sha256(path: Path) -> str:
 def _verify_bundle_cmd(args: argparse.Namespace) -> int:
     try:
         bundle = json.loads(args.bundle.read_bytes().decode("utf-8"), object_pairs_hook=_no_duplicate_keys)
-    except (OSError, ValueError) as exc:
-        print(f"INVALID MALFORMED: không đọc được gói {args.bundle}: {exc}")
+    except Exception as exc:  # noqa: BLE001 — fail-closed: kể cả RecursionError (JSON lồng quá sâu)
+        print(f"INVALID MALFORMED: không đọc được gói {args.bundle}: {type(exc).__name__}: {exc}")
         return 2
     try:
         file_sha256 = None if args.file is None else _file_sha256(args.file)
