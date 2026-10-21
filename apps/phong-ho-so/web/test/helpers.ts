@@ -3,7 +3,7 @@
 // Helper test riêng của App A: dữ liệu mẫu và các thao tác giống người dùng (mountWith, fill, click, pickFile).
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import type { DxosAuth, FieldView, ManifestView } from 'dxos-sdk-js'
-import { att, fakeClient, rec, type FakeClient, type FakeClientOptions } from 'dxos-sdk-js/testing'
+import { att, fakeClient, rec, sealInfo, task, type FakeClient, type FakeClientOptions } from 'dxos-sdk-js/testing'
 import { vi } from 'vitest'
 import { createMemoryHistory } from 'vue-router'
 import type { Component } from 'vue'
@@ -29,11 +29,24 @@ export const A_VIEW: ManifestView = {
         nguoi_lien_he_cccd: f('string', { pii: 'CCCD', label: 'CCCD người liên hệ' }),
       },
       attachments: { kinds: ['pdf'], max_mb: 15, min: 1 },
-      access: { read: ['owner', 'role:truong_phong'], create: ['role:chuyen_vien'], update: ['owner'] },
+      access: {
+        read: ['owner', 'role:truong_phong', 'role:giam_doc', 'role:van_thu', 'role:nhan_vien'],
+        create: ['role:chuyen_vien'], update: ['owner'],
+      },
     },
   },
-  workflow: null,
-  policies: { pii: { reveal_roles: ['giam_doc', 'van_thu'], erase_roles: ['van_thu'] }, seal: null, verify: null },
+  workflow: {
+    tasks: {
+      duyet_noi_dung: { role: 'truong_phong', guards: ['attachments_clean', 'not_same_actor:creator'] },
+      ban_hanh: { role: 'giam_doc', guards: ['attachments_clean', 'pii_reviewed', 'not_same_actor:creator', 'not_same_actor:duyet_noi_dung'] },
+    },
+    decisions: { duyet_noi_dung: ['approve', 'reject'], ban_hanh: ['approve', 'reject'] },
+  },
+  policies: {
+    pii: { reveal_roles: ['giam_doc', 'van_thu'], erase_roles: ['van_thu'] },
+    seal: { public_fields: ['so_hieu', 'loai_van_ban', 'trich_yeu', 'chuc_vu_nguoi_ky'], revoke_roles: ['giam_doc'] },
+    verify: { public: true, require_file: true },
+  },
 }
 
 export function fakeAuth(over: Partial<DxosAuth> & { roleStrings?: string[] } = {}): DxosAuth & {
@@ -118,4 +131,4 @@ export async function pickFile(w: VueWrapper, file: File): Promise<void> {
   await flushPromises()
 }
 
-export { att, rec }
+export { att, rec, sealInfo, task }

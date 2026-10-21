@@ -9,6 +9,8 @@ SPDX-License-Identifier: Apache-2.0
 import { ApiError, type AttachmentItem, type DxRecord, type UploadStatus } from 'dxos-sdk-js'
 import { ProblemMessage, QuarantineStatus, RecordForm } from 'dxos-sdk-js/vue'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import PiiPanel from '../components/PiiPanel.vue'
+import SealPanel from '../components/SealPanel.vue'
 import { APP, COL, useSession } from '../session'
 import { formatVn, statusLabel } from '../status'
 
@@ -99,6 +101,19 @@ async function reloadFiles(): Promise<void> {
     }
   } catch (e) {
     if (mine === run && alive) filesError.value = e
+  }
+}
+
+/** Sau thao tác của PiiPanel/SealPanel: đọc lại bản ghi và tệp mà không dựng lại cả màn hình (giữ thông báo của hai khối). */
+async function refresh(): Promise<void> {
+  const mine = ++run
+  try {
+    const r = await client.get(APP, COL, props.id)
+    if (mine !== run || !alive) return
+    record.value = r
+    await reloadFiles()
+  } catch (e) {
+    if (mine === run && alive) actionError.value = e
   }
 }
 
@@ -206,6 +221,9 @@ async function onFile(ev: Event): Promise<void> {
       <button type="button" class="dx-secondary" :disabled="busy" @click="startEdit">Sửa</button>
       <button type="button" :disabled="busy" @click="submitForApproval">Gửi duyệt</button>
     </div>
+
+    <SealPanel :record="record" :files="files" @changed="refresh()" />
+    <PiiPanel :record="record" :collection="collection" @changed="refresh()" />
 
     <section aria-labelledby="dx-files-h">
       <h2 id="dx-files-h">Tệp đính kèm</h2>

@@ -8,7 +8,8 @@ SPDX-License-Identifier: Apache-2.0
 import { ProblemMessage } from 'dxos-sdk-js/vue'
 import { computed, onMounted } from 'vue'
 import { RouterLink, RouterView } from 'vue-router'
-import { useSession } from './session'
+import { COL, useSession } from './session'
+import { hasRole } from './status'
 
 const session = useSession()
 const { auth, guard, roles, view, viewError } = session
@@ -23,6 +24,12 @@ const ROLE_LABELS: Record<string, string> = {
 
 const who = computed(() => auth.profile()?.name ?? '')
 const roleText = computed(() => roles.value.map((r) => ROLE_LABELS[r] ?? r).join(', '))
+
+// Liên kết điều hướng chỉ hiện cho vai trò dùng được (tiện dụng; lõi vẫn kiểm mọi lời gọi).
+const showInbox = computed(() => hasRole(roles.value, Object.values(view.value?.workflow?.tasks ?? {}).map((t) => t.role)))
+const showRegister = computed(() => hasRole(
+  roles.value, (view.value?.collections[COL]?.access.read ?? []).filter((r) => r.startsWith('role:')).map((r) => r.slice(5)),
+))
 
 onMounted(() => { if (!guard.redirecting.value && !guard.rejected.value) void session.load() })
 
@@ -44,8 +51,10 @@ async function logout(): Promise<void> {
   <template v-else>
     <header class="dx-header">
       <p class="dx-brand">{{ view?.app.name ?? 'Phòng hồ sơ số' }}</p>
-      <nav aria-label="Điều hướng chính">
+      <nav aria-label="Điều hướng chính" class="dx-nav">
         <RouterLink to="/">Danh sách văn bản</RouterLink>
+        <RouterLink v-if="showInbox" to="/hop-viec">Hộp việc</RouterLink>
+        <RouterLink v-if="showRegister" to="/so-dang-ky">Sổ đăng ký văn bản đi</RouterLink>
       </nav>
       <p class="dx-who">
         <span>{{ who }}</span>

@@ -33,6 +33,18 @@ describe('App shell', () => {
     expect(client.manifest).toHaveBeenCalledWith('phong-ho-so')
   })
 
+  test('navigation shows the inbox and the register only to the roles that can use them (convenience)', async () => {
+    const links = (w: { findAll: (s: string) => { text: () => string; attributes: (n: string) => string | undefined }[] }) =>
+      w.findAll('nav a').map((a) => [a.text(), a.attributes('href')])
+    const base = [['Danh sách văn bản', '/']]
+    const cv = await mountApp(undefined, ['app:phong-ho-so:chuyen_vien'])
+    expect(links(cv.w)).toEqual(base)
+    const tp = await mountApp(undefined, ['app:phong-ho-so:truong_phong'])
+    expect(links(tp.w)).toEqual([...base, ['Hộp việc', '/hop-viec'], ['Sổ đăng ký văn bản đi', '/so-dang-ky']])
+    const vt = await mountApp(undefined, ['app:phong-ho-so:van_thu'])
+    expect(links(vt.w)).toEqual([...base, ['Sổ đăng ký văn bản đi', '/so-dang-ky']])
+  })
+
   test('a manifest failure is shown with the server problem and can be retried', async () => {
     const client = fakeClient({ manifest: [problem('unavailable', { status: 503 }), A_VIEW], listAll: [] })
     const { w } = await mountApp(client)

@@ -1,13 +1,17 @@
 // SPDX-FileCopyrightText: 2026 PSA_OVNCR
 // SPDX-License-Identifier: Apache-2.0
-// Router băm (#/...). Task 8 thêm #/hop-viec và #/so-dang-ky.
+// Router băm (#/...).
 import { createRouter, createWebHashHistory, type RouterHistory } from 'vue-router'
+import HopViec from './views/HopViec.vue'
+import SoDangKy from './views/SoDangKy.vue'
 import VanBanDetail from './views/VanBanDetail.vue'
 import VanBanList from './views/VanBanList.vue'
 import VanBanNew from './views/VanBanNew.vue'
 
 export const routes = [
   { path: '/', name: 'list', component: VanBanList },
+  { path: '/hop-viec', name: 'inbox', component: HopViec },
+  { path: '/so-dang-ky', name: 'register', component: SoDangKy },
   { path: '/van-ban/moi', name: 'new', component: VanBanNew },
   { path: '/van-ban/:id', name: 'detail', component: VanBanDetail, props: true },
   { path: '/:rest(.*)*', redirect: '/' },

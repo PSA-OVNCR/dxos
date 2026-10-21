@@ -107,3 +107,40 @@ ul.dx-files { list-style: none; padding: 0; }
 .dx-files li { padding: 0.5rem 0; border-bottom: 1px solid var(--line); }
 .dx-files p { margin: 0.1rem 0; }
 .dx-meta { color: var(--muted); }
+
+.dx-nav { display: flex; flex-wrap: wrap; gap: 0.25rem 1rem; }
+
+ul.dx-tasks { list-style: none; padding: 0; }
+.dx-tasks li { padding: 0.75rem 0; border-bottom: 1px solid var(--line); }
+.dx-tasks h2 { margin: 0 0 0.25rem; font-size: 1.1rem; }
+
+.dx-dialog {
+  max-width: 40rem;
+  margin: 1rem 0;
+  padding: 0.9rem 1.1rem;
+  border: 2px solid var(--accent);
+  border-radius: 8px;
+  background: var(--card);
+}
+.dx-dialog h3 { margin-top: 0; }
+.dx-dialog .dx-field { display: flex; flex-direction: column; gap: 0.25rem; margin-bottom: 0.9rem; border: 0; padding: 0; }
+.dx-dialog select, .dx-dialog textarea, .dx-register-filter select {
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--fg);
+  font: inherit;
+}
+.dx-check { display: block; }
+
+.dx-seal-verify { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem; }
+.dx-seal-qr { background: #fff; padding: 0.25rem; border-radius: 4px; }
+
+@media print {
+  .dx-header, .dx-no-print { display: none !important; }
+  body { background: #fff; color: #000; }
+  .dx-main { max-width: none; padding: 0; }
+  .dx-table { background: #fff; }
+  .dx-table th, .dx-table td { border: 1px solid #000; color: #000; }
+}

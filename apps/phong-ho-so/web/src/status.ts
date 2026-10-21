@@ -26,3 +26,33 @@ export function formatVn(iso: string): string {
   const d = new Date(iso)
   return Number.isNaN(d.getTime()) ? iso : VN_TIME.format(d)
 }
+
+const VN_DATE = new Intl.DateTimeFormat('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', day: '2-digit', month: '2-digit', year: 'numeric' })
+
+/** Ngày theo giờ Việt Nam (dd/mm/yyyy); không đọc được thì null. */
+export function formatVnDate(iso: string | null): string | null {
+  if (!iso) return null
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? null : VN_DATE.format(d)
+}
+
+/** Năm theo giờ Việt Nam; không đọc được thì null. */
+export function yearVn(iso: string | null): number | null {
+  const s = formatVnDate(iso)
+  return s ? Number(s.slice(-4)) : null
+}
+
+/** Nhãn trạng thái niêm phong (SealInfo.seal_state). */
+export function sealLabel(state: string): string {
+  switch (state) {
+    case 'SEALED': return 'Đã niêm phong'
+    case 'REVOKED': return 'Đã thu hồi'
+    case 'SEAL_PENDING': return 'Chờ niêm phong'
+    default: return state
+  }
+}
+
+/** Người dùng có ít nhất một vai trò trong danh sách (chỉ để ẩn/hiện nút, lõi mới quyết định). */
+export function hasRole(mine: readonly string[], allowed: readonly string[] | undefined): boolean {
+  return !!allowed && allowed.some((r) => mine.includes(r))
+}
