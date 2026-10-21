@@ -421,6 +421,7 @@
       if (mine !== generation || pick !== pickToken) return;
       saveText(text, bundleName(resp));
     } catch (_err) {
+      if (mine !== generation || pick !== pickToken) return;
       setText(el.bundleError, "Không kết nối được máy chủ, thử lại sau.", "bad");
       show(el.bundleError, true);
     } finally {

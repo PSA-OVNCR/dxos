@@ -19,7 +19,30 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 CADDY = os.environ.get("CADDY_BIN") or shutil.which("caddy")
-pytestmark = pytest.mark.skipif(not CADDY, reason="cần binary caddy (CADDY_BIN) để kiểm sống Caddyfile")
+
+
+def _caddy_problem() -> str | None:
+    """Lý do không dùng được binary caddy (thiếu, không chạy được, không phải Caddy 2), hoặc None."""
+    if not CADDY:
+        return "cần binary caddy (CADDY_BIN hoặc trên PATH) để kiểm sống Caddyfile"
+    try:
+        out = subprocess.run([CADDY, "version"], capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return f"không chạy được {CADDY}: {exc}"
+    if out.returncode != 0 or not out.stdout.startswith("v2."):
+        return f"{CADDY} version không trả về Caddy 2: {out.stdout.strip()!r} (mã {out.returncode})"
+    return None
+
+
+def _need_caddy() -> None:
+    """Thiếu Caddy: bỏ qua, trừ khi DXOS_REQUIRE_CADDY=1 (job caddy-live của CI) thì LỖI, để CI không xanh vì
+    bỏ qua."""
+    problem = _caddy_problem()
+    if problem is None:
+        return
+    if os.environ.get("DXOS_REQUIRE_CADDY") == "1":
+        pytest.fail(problem + " (DXOS_REQUIRE_CADDY=1)")
+    pytest.skip(problem)
 
 
 def _free_port() -> int:
@@ -79,6 +102,7 @@ BLOCKED_PATHS = ("/", "/apps/other.txt", "/apps/verify/", "/auth/realms/dxos", "
 
 
 def test_ip_outside_allow_list_gets_403_on_every_admin_path(run_caddy):
+    _need_caddy()
     port = run_caddy("203.0.113.7/32")                     # 127.0.0.1 không thuộc danh sách
     for path in BLOCKED_PATHS:
         assert _get(port, "admin.localhost", path) == 403, path
@@ -86,6 +110,7 @@ def test_ip_outside_allow_list_gets_403_on_every_admin_path(run_caddy):
 
 
 def test_ip_inside_allow_list_passes_on_admin_host(run_caddy):
+    _need_caddy()
     port = run_caddy("127.0.0.1/32")
     assert _get(port, "admin.localhost", "/apps/other.txt") == 200
     assert _get(port, "admin.localhost", "/") == 404       # tới được fallback, không bị 403

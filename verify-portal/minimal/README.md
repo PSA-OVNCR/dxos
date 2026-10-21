@@ -41,7 +41,7 @@ Trang tối giản tin kết quả kiểm của máy chủ. Muốn kiểm độc
 ## Kiểm thử
 
 - Tĩnh: `tests/deploy/test_verify_page_static.py` (chạy trong `make check`).
-- Caddy thật, danh sách IP của host quản trị: `tests/deploy/test_caddy_admin_allowlist_live.py` (cần binary `caddy`: `CADDY_BIN=/đường/dẫn/caddy`; không có thì bỏ qua).
+- Caddy thật, danh sách IP của host quản trị: `tests/deploy/test_caddy_admin_allowlist_live.py` (cần binary `caddy`: `CADDY_BIN=/đường/dẫn/caddy`; không có thì bỏ qua; đặt `DXOS_REQUIRE_CADDY=1` để thiếu Caddy thành lỗi, như job `caddy-live` của CI).
 - Trình duyệt thật (opt-in, bỏ qua khi chưa bật): dựng niêm phong thật + API + Caddy rồi chạy Playwright (Node) `tests/deploy/browser/*.js`:
 
   ```

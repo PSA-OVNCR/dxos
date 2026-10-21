@@ -189,6 +189,19 @@ def test_stale_file_pick_cannot_set_match():
     assert body.count("++pickToken") == 1 and "const pick = ++pickToken" in body
     assert body.count("pick !== pickToken") >= 3                 # sau băm, sau :check, sau resp.json()
     assert body.index("pick !== pickToken") < body.index("matchedDigest = hex")
+    # Ngay sau await CUỐI CÙNG trước khi đặt matchedDigest phải còn một lần kiểm token.
+    assign = body.index("matchedDigest = hex")
+    last_await = body.rindex("await ", 0, assign)
+    assert "pick !== pickToken" in body[last_await:assign]
+
+
+def test_bundle_error_write_is_guarded_against_stale_state():
+    src = JS.read_text(encoding="utf-8")
+    body = src[src.index("async function onBundle"):]
+    body = body[:body.index("\n  }\n")]
+    catch = body[body.index("catch (_err)"):body.index("finally")]
+    guard, write = catch.find("pick !== pickToken"), catch.find("setText(el.bundleError")
+    assert 0 <= guard < write and "mine !== generation" in catch[:write]
 
 
 def test_invalid_seal_shows_only_badge_and_reason():
@@ -205,6 +218,9 @@ def test_ci_runs_live_caddy_tests_with_pinned_binary():
     ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
     assert "caddy_2.10.0_linux_amd64.tar.gz" in ci and "sha512sum -c" in ci
     assert "CADDY_BIN" in ci and "test_caddy_admin_allowlist_live.py" in ci
+    job = ci[ci.index("  caddy-live:"):ci.index("  secrets:")]
+    assert 'DXOS_REQUIRE_CADDY: "1"' in job                       # thiếu Caddy thì job phải ĐỎ, không bỏ qua
+    assert "${{ env.CADDY_VERSION }}" in job and "${CADDY_VERSION} và" not in job.split("run:")[0]
 
 
 def test_page_text_uses_required_labels_and_states():
