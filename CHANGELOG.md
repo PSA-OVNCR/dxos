@@ -10,6 +10,12 @@ Mọi thay đổi đáng kể được ghi tại đây, theo định dạng [Kee
   của app nhận 404 và lá `policy.denied`), `GET .../records/{rid}/attachments` (liệt kê tệp đính kèm, quyền như đọc
   bản ghi, không ghi `field.revealed`) và `GET /admin/v1/ledger/entries` (các lá ledger mới nhất, chỉ `dxos-admin`).
 - `docs/api/contract-tier2.md`: hợp đồng HTTP của lõi đối chiếu theo mã, cập nhật cho ba endpoint trên.
+- `ops/vuot_rao.py` (`make vuot-rao`): bảng thử vượt rào, 10 kịch bản tấn công qua cổng thật bằng token dev
+  (tự duyệt, đọc chéo, sai app, admin đọc dữ liệu app, sửa văn bản đã niêm phong, ban hành thiếu rà PII, tệp tới `:check`,
+  EICAR, manifest nới sàn, task của app khác), in bảng kết quả và 20 lá `policy.denied` gần nhất. Chỉ chạy trên stack có
+  realm dev.
+- `docs/acceptance.md`: ma trận AT-01..AT-28 (test tự động, nơi chạy, bằng chứng); `tests/repo/test_at_matrix.py` bắt
+  buộc đủ 28 dòng và mọi test được dẫn phải tồn tại.
 
 ## [0.2.0] - Chưa phát hành
 Mốc M2 (Tier-0 hoàn tất: workflow, niêm phong, đối soát, installer). Spec bản 1.0.3. Trưởng nhóm thay "Chưa phát hành"

@@ -1,5 +1,10 @@
 # ops/: script vận hành
 
+- `vuot_rao.py`: bảng thử vượt rào, 10 kịch bản tấn công qua cổng thật bằng token dev, in bảng kết quả và 20 lá
+  `policy.denied` gần nhất (`make vuot-rao`, Plan 03 Task 11, spec 9.1, H11). Chỉ chạy trên stack có realm dev (client
+  `dxos-test`); mật khẩu dev qua biến `DXOS_E2E_PASSWORD`; khác `localhost` phải thêm `--allow-remote`. Mã thoát 0 mọi
+  kịch bản bị chặn, 1 có kịch bản lọt, 2 lỗi cấu hình hoặc kết nối. Trên Windows cần `localhost` và `admin.localhost`
+  phân giải về 127.0.0.1, và `--ca-file` trỏ tới CA nội bộ của Caddy (giống `ops/e2e/run_e2e.sh`). Chạy thật là việc V28
 - `netcheck.py`: kiểm ma trận kết nối mạng (AT-01), Plan 01 Task 4
 - `measure.sh`: đo RAM theo container (AT-22), Plan 01 Task 7
 - `deploy.sh`: triển khai theo tag, Plan 03 (S9.2)

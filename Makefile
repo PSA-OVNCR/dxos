@@ -8,7 +8,7 @@ ENV_FILE ?= .env
 COMPOSE = docker compose -p dxos --env-file $(ENV_FILE) -f deploy/compose.yaml -f deploy/compose.$(PROFILE).yaml
 
 .PHONY: help dev-install lint test reuse check up down ps logs netcheck test-infra test-db-up test-integration pin-images \
-	openapi web-check web-build web-live
+	openapi web-check web-build web-live vuot-rao
 
 help:
 	@echo "make dev-install  - cài công cụ phát triển và các gói Python ở chế độ editable"
@@ -27,6 +27,7 @@ help:
 	@echo "make web-check    - workspace npm: typecheck + test + build (cần Node 22 và npm 11.6.2, đã chạy npm ci)"
 	@echo "make web-build    - dựng các SPA trong container Node vào volume apps-static (cần Docker; digest đã ghim)"
 	@echo "make web-live     - kiểm trình duyệt thật (Playwright) trên stack dev-lite đang chạy (cần Docker)"
+	@echo "make vuot-rao     - bảng thử vượt rào (10 kịch bản tấn công) trên stack dev đang chạy; ARGS='--only V1,V3'"
 
 dev-install:
 	$(PYTHON) -m pip install -r requirements-dev.txt
@@ -84,3 +85,6 @@ web-build:
 
 web-live:
 	bash ops/web_live.sh
+
+vuot-rao:
+	$(PYTHON) ops/vuot_rao.py $(ARGS)
