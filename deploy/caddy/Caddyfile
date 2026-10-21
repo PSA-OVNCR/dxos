@@ -10,6 +10,19 @@
 	handle @gateway {
 		reverse_proxy apisix:9080
 	}
+	# Trang đối soát tối giản (Plan 02 Task 10): tĩnh, không build, CSP chặt. Caddy tự xếp handle theo độ cụ thể
+	# của đường dẫn nên /apps/verify/* thắng /apps/* (kiểm bằng `caddy adapt` và curl, xem báo cáo Task 10).
+	# Gắn riêng ở /srv/verify (không lồng vào volume chỉ đọc apps-static ở /srv/apps).
+	redir /apps/verify /apps/verify/ 308
+	handle_path /apps/verify/* {
+		root * /srv/verify
+		header {
+			Content-Security-Policy "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+			X-Content-Type-Options nosniff
+			Referrer-Policy no-referrer
+		}
+		file_server
+	}
 	handle /apps/* {
 		root * /srv
 		file_server

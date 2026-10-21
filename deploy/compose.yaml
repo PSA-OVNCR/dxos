@@ -58,6 +58,8 @@ services:
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - apps-static:/srv/apps:ro
+      # Trang đối soát tối giản: mount riêng, vì Docker không tạo được điểm mount trong volume chỉ đọc /srv/apps.
+      - ../verify-portal/minimal:/srv/verify:ro
       - caddy-data:/data
       - caddy-config:/config
     networks: [net-edge, net-front]

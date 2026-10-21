@@ -1,0 +1,70 @@
+<!doctype html>
+<!--
+SPDX-FileCopyrightText: 2026 PSA_OVNCR
+SPDX-License-Identifier: Apache-2.0
+-->
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Kiểm tra tính xác thực và toàn vẹn văn bản điện tử</title>
+<link rel="stylesheet" href="verify.css">
+<script src="verify.js" defer></script>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Kiểm tra tính xác thực và toàn vẹn văn bản điện tử</h1>
+    <p class="lede">Gợi ý cho văn thư khi tiếp nhận văn bản điện tử đến (việc kiểm tra tính xác thực và toàn vẹn nêu ở Điều 21 khoản 2 điểm a Nghị định 30/2020/NĐ-CP): nhập mã niêm phong ghi trên văn bản hoặc quét mã QR, rồi chọn đúng tệp đã nhận để đối chiếu.</p>
+  </header>
+
+  <section class="card" aria-labelledby="lookup-title">
+    <h2 id="lookup-title">Mã niêm phong</h2>
+    <div class="row">
+      <input id="seal-input" type="text" inputmode="text" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="40" placeholder="26 ký tự, ví dụ: ABCDEFGHIJKLMNOPQRSTUVWXYZ" aria-label="Mã niêm phong">
+      <button id="seal-go" type="button">Kiểm tra</button>
+    </div>
+    <p id="seal-error" class="msg bad" role="alert" hidden></p>
+  </section>
+
+  <section id="result" class="card" aria-live="polite" hidden>
+    <p id="status-badge" class="badge"></p>
+    <p id="status-note" class="msg"></p>
+    <p id="issuer" class="issuer"></p>
+    <dl id="fields"></dl>
+    <p id="ledger-line" class="msg"></p>
+    <p id="anchor-line" class="msg"></p>
+  </section>
+
+  <section id="file-check" class="card" aria-labelledby="file-title" hidden>
+    <h2 id="file-title">Đối chiếu tệp</h2>
+    <p>Chọn tệp văn bản bạn đã nhận. Mã băm SHA-256 được tính ngay trong trình duyệt này; tệp không được gửi đi đâu cả, chỉ mã băm được gửi để so khớp.</p>
+    <input id="file-input" type="file" aria-label="Chọn tệp để đối chiếu">
+    <p id="file-hash" class="msg mono" hidden></p>
+    <p id="file-result" class="msg" role="status"></p>
+  </section>
+
+  <section id="bundle" class="card" aria-labelledby="bundle-title" hidden>
+    <h2 id="bundle-title">Gói bằng chứng</h2>
+    <p id="bundle-note" class="msg"></p>
+    <button id="bundle-go" type="button" hidden>Tải gói bằng chứng (.json)</button>
+    <p id="bundle-error" class="msg bad" role="alert" hidden></p>
+  </section>
+
+  <section class="card" aria-labelledby="limits-title">
+    <h2 id="limits-title">Giới hạn tin cậy</h2>
+    <p>Trang tối giản này tin kết quả kiểm do máy chủ DX-OS trả về (chữ ký niêm phong, chứng minh thuộc sổ cái, trạng thái neo). Chỉ mã băm SHA-256 của tệp được gửi đi; chính tệp được băm tại trình duyệt và không rời khỏi máy bạn.</p>
+    <p>Muốn kiểm độc lập, không cần tin máy chủ: tải gói bằng chứng, rồi chạy <code>dxos-witness verify-bundle --anchor-dir &lt;thư mục clone repo neo&gt; &lt;tệp gói&gt;.json</code>. Cổng đối soát đầy đủ ở phiên bản sau sẽ tự kiểm chữ ký và STH đã neo ngay trên trình duyệt.</p>
+  </section>
+
+  <section class="card" aria-labelledby="legal-title">
+    <h2 id="legal-title">Bản chất pháp lý của niêm phong</h2>
+    <p>Niêm phong số là chữ ký điện tử chuyên dùng do tổ chức vận hành tạo lập (Điều 22 khoản 1 điểm a Luật Giao dịch điện tử 2023). Trong nội bộ tổ chức, niêm phong dùng để xác nhận văn bản đã được duyệt và chưa bị sửa. Niêm phong chưa được chứng nhận "bảo đảm an toàn", nên không tương đương chữ ký tay (Điều 23 khoản 2) và không phải chữ ký số. Muốn dùng niêm phong để giao dịch với tổ chức, cá nhân bên ngoài với giá trị pháp lý, tổ chức phải đăng ký chứng nhận (Điều 25 khoản 3). Với người ngoài, cổng đối soát là công cụ kiểm tra toàn vẹn về kỹ thuật.</p>
+    <p>Chi tiết căn cứ pháp lý: <a href="https://github.com/PSA-OVNCR/dxos/blob/main/docs/legal-mapping.md" rel="noopener noreferrer">docs/legal-mapping.md</a>.</p>
+  </section>
+
+  <noscript><p class="msg bad">Trang cần JavaScript để tính mã băm và gọi kiểm tra.</p></noscript>
+</main>
+</body>
+</html>
