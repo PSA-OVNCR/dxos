@@ -385,14 +385,15 @@ async def test_diff_against_active(admin):
 
 
 async def test_diff_after_disable_compares_with_last_active(admin, kc_fake):
-    """Sau ``:disable`` không còn bản ACTIVE: diff quyền so với cùng mốc mà luật nâng cấp dùng (bản từng ACTIVE),
-    để người duyệt bốn mắt vẫn thấy đúng phần thay đổi (rà soát cuối, residual 1)."""
+    """Sau ``:disable`` không còn bản ACTIVE: diff quyền so với cùng mốc mà luật nâng cấp dùng (bản từng
+    ACTIVE), để người duyệt bốn mắt vẫn thấy đúng phần thay đổi (rà soát cuối, residual 1)."""
     await submit(admin, "test-flow")
     await admin.post("/admin/v1/apps/test-flow:approve", json={"version": "0.1.0"})
     await admin.post("/admin/v1/apps/test-flow:disable")
     await submit(admin, "test-flow", doc=mutate(load("test-flow"), "add_optional", version="0.2.0"))
     d = (await admin.get("/admin/v1/apps/test-flow/versions/0.2.0/diff")).json()
-    assert d["against"] == "0.1.0" and d["roles_added"] == ["observer"] and d["fields_added"] == {"doc": ["note"]}
+    assert d["against"] == "0.1.0" and d["roles_added"] == ["observer"]
+    assert d["fields_added"] == {"doc": ["note"]}
 
 
 async def test_disable_keeps_data_and_ledger(admin, core_conn, kc_fake):
