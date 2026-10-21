@@ -54,7 +54,7 @@ async def upload_attachment(app: str, col: str, rid: str, request: Request,
     """
     pool, hmac_key, settings = request.app.state.pool, request.app.state.hmac_key, request.app.state.settings
     async with pool.acquire() as conn:
-        ctx = service.Ctx(conn=conn, principal=p, hmac_key=hmac_key)
+        ctx = service.Ctx(conn=conn, principal=p, hmac_key=hmac_key, timezone=settings.timezone)
         m, spec = await service.load_target(ctx, app, col)
         row = await service.fetch_record(ctx, m, col, rid)
         await service.enforce_or_problem(ctx, "update", m, col, row["owner_sub"], str(row["id"]))

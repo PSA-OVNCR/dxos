@@ -32,7 +32,8 @@ pytestmark = pytest.mark.integration
 async def test_migrations_idempotent(owner_dsn):
     first = await apply_migrations(owner_dsn, MIGRATIONS)
     second = await apply_migrations(owner_dsn, MIGRATIONS)
-    assert first == ["001_core.sql", "002_anchors.sql", "003_workflow_seal.sql"] and second == []
+    assert first == ["001_core.sql", "002_anchors.sql", "003_workflow_seal.sql", "004_harden_triggers.sql"]
+    assert second == []
 
 
 async def test_core_role_cannot_update_ledger(core_conn, seeded_ledger_row):
@@ -183,7 +184,7 @@ async def test_core_role_cannot_create_objects_in_schema(core_conn):
 
 
 async def test_core_role_cannot_touch_schema_migrations(core_conn):
-    assert await core_conn.fetchval("SELECT count(*) FROM schema_migrations") == 3
+    assert await core_conn.fetchval("SELECT count(*) FROM schema_migrations") == 4
     with pytest.raises(asyncpg.InsufficientPrivilegeError):
         await core_conn.execute("DELETE FROM schema_migrations")
 
@@ -229,7 +230,8 @@ async def test_failed_migration_rolls_back_and_is_not_recorded(owner_dsn, tmp_pa
     try:
         applied = await conn.fetchval(
             "SELECT array_agg(filename ORDER BY filename) FROM core.schema_migrations")
-        assert applied == ["001_core.sql", "002_anchors.sql", "003_workflow_seal.sql"]
+        assert applied == ["001_core.sql", "002_anchors.sql", "003_workflow_seal.sql",
+                           "004_harden_triggers.sql"]
         assert await conn.fetchval("SELECT to_regclass('core.ok_then_fail')") is None
     finally:
         await conn.close()
@@ -253,7 +255,8 @@ async def test_database_newer_than_code_rejected(owner_dsn, tmp_path):
 async def test_apply_until_stops_at_prefix(owner_dsn):
     assert await apply_migrations(owner_dsn, MIGRATIONS, until="001") == ["001_core.sql"]
     assert await apply_migrations(owner_dsn, MIGRATIONS, until="002") == ["002_anchors.sql"]
-    assert await apply_migrations(owner_dsn, MIGRATIONS) == ["003_workflow_seal.sql"]
+    assert await apply_migrations(owner_dsn, MIGRATIONS) == ["003_workflow_seal.sql",
+                                                             "004_harden_triggers.sql"]
 
 
 async def test_apply_until_unknown_prefix_rejected(owner_dsn):
@@ -354,7 +357,7 @@ async def test_one_seal_per_record_by_unique_index(owner_conn, record_id):
     await insert_seal_request(owner_conn, record_id, seal_id="A" * 26)
     await insert_seal(owner_conn, record_id, seal_id="A" * 26)
     # Bỏ UNIQUE(record_id) của seal_requests (chỉ trong DB tạm của test) để có yêu cầu thứ hai cùng bản ghi.
-    await owner_conn.execute("ALTER TABLE seal_requests DROP CONSTRAINT seal_requests_record_id_key")
+    await owner_conn.execute("ALTER TABLE seal_requests DROP CONSTRAINT seal_requests_one_per_record")
     await insert_seal_request(owner_conn, record_id, seal_id="B" * 26)
     with pytest.raises(asyncpg.UniqueViolationError, match="seals_one_per_record"):
         await insert_seal(owner_conn, record_id, seal_id="B" * 26)
@@ -618,3 +621,111 @@ async def test_key_statements_constraints(core_conn):
         "SELECT column_name FROM information_schema.columns"
         " WHERE table_schema='core' AND table_name='key_statements'")}
     assert "signature" not in cols                                                # spec 25.3: không tự ký
+
+
+
+# ---------- Migration 004 (Plan 02 Task 2, sửa vòng 1): bảng tạm không che được trigger ----------
+# pg_temp được tìm trước mọi schema khi tên bảng không kèm schema. Trước 004, dxos_core (có TEMP qua PUBLIC)
+# tạo bảng tạm trùng tên là vượt được ba trigger. 004 ghi rõ schema `core.` và ghim search_path; thêm vào đó
+# thu hồi TEMP của PUBLIC. Các test dưới cấp TEMP riêng cho dxos_core để chứng minh phần sửa tên bảng
+# đứng độc lập với việc thu hồi TEMP.
+
+async def _grant_temp_to_core(owner_conn) -> None:
+    await owner_conn.execute(
+        "DO $$ BEGIN EXECUTE format('GRANT TEMPORARY ON DATABASE %I TO dxos_core', current_database());"
+        " END $$")
+
+
+async def test_core_role_cannot_create_temp_tables(core_conn):
+    with pytest.raises(asyncpg.InsufficientPrivilegeError):
+        await core_conn.execute("CREATE TEMP TABLE x (a int)")
+
+
+async def test_owner_keeps_temp(owner_conn):
+    await owner_conn.execute("CREATE TEMP TABLE x (a int)")
+
+
+async def test_temp_pii_erasures_cannot_unseal_data(owner_conn, core_conn, sealed_pii_record_id):
+    await _grant_temp_to_core(owner_conn)
+    rid = sealed_pii_record_id
+    with pytest.raises(asyncpg.RaiseError, match="record_sealed"):
+        async with core_conn.transaction():
+            await core_conn.execute(
+                "CREATE TEMP TABLE pii_erasures (record_id uuid, txid bigint, fields text[]) ON COMMIT DROP")
+            await core_conn.execute(
+                "INSERT INTO pg_temp.pii_erasures VALUES ($1, txid_current(), '{title}')", rid)
+            await core_conn.execute("UPDATE core.records SET data = data - 'title' WHERE id=$1", rid)
+    assert "title" in await _data(owner_conn, rid)
+
+
+async def test_temp_records_cannot_open_sealed_record_for_upload(owner_conn, core_conn, sealed_record_id):
+    await _grant_temp_to_core(owner_conn)
+    await core_conn.execute("CREATE TEMP TABLE records (id uuid, wf_state text, seal_state text)")
+    await core_conn.execute("INSERT INTO pg_temp.records VALUES ($1, NULL, 'NONE')", sealed_record_id)
+    with pytest.raises(asyncpg.RaiseError, match="record_not_open"):
+        await core_conn.execute(
+            "INSERT INTO core.uploads(record_id, staging_key, original_name_hash, size)"
+            " VALUES ($1, 'k', $2, 1)", sealed_record_id, "b" * 64)
+
+
+async def test_temp_record_salts_cannot_swallow_salt(owner_conn, core_conn):
+    await _grant_temp_to_core(owner_conn)
+    await core_conn.execute("CREATE TEMP TABLE record_salts (record_id uuid, salt text)")
+    rid = await core_conn.fetchval(
+        "INSERT INTO core.records(app_id, collection, owner_sub)"
+        " VALUES ('test-app', 'item', 'u') RETURNING id")
+    assert await owner_conn.fetchval("SELECT salt FROM core.record_salts WHERE record_id=$1", rid)
+    assert await core_conn.fetchval("SELECT count(*) FROM pg_temp.record_salts") == 0
+
+
+async def test_every_core_plpgsql_function_pins_search_path(owner_conn):
+    rows = await owner_conn.fetch(
+        "SELECT p.proname, p.proconfig FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace"
+        " JOIN pg_language l ON l.oid = p.prolang WHERE n.nspname = 'core' AND l.lanname = 'plpgsql'")
+    names = {r["proname"] for r in rows}
+    assert {"record_seal_guard", "record_salt_init", "upload_record_open", "object_identity_guard",
+            "ledger_append_only", "salt_no_update", "record_workflow_guard", "pii_erasure_txid"} <= names
+    for r in rows:
+        assert r["proconfig"] == ["search_path=pg_catalog, core, pg_temp"], r["proname"]
+
+
+# ---------- Migration 004: txid của bằng chứng xóa do DB đặt ----------
+
+async def test_core_cannot_choose_erasure_txid(core_conn, record_id):
+    with pytest.raises(asyncpg.InsufficientPrivilegeError):
+        await core_conn.execute(
+            "INSERT INTO pii_erasures(record_id, fields, reason_code, erased_by, txid)"
+            " VALUES ($1, '{cccd}', 'agreement', 'u', 1)", record_id)
+    with pytest.raises(asyncpg.InsufficientPrivilegeError):
+        await core_conn.execute(
+            "INSERT INTO pii_erasures(record_id, fields, reason_code, erased_by, erased_at)"
+            " VALUES ($1, '{cccd}', 'agreement', 'u', now())", record_id)
+    await core_conn.execute(ERASE, record_id, ["cccd"])                          # cột cho phép: vẫn ghi được
+
+
+async def test_erasure_txid_is_forced_to_current_transaction(owner_conn, record_id):
+    async with owner_conn.transaction():
+        await owner_conn.execute(
+            "INSERT INTO pii_erasures(record_id, fields, reason_code, erased_by, txid)"
+            " VALUES ($1, '{cccd}', 'agreement', 'u', 12345)", record_id)
+        assert await owner_conn.fetchval("SELECT txid FROM pii_erasures") == await owner_conn.fetchval(
+            "SELECT txid_current()")
+
+
+async def test_evidence_with_forged_txid_does_not_unlock(owner_conn, core_conn, sealed_pii_record_id):
+    """Bằng chứng ghi ở transaction khác, dù cố đặt đúng txid của transaction đang xóa, không mở khóa được."""
+    rid = sealed_pii_record_id
+    with pytest.raises(asyncpg.RaiseError, match="record_sealed"):
+        async with core_conn.transaction():
+            victim_txid = await core_conn.fetchval("SELECT txid_current()")
+            await owner_conn.execute(                                         # transaction khác, đã commit
+                "INSERT INTO pii_erasures(record_id, fields, reason_code, erased_by, txid)"
+                " VALUES ($1, '{cccd}', 'agreement', 'u', $2)", rid, victim_txid)
+            await core_conn.execute(STRIP, rid, "cccd")
+    assert "cccd" in await _data(owner_conn, rid)
+
+
+async def test_seal_request_unique_constraint_is_named(owner_conn):
+    assert await owner_conn.fetchval(
+        "SELECT count(*) FROM pg_constraint"
+        " WHERE conname = 'seal_requests_one_per_record' AND contype = 'u'") == 1

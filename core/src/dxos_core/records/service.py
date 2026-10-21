@@ -41,7 +41,7 @@ class Ctx:
     conn: asyncpg.Connection
     principal: Principal
     hmac_key: bytes
-    timezone: str = "Asia/Ho_Chi_Minh"     # Settings.timezone: năm của số văn bản đánh lại theo năm
+    timezone: str                          # Settings.timezone: năm của số văn bản đánh lại theo năm
 
 
 # ---------------------------------------------------------------- lỗi chuẩn

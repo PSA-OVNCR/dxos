@@ -452,6 +452,9 @@ sequenceDiagram
 Các thay đổi trên bảng cũ:
 - `records` thêm `wf_app_version`, `wf_definition_id` (ghim phiên bản app và định nghĩa quy trình lúc bắt đầu quy trình). `wf_state` chỉ nhận `NULL`, `running` hoặc `ended:<id end event>` (CHECK `^ended:[A-Za-z_][A-Za-z0-9_-]{0,63}$`; migration đưa giá trị cũ không hợp lệ về `NULL`). Trigger `record_workflow_guard` chặn sửa `data` khi `running`, không có ngoại lệ.
 - `uploads`: trigger chặn INSERT khi bản ghi đang `running` hoặc `seal_state ≠ NONE` (đọc bản ghi bằng `FOR SHARE` để chờ `workflow:start` đang chạy).
+- `seal_requests`: một yêu cầu cho mỗi bản ghi (ràng buộc `seal_requests_one_per_record`, đặt tên ở migration 004).
+- `pii_erasures`: `txid` do trigger `pii_erasure_txid` đặt bằng `txid_current()` với mọi role (migration 004); `dxos_core` chỉ được INSERT các cột `record_id, fields, reason_code, erased_by`.
+- Hàm trigger (migration 004): mọi bảng ghi rõ schema `core.` và mọi hàm plpgsql ghim `search_path = pg_catalog, core, pg_temp`, để bảng tạm trùng tên không che được bảng thật; `PUBLIC` bị thu hồi quyền `TEMPORARY` trên database.
 - `seals`: một niêm phong cho mỗi bản ghi (index duy nhất `seals_one_per_record`); khóa ngoại `(seal_id, record_id)` tới `seal_requests`; chữ ký ed25519 64 byte dạng base64 (CHECK `^[A-Za-z0-9+/]{86}==$`); `leaf_index` NOT NULL.
 
 ### 10.2. Vòng đời tệp (khái niệm chung của lõi)
@@ -1071,6 +1074,7 @@ Giờ của AT-24..26 đã nằm trong giờ của H1, H6, H13 và **không** c�
 | 1.0.3 (phần A) | 21/10/2026 | Trưởng nhóm duyệt phương án A của tài liệu đề xuất khác biệt (Đ3, Đ4, Đ5; Đ2 neo OpenTimestamps để Plan 03) và duyệt từng phần thiết kế. Thêm mục 25 (pháp lý, dữ liệu cá nhân, tuyên bố khóa, văn thư, nghiệm thu); bất biến I5; ngoại lệ F2; AT-27, AT-28; sửa 4.1, 9.1, 9.2, 11.5, 11.6, 12.1, 12.2, 12.4, 14, 15, 19. Phần B (các sửa ở Plan 02 Task 1) ghi ở dòng "1.0.3 (phần B)" bên dưới |
 | 1.0.3 (phần B) | 21/10/2026 | Các sửa kèm Plan 02 Task 1 (manifest cộng thêm, sự kiện ledger). 9.1: `seal.revoke_roles` và luật validator; 9.3: tham số và ngữ nghĩa từng guard; 9.5: role Keycloak là **realm role** `app:{id}:{role}`, không phải client role (đúng với mã `identity/jwt.py`); 10.1: bảng và cột mới của migration 003; 11.5: phản hồi công khai không chứa hash tệp, gói của niêm phong cần tệp lấy qua `POST …:bundle`; 12.1: `:pii-review`; 12.2: `POST …/seals/{id}:bundle`; 12.3: `…/versions/{v}/diff`, `workflow:reconcile`; 12.4: `workflow.started`, `workflow.completed`; 15: rủi ro còn lại của `manage-realm` (T5) và của việc Flowable đi trước DB (T6). Quy tắc namespace hẹp lại: chỉ chặn role/collection là `app` hoặc bắt đầu bằng `app_` (trước đó chặn mọi tên bắt đầu bằng `app`, làm role `approver` bị từ chối oan) |
 | | | Plan 02 Task 2 (migration 003): mục 10.1 ghi rõ CHECK của `wf_state` và `seals`, cách tạo salt ở mức DB (122 bit ngẫu nhiên) so với `ensure_salt` (128 bit) |
+| | | Plan 02 Task 2 sửa vòng 1 (migration 004): trigger ghi rõ schema và ghim search_path (chặn che bằng bảng tạm), thu hồi TEMP của PUBLIC, `txid` của `pii_erasures` do DB đặt, đặt tên `seal_requests_one_per_record`; 25.2 nói rõ 122/128 bit |
 | 1.0.2 | 20/10/2026 | Mục 9.1: thêm `public: true` cho `so_hieu`. Trường này nằm trong `seal.public_fields`, mà quy tắc validator (Plan 01 Task 11) đòi mọi `public_fields` phải có cờ `public` |
 | | | Mục 9.1: `access.update` không khai báo thì mặc định là `[owner]` (chủ bản ghi sửa và đính kèm tệp khi bản ghi chưa niêm phong) |
 
@@ -1112,7 +1116,7 @@ Giờ của AT-24..26 đã nằm trong giờ của H1, H6, H13 và **không** c�
 ### 25.2. Dữ liệu cá nhân
 
 **Cam kết có salt.** Đây là phần không sửa ngược được, nên làm trước mọi tính năng khác.
-- Bảng `record_salts(record_id PK → records, salt)`. Mỗi bản ghi có một salt 128 bit, dạng base64 24 ký tự.
+- Bảng `record_salts(record_id PK → records, salt)`. Mỗi bản ghi có một salt 16 byte, dạng base64 24 ký tự: salt do trigger tạo lúc INSERT có 122 bit ngẫu nhiên (`gen_random_uuid`), salt tạo lại bằng `new_salt()` có 128 bit (chi tiết ở 10.1).
   - Trigger AFTER INSERT trên `records` tạo salt, nên không đường nào tạo bản ghi mà thiếu salt.
   - `dxos_core` được SELECT, INSERT, DELETE, **không** được UPDATE; trigger chặn UPDATE và TRUNCATE với mọi role.
   - Migration bổ sung salt cho bản ghi đã có.
