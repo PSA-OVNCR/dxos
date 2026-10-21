@@ -22,7 +22,7 @@ SPDX-License-Identifier: Apache-2.0
 |---|---|---|---|
 | M0 | 26/10 | Hạ tầng chạy được, đo RAM, spike Flowable | Gần xong: thiếu đo RAM và chạy trên VPS |
 | **M1** | **09/11** | Lõi Tier-0 phần 1, release **v0.1.0** | **Mã xong**; chờ E2E trên VPS + tag |
-| M2 | 16/11 | v0.2.0: guard + BPMN, niêm phong, installer, App A và B cài bằng manifest, witness độc lập | **Đang làm**: Plan 02 xong 11/15 task (mục 11) |
+| M2 | 16/11 | v0.2.0: guard + BPMN, niêm phong, installer, App A và B cài bằng manifest, witness độc lập | **Đang làm**: Plan 02 xong 15/15 task phần cloud, đang review toàn nhánh; còn việc VPS (mục 12) |
 | M3 | 23/11 | v0.3.0: SDK, SPA A và B, cổng đối soát, triển khai VPS theo tag | Chưa bắt đầu |
 | M4 | 30/11 | v0.9.0: SHOULD, chạy thử với người dùng, tài liệu + SBOM | Chưa bắt đầu |
 | M5 | 04/12 | v1.0.0, máy sạch, đóng băng mã | Chưa bắt đầu |
@@ -122,7 +122,7 @@ Chi tiết: `BUILD.md`, `docs/runbook-openbao.md`, `docs/runbook-anchor.md`.
 
 ---
 
-## 11. Plan 02 (M2) — cập nhật 21/10/2026 19:20
+## 11. Plan 02 (M2) — cập nhật 21/10/2026 21:40
 
 *Chạy bằng subagent, mỗi task qua review (spec + chất lượng) và sửa xong mới đóng. Mọi commit đã push lên main.*
 
@@ -139,13 +139,13 @@ Chi tiết: `BUILD.md`, `docs/runbook-openbao.md`, `docs/runbook-anchor.md`.
 | 9 | `dxos-witness verify-bundle` (AT-17, AT-28) | `d7e06b2` | Xong |
 | 10 | Trang kiểm tra tối giản (WebCrypto, CSP chặt); sửa lỗi Plan 01: danh sách IP admin không có hiệu lực | `fbf074c` | Xong |
 | 11 | Keycloak: service account installer, client `dxos-cli`, script nâng cấp realm | `3b2c0e6` | Xong |
-| 12 | Installer, duyệt bốn mắt, health, quarantine | `84b329c` | Đang sửa vòng 1 |
-| 13 | CLI `dxos` | — | Chưa |
-| 14 | BPMN + manifest 1.1.0 App A/B, mở rộng AT-14 | — | Chưa |
-| 15 | Tài liệu (`docs/legal-mapping.md`…) + e2e | — | Chưa |
-| — | Review toàn nhánh (model mạnh nhất) | — | Chưa |
+| 12 | Installer, duyệt bốn mắt, health, quarantine; chặn `/admin` trên host công khai | `2666311` | Xong |
+| 13 | CLI `dxos` (device flow, refresh token gắn server) | `616a95b` | Xong |
+| 14 | BPMN + manifest 1.1.0 App A/B, AT-14 quét toàn bộ image lõi | `cb8e2a2` | Xong |
+| 15 | E2E M2 (viết sẵn, chạy trên VPS), AT-13 script, release GHCR, OpenAPI, tài liệu pháp lý/manifest/runbook xóa PII | `d17c755` | Xong phần cloud |
+| — | Review toàn nhánh (model mạnh nhất) | — | Đang chạy |
 
-Test gần nhất (`84b329c`): `make check` 891 passed, integration 390 passed, witness 86 passed — chạy ở cloud không có Docker (PostgreSQL 16, OpenBao 2.2.0, SeaweedFS, Flowable 7.1.0, Keycloak 26.3.0, Caddy 2.10.0 chạy trực tiếp).
+Test gần nhất (`d17c755`): `make check` 1110 passed, integration 395 passed, witness 86 passed; CI GitHub xanh — chạy ở cloud không có Docker (PostgreSQL 16, OpenBao 2.2.0, SeaweedFS, Flowable 7.1.0, Keycloak 26.3.0, Caddy 2.10.0 chạy trực tiếp).
 
 ## 12. Việc cần VPS / trưởng nhóm làm sau (gom từ Plan 02)
 
@@ -159,8 +159,18 @@ Test gần nhất (`84b329c`): `make check` 891 passed, integration 390 passed, 
 | V6 | Kiểm APISIX định tuyến đúng `…/seals/{id}:check` và `:bundle` (dấu `:` trong đường dẫn) | dev-lite/VPS | Chỉ kiểm qua Caddy → uvicorn |
 | V7 | Kiểm `remote_ip` của Caddy thấy IP thật sau Docker (danh sách IP admin vừa được sửa để có hiệu lực) | VPS | — |
 | V8 | Chụp lại ảnh + `curl` trang `/apps/verify/` trên dev-lite/VPS (ảnh hiện có lấy từ Caddy + uvicorn không Docker) | dev-lite/VPS | — |
-| V9 | Xem lần chạy CI đầu của job `caddy-live` (tải Caddy 2.10.0, kiểm sha512) | GitHub Actions | Chưa push lên Actions lần nào với job này |
+| V9 | ~~Xem lần chạy CI đầu của job `caddy-live`~~ — đã xanh trên GitHub (21/10) | — | Xong |
 | V10 | Flowable phải giữ history level ≥ `audit` (mặc định); bất biến chống lệch dựa vào lịch sử Flowable | VPS | — |
 | V11 | Task bị xóa thẳng trên console Flowable sẽ làm bản ghi bị chặn (`workflow-inconsistent`) — cần người xử lý tay; đừng thao tác trên console Flowable | VPS | Chủ ý an toàn |
 | V12 | Đồng bộ `witness/template/README.md` sang repo `PSA-OVNCR/dxos-witness-kit` | GitHub | Repo riêng, chưa gắn vào phiên |
+| V14 | Kiểm `dxos login` (device flow) và tự làm mới token với Keycloak thật | VPS / dev-lite | Chỉ test bằng server giả |
+| V15 | Quyết định: E2E trên VPS cần tạm thêm user dev (mật khẩu đã biết, có 2 admin) + client `dxos-test`; lệnh thêm/gỡ ở `docs/evidence/README.md` (lệnh gỡ chưa chạy thử) | Trưởng nhóm | Rủi ro bảo mật trên host công khai |
+| V16 | Chạy lại `ops/keycloak_upgrade.py --profile dev-lite` trên dev stack để có `admin2`, `chuyen_vien_tp1` | dev stack | User dev mới cho AT-07 |
+| V17 | E2E M2 trên dev-lite (A) và VPS p16 (B, gồm AT-19, AT-20 — cần root token tạm của OpenBao) | dev-lite / VPS | Cần Docker + APISIX thật; lệnh ở `task-15` mục "Việc cho VPS" (bản tóm tắt ở `BUILD.md`) |
+| V18 | Gắn tag v0.2.0: nâng version 4 gói lên 0.2.0, `make openapi`, điền ngày CHANGELOG, rồi tag (job `check` chặn nếu thiếu) | Trưởng nhóm | Hành động công khai; sau v0.1.0 |
+| V19 | Sau lần đẩy image đầu: đặt package `trust-core` trên GHCR là public (hoặc `docker login ghcr.io` trên VPS); ghi digest vào `LICENSES-THIRD-PARTY.md` | GitHub / VPS | Hành động công khai |
+| V20 | AT-13 trên VPS với image đã phát hành (`ops/at13_reuse.sh`), hai thành viên khác nhau nộp/duyệt, `DXOS_ALLOW_SELF_APPROVAL=false` | VPS | Cần image GHCR |
+| V21 | `docs/legal-mapping.md`: từng thành viên đọc toàn văn từng điều và tự điền tên + ngày; điền cột "Điểm" của Điều 14 k1 và chốt thời hạn giữ backup trong `docs/runbook-pii-erasure.md` | Cả đội | Không được để agent điền thay |
+| V22 | VPS phải dùng Docker Compose ≥ 2.24 (overlay phát hành dùng `!reset`) | VPS | Lỗi CI 21/10 cho thấy phụ thuộc phiên bản |
+| V23 | Cổng năng suất M2: viết `docs/progress/2026-11-16.md` sau khi V17–V20 xong | Trưởng nhóm | Không ghi kết quả chưa chạy |
 | V13 | (Từ Plan 01) Task 7 đo RAM; E2E Task 17; tag `v0.1.0`; repo neo + ruleset + khóa deploy + ảnh AT-18; witness độc lập; duyệt giấy phép pypdfium2; duyệt push GHCR | VPS / trưởng nhóm | Hành động công khai hoặc cần máy thật |
