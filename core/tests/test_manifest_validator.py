@@ -3,13 +3,13 @@
 """Test validator manifest: schema, namespace, chính sách sàn, guard (Plan 01 Task 11, AT-11, AT-12)."""
 
 import copy
-import re
 from pathlib import Path
 from typing import get_args
 
 import pytest
 import yaml
 from dxos_core.registry.validator import GUARD_CATALOG, ErrorCode, ManifestError, validate_manifest
+from helpers import at14
 
 ROOT = Path(__file__).resolve().parents[2]
 PATHS = {
@@ -172,20 +172,8 @@ def test_error_is_value_error_with_path():
 
 
 def test_core_never_names_tier2_apps():                                          # I3 (AT-14, phần tĩnh)
-    """Mã phát hành của lõi không chứa định danh nào của mọi ``apps/*/manifest.yaml``: app id (gạch nối và
-    gạch dưới), tên collection, tên role. ``core/tests`` không nằm trong image nên không quét."""
-    idents: set[str] = set()
-    manifests = list((ROOT / "apps").glob("*/manifest.yaml"))
-    for f in manifests:
-        m = yaml.safe_load(f.read_text(encoding="utf-8"))
-        idents |= {m["app"]["id"], m["app"]["id"].replace("-", "_"), *m["collections"], *m["roles"]}
-    files = [p for d in ("src", "migrations", "docker") for p in (ROOT / "core" / d).rglob("*")
-             if p.is_file() and "__pycache__" not in p.parts]
-    files += [ROOT / "core/Dockerfile", ROOT / "core/pyproject.toml"]
-    assert len(manifests) >= 2 and len(files) > 20           # chống test rỗng
-    offenders = sorted({(p.relative_to(ROOT).as_posix(), i) for p in files for i in idents
-                        if re.search(rf"\b{re.escape(i)}\b", p.read_text(encoding="utf-8", errors="ignore"))})
-    assert offenders == []
+    """Bộ quét dùng chung ``helpers.at14``: mã trong image lõi không chứa định danh nào của ``apps/*``."""
+    assert at14.scan(ROOT) == []
 
 
 @pytest.mark.parametrize("ftype", ["integer", "date", "boolean", "sequence"])

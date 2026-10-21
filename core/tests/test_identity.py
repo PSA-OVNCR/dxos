@@ -18,8 +18,8 @@ def verifier(test_jwks):
 # ---------- Các test do Plan 01 Task 10 quy định ----------
 
 async def test_valid_token(verifier):
-    p = await verifier.verify(make_token("u1", ["app:phong-ho-so:giam_doc", "dxos-admin"]))
-    assert p.sub == "u1" and p.is_admin and "app:phong-ho-so:giam_doc" in p.roles
+    p = await verifier.verify(make_token("u1", ["app:test-flow:approver", "dxos-admin"]))
+    assert p.sub == "u1" and p.is_admin and "app:test-flow:approver" in p.roles
 
 
 @pytest.mark.parametrize("override", [{"aud": "other"}, {"iss": "https://evil/realms/dxos"},
@@ -30,11 +30,11 @@ async def test_rejected_tokens(verifier, override):
 
 
 def test_app_roles_only_for_that_app():                                         # RF3 (phần 1)
-    roles = {"app:phong-ho-so:giam_doc", "app:chung-nhan:truong_clb", "offline_access"}
+    roles = {"app:test-flow:approver", "app:test-app:reviewer", "offline_access"}
     p = Principal("u", frozenset(roles), False)
-    assert app_roles(p, "phong-ho-so") == {"giam_doc"}
-    assert app_roles(p, "chung-nhan") == {"truong_clb"}
-    assert app_roles(p, "test-app") == frozenset()
+    assert app_roles(p, "test-flow") == {"approver"}
+    assert app_roles(p, "test-app") == {"reviewer"}
+    assert app_roles(p, "test-other") == frozenset()
 
 
 def test_endpoint_without_token_is_401(client):

@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Test tĩnh của hai ứng dụng Tầng 2 (Plan 02 Task 14): manifest 1.1.0 khớp BPMN, nâng cấp từ 1.0.0, AT-14."""
 
-import re
 from pathlib import Path
 
 import pytest
@@ -10,6 +9,7 @@ import yaml
 from dxos_core.registry.bpmn import check_against_manifest, parse_bpmn
 from dxos_core.registry.upgrade import check_upgrade
 from dxos_core.registry.validator import ManifestError, validate_manifest
+from helpers import at14
 
 ROOT = Path(__file__).resolve().parents[2]
 APPS = ["phong-ho-so", "chung-nhan"]
@@ -31,17 +31,7 @@ def test_app_manifest_and_bpmn_agree(app):
 
 
 def test_core_never_names_any_app_identifier():                                       # AT-14
-    idents = set()
-    for f in (ROOT / "apps").glob("*/manifest.yaml"):
-        m = yaml.safe_load(f.read_text(encoding="utf-8"))
-        idents |= {m["app"]["id"], m["app"]["id"].replace("-", "_"), *m["collections"], *m["roles"]}
-    shipped = [ROOT / "core" / d for d in ("src", "migrations", "docker")]
-    files = [p for d in shipped for p in d.rglob("*") if p.is_file() and "__pycache__" not in p.parts]
-    files += [ROOT / "core/Dockerfile", ROOT / "core/pyproject.toml"]
-    assert len(files) > 20 and idents                  # chống test rỗng: có tệp để quét, có định danh để tìm
-    hits = [(p.name, i) for p in files for i in idents
-            if re.search(rf"\b{re.escape(i)}\b", p.read_text(encoding="utf-8", errors="ignore"))]
-    assert hits == []
+    assert at14.scan(ROOT) == []                  # bộ quét duy nhất, dùng chung với core/tests
 
 
 def test_app_b_readme_has_scope_statement():
@@ -109,3 +99,30 @@ def test_bpmn_process_id_and_ends(app):
     keys = {"phong-ho-so": "phong-ho-so.ban-hanh", "chung-nhan": "chung-nhan.cap-chung-nhan"}
     assert pm.process_key == keys[app]
     assert pm.end_events == {"approved", "rejected"}
+
+
+# Nhánh của cổng quyết định: đổi chỗ approve/reject phải làm test đỏ (brief Task 14).
+EXPECTED_FLOWS = {
+    "phong-ho-so": {
+        "user_tasks": {"duyet_noi_dung": "truong_phong", "ban_hanh": "giam_doc"},
+        "flows": {("start", "duyet_noi_dung", None), ("duyet_noi_dung", "gw_duyet", None),
+                  ("gw_duyet", "ban_hanh", "approve"), ("gw_duyet", "rejected", "reject"),
+                  ("ban_hanh", "gw_ban_hanh", None),
+                  ("gw_ban_hanh", "approved", "approve"), ("gw_ban_hanh", "rejected", "reject")},
+    },
+    "chung-nhan": {
+        "user_tasks": {"phe_duyet": "truong_clb"},
+        "flows": {("start", "phe_duyet", None), ("phe_duyet", "gw_phe_duyet", None),
+                  ("gw_phe_duyet", "approved", "approve"), ("gw_phe_duyet", "rejected", "reject")},
+    },
+}
+
+
+@pytest.mark.parametrize("app", APPS)
+def test_bpmn_gateway_branches(app):
+    m = _manifest(app)
+    pm = check_against_manifest((ROOT / f"apps/{app}" / m.workflow.bpmn).read_bytes(), m)
+    want = EXPECTED_FLOWS[app]
+    assert pm.user_tasks == want["user_tasks"]
+    assert set(pm.flows) == want["flows"] and len(pm.flows) == len(want["flows"])
+    assert pm.decisions_by_task == {t: frozenset({"approve", "reject"}) for t in want["user_tasks"]}
