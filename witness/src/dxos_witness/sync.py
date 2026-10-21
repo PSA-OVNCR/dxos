@@ -4,6 +4,9 @@
 
 1. Lấy STH mới nhất và khóa công khai; kiểm chữ ký → sai: ``BAD_SIGNATURE``.
    Khóa của một phiên bản đã ghim mà đổi (key pinning) cũng là ``BAD_SIGNATURE``.
+   Plan 02 Task 9: khóa máy chủ đưa (``seal-key``, ``sth-key``) khác ``keys/<khóa>/v<n>.pub`` cùng phiên bản
+   trong repo neo → ``BAD_SIGNATURE``, detail ``key_mismatch_anchor``; tệp khóa neo sai dạng →
+   ``ANCHOR_MISMATCH``. Khóa đã neo được ưu tiên hơn khóa máy chủ khi kiểm STH.
 2. Đọc **mọi** STH trong repo neo; tệp sai chữ ký/sai tên, hoặc cùng ``tree_size`` mà khác STH máy chủ
    → ``ANCHOR_MISMATCH``; có STH neo lớn hơn STH máy chủ (máy chủ quay lui) → ``REWRITE_DETECTED``.
 3. **Chuỗi neo**: từng cặp STH neo liên tiếp (từ mốc đã kiểm lần trước) và STH neo mới nhất → STH hiện tại
@@ -31,6 +34,8 @@ from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from dxos_proof.canonical import canonical_bytes
 from dxos_proof.merkle import verify_consistency
+
+from dxos_witness.bundle import AnchorFileError, anchored_public_key
 
 Status = Literal["OK", "FIRST_RUN", "REWRITE_DETECTED", "INCONSISTENT", "BAD_SIGNATURE", "ANCHOR_MISMATCH"]
 STATE_FILE = "latest-sth.json"
@@ -108,6 +113,8 @@ def _parse_sth(obj: dict) -> dict:
 
 
 _ANCHOR_NAME = re.compile(r"^(\d{12})\.json$")
+_VERSION = re.compile(r"[1-9]\d{0,8}")
+_KEY_NAMES = ("seal-key", "sth-key")
 
 
 def _consistent(client: httpx.Client, a: dict, b: dict) -> bool:
@@ -150,21 +157,61 @@ def _read_anchors(anchor_dir: Path, keys: dict) -> tuple[list[dict], str | None]
     return sorted(out, key=lambda x: x["tree_size"]), None
 
 
+def _anchor_key_check(anchor_dir: Path, served: dict, size: int) -> tuple[SyncResult | None, dict]:
+    """So mọi khóa máy chủ đưa với ``keys/<khóa>/v<n>.pub`` trong repo neo. Trả (kết quả lỗi hoặc None,
+    ``{phiên bản: b64}`` các khóa ``sth-key`` đã neo)."""
+    anchored_sth: dict = {}
+    for name in _KEY_NAMES:
+        keys = served.get(name, {})
+        if not isinstance(keys, dict):
+            raise WitnessError(f"keys: {name} không phải object")
+        for v in keys:
+            if not isinstance(v, str) or not _VERSION.fullmatch(v):
+                raise WitnessError(f"keys: phiên bản {name} sai dạng: {v!r}")
+        versions = set(keys)
+        kdir = anchor_dir / "keys" / name
+        if kdir.is_dir():
+            versions |= {f.name[1:-4] for f in kdir.glob("v*.pub") if _VERSION.fullmatch(f.name[1:-4])}
+        for v in sorted(versions, key=int):
+            try:
+                pinned = anchored_public_key(anchor_dir, name, int(v))
+            except AnchorFileError as exc:
+                return SyncResult("ANCHOR_MISMATCH", size, str(exc)), anchored_sth
+            if pinned is None:
+                continue
+            if name == "sth-key":
+                anchored_sth[v] = base64.b64encode(pinned).decode("ascii")
+            if v in keys and _pubkey(keys, int(v)) != pinned:
+                return SyncResult("BAD_SIGNATURE", size,
+                                  f"key_mismatch_anchor: {name} v{v} máy chủ đưa khác keys/{name}/v{v}.pub"
+                                  " trong repo neo"), anchored_sth
+    return None, anchored_sth
+
+
 def sync(server_url: str, anchor_dir: Path, state_dir: Path, *, timeout_s: float = 15.0) -> SyncResult:
     anchor_dir, state_dir = Path(anchor_dir), Path(state_dir)
     with httpx.Client(base_url=server_url.rstrip("/"), timeout=timeout_s) as client:
         th = _parse_sth(_get(client, "/verify/v1/sth/latest"))
-        served = _get(client, "/verify/v1/keys").get("sth-key", {})
+        served_all = _get(client, "/verify/v1/keys")
+        served = served_all.get("sth-key", {})
         if not isinstance(served, dict):
             raise WitnessError("keys: sth-key không phải object")
         size = th["tree_size"]
+        bad, anchored_keys = _anchor_key_check(anchor_dir, served_all, size)
+        if bad is not None:
+            return bad
 
         # 1. chữ ký + key pinning: khóa đã ghim luôn thắng khóa máy chủ đưa
         known = _load(state_dir / KEYS_FILE) or {}
         for v, k in served.items():
             if v in known and known[v] != k:
                 return SyncResult("BAD_SIGNATURE", size, f"khóa sth-key v{v} bị thay so với lần trước")
-        keys = {**served, **known}
+        for v, k in anchored_keys.items():
+            if v in known and known[v] != k:
+                return SyncResult("BAD_SIGNATURE", size,
+                                  f"key_mismatch_anchor: sth-key v{v} đã ghim lần trước khác"
+                                  f" keys/sth-key/v{v}.pub")
+        keys = {**served, **known, **anchored_keys}      # repo neo thắng (đã so ở trên: không khác máy chủ)
         pk = _pubkey(keys, th["key_version"])
         if pk is None:
             return SyncResult("BAD_SIGNATURE", size, f"không có khóa sth-key phiên bản {th['key_version']}")

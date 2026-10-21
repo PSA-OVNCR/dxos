@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Test dxos-witness sync (Plan 01 Task 16; AT-16)."""
 
+import base64
 import json
 
 import pytest
@@ -158,3 +159,53 @@ def test_pinned_key_kept_when_server_adds_version(server, tmp_path):
     assert sync(server.url, server.anchor_dir, tmp_path).status == "OK"
     keys = json.loads((tmp_path / "known-keys.json").read_text())
     assert keys["1"] == pinned and "2" in keys
+
+
+# ---------- Plan 02 Task 9: khóa máy chủ so với khóa trong repo neo ----------
+
+def test_sync_flags_server_key_differing_from_anchor(fake_ledger, anchor_dir, state_dir):
+    fake_ledger.publish_keys_to(anchor_dir); fake_ledger.rotate_key_same_version("seal-key")  # noqa: E702
+    assert sync(fake_ledger.url, anchor_dir, state_dir).status == "BAD_SIGNATURE"
+
+
+@pytest.mark.parametrize("key", ["seal-key", "sth-key"])
+def test_key_mismatch_with_anchor_detail(fake_ledger, anchor_dir, state_dir, key):
+    fake_ledger.publish_keys_to(anchor_dir)
+    fake_ledger.rotate_key_same_version(key)
+    r = sync(fake_ledger.url, anchor_dir, state_dir)
+    assert r.status == "BAD_SIGNATURE" and r.detail.startswith("key_mismatch_anchor"), r.detail
+    assert key in r.detail and not (state_dir / "latest-sth.json").exists()
+
+
+def test_keys_matching_anchor_are_ok(fake_ledger, anchor_dir, state_dir):
+    fake_ledger.publish_keys_to(anchor_dir)
+    assert sync(fake_ledger.url, anchor_dir, state_dir).status == "FIRST_RUN"
+    fake_ledger.add_entries(2)
+    fake_ledger.make_and_anchor_sth()
+    assert sync(fake_ledger.url, anchor_dir, state_dir).status == "OK"
+
+
+def test_anchored_key_wins_over_server_key(fake_ledger, anchor_dir, state_dir):
+    """Lần đầu (chưa ghim gì): sth-key v1 máy chủ đưa khác khóa đã neo → không bao giờ dùng khóa máy chủ."""
+    fake_ledger.publish_keys_to(anchor_dir)
+    fake_ledger.rotate_key_same_version("sth-key")
+    fake_ledger.make_sth_without_anchor()                       # STH ký bằng khóa mới, khớp khóa máy chủ đưa
+    assert sync(fake_ledger.url, anchor_dir, state_dir).status == "BAD_SIGNATURE"
+
+
+def test_malformed_anchored_key_file(fake_ledger, anchor_dir, state_dir):
+    fake_ledger.publish_keys_to(anchor_dir)
+    (anchor_dir / "keys/sth-key/v1.pub").write_text("không phải base64\n", encoding="utf-8")
+    r = sync(fake_ledger.url, anchor_dir, state_dir)
+    assert r.status == "ANCHOR_MISMATCH" and "sth-key" in r.detail
+
+
+def test_previously_pinned_key_differing_from_anchor(fake_ledger, anchor_dir, state_dir):
+    """Khóa witness đã ghim lần trước khác khóa trong repo neo (máy chủ thôi phục vụ phiên bản đó)."""
+    assert sync(fake_ledger.url, anchor_dir, state_dir).status == "FIRST_RUN"     # ghim sth-key v1
+    other = base64.b64encode(bytes(32)).decode()
+    (anchor_dir / "keys/sth-key").mkdir(parents=True)
+    (anchor_dir / "keys/sth-key/v1.pub").write_text(other + "\n", encoding="utf-8")
+    fake_ledger.keys_override = {"seal-key": {}, "sth-key": {}}                # máy chủ thôi phục vụ v1
+    r = sync(fake_ledger.url, anchor_dir, state_dir)
+    assert r.status == "BAD_SIGNATURE" and r.detail.startswith("key_mismatch_anchor")

@@ -386,3 +386,72 @@ async def test_keys_include_statements_and_survive_kms_outage(flow, verify, loca
         assert keys["statements"] == {"seal-key": {"1": await statement_for(c, 1)}}
     kms_down()
     assert (await verify.get("/verify/v1/keys")).json() == keys            # khóa bất biến: phục vụ từ cache
+
+
+# ---------- Plan 02 Task 9 Step 3: gói do lõi sinh qua được dxos-witness verify-bundle ----------
+
+def _third_party_clone(anchor_env, name: str):
+    """Bên thứ ba clone repo neo ``file://`` (không dùng clone của worker)."""
+    import subprocess
+
+    dst = anchor_env.scratch / name
+    subprocess.run(["git", "clone", "-q", f"file://{anchor_env.remote}", str(dst)], check=True)
+    return dst
+
+
+def _issuer(flow) -> str:
+    s = flow.settings
+    return s.org_name if s.org_id is None else f"{s.org_name} ({s.org_id})"
+
+
+async def test_core_bundle_passes_witness_verify_bundle(flow, verify, anchor_env, local_signer):    # AT-17
+    from dxos_witness.bundle import verify_bundle
+
+    sid, original = await flow.sealed_with_file()
+    size = await anchor_env.anchor_once()                      # job neo thật: STH phủ lá + tệp khóa/tuyên bố
+    b = await _file_bundle(verify, sid, original)
+    assert b["anchored"]["sth"]["tree_size"] == size > b["inclusion"]["leaf_index"]
+    repo = _third_party_clone(anchor_env, "nguoi-kiem")
+    assert (repo / "keys/seal-key/v1.json").exists() and (repo / "keys/sth-key/v1.pub").exists()
+    r = verify_bundle(b, anchor_dir=repo, file_sha256=_sha(original))
+    assert (r.status, r.pinned, r.revocation) == ("VALID", True, "unknown_offline"), r.detail
+    assert r.issuer == _issuer(flow) and f"GET /verify/v1/seals/{sid}" in r.detail
+    assert verify_bundle(b, anchor_dir=None).status == "VALID"                     # chưa ghim (exit 3)
+    assert verify_bundle(b, anchor_dir=repo, file_sha256="0" * 64).status == "INVALID"
+    # gói lấy khi STH phủ lá chưa được neo: có repo neo thì NOT_ANCHORED (C8), không có thì VALID chưa ghim
+    sid2, original2 = await flow.sealed_with_file()
+    await _make_sth(flow, local_signer)
+    b2 = await _file_bundle(verify, sid2, original2)
+    assert b2["anchored"]["sth"]["tree_size"] == size <= b2["inclusion"]["leaf_index"]
+    r2 = verify_bundle(b2, anchor_dir=_third_party_clone(anchor_env, "nguoi-kiem-2"))
+    assert r2.status == "INVALID" and r2.detail.startswith("NOT_ANCHORED"), r2.detail
+    r3 = verify_bundle(b2, anchor_dir=None)
+    assert r3.status == "VALID" and not r3.pinned and "chưa neo" in r3.detail, r3.detail
+
+
+async def test_core_get_bundle_passes_witness_verify_bundle(flow, verify, anchor_env):
+    from dxos_witness.bundle import verify_bundle
+
+    await flow.install_verify_policy("0.2.0", require_file=False)
+    sid, _ = await flow.sealed_ids()
+    await anchor_env.anchor_once()
+    r = await verify.get(f"/verify/v1/seals/{sid}/bundle")
+    assert r.status_code == 200, r.text
+    res = verify_bundle(r.json(), anchor_dir=_third_party_clone(anchor_env, "nguoi-kiem"))
+    assert res.status == "VALID" and res.pinned, res.detail
+
+
+async def test_bundle_after_erase_pii_passes_witness_verify_bundle(flow, verify, anchor_env):    # AT-27, C5
+    from dxos_witness.bundle import verify_bundle
+
+    rid = await flow.sealed_record(data={"title": "QĐ thử", "cccd": "001099012345"})
+    sid, salt = await flow.seal_id_of(rid), await flow.salt_of(rid)
+    r = await flow.erase_pii(rid, ["cccd"], "data_subject_request", as_="p1")
+    assert r.status_code == 200, r.text
+    await anchor_env.anchor_once()
+    (h,) = await flow.attachment_hashes(sid)
+    resp = await verify.post(f"/verify/v1/seals/{sid}:bundle", json={"sha256": h})   # require_file: true
+    assert resp.status_code == 200, resp.text
+    assert "001099012345" not in resp.text and salt not in resp.text
+    res = verify_bundle(resp.json(), anchor_dir=_third_party_clone(anchor_env, "nguoi-kiem"), file_sha256=h)
+    assert (res.status, res.pinned) == ("VALID", True), res.detail
