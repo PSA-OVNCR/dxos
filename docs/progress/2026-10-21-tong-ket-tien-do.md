@@ -23,7 +23,7 @@ SPDX-License-Identifier: Apache-2.0
 | Mốc | Ngày | Nội dung chính | Trạng thái |
 |---|---|---|---|
 | M0 | 26/10 | Hạ tầng chạy được, đo RAM, spike Flowable | Gần xong: thiếu đo RAM và chạy trên VPS |
-| **M1** | **09/11** | Lõi Tier-0 phần 1, release **v0.1.0** | **Mã xong**; chờ E2E trên VPS + tag |
+| **M1** | **09/11** | Lõi Tier-0 phần 1, release **v0.1.0** | **Đã phát hành v0.1.0 (22/10)**; còn E2E trên VPS |
 | M2 | 16/11 | v0.2.0: guard + BPMN, niêm phong, installer, App A và B cài bằng manifest, witness độc lập | **Mã xong (cloud)**: Plan 02 15/15 task + review toàn nhánh; còn việc VPS và tag v0.2.0 (mục 12) |
 | M3 | 23/11 | v0.3.0: SDK, SPA A và B, cổng đối soát, triển khai VPS theo tag | Chưa bắt đầu |
 | M4 | 30/11 | v0.9.0: SHOULD, chạy thử với người dùng, tài liệu + SBOM | Chưa bắt đầu |
@@ -168,7 +168,7 @@ Test gần nhất (`2b78542`): `make check` 1125 passed (không cảnh báo), in
 | V14 | Kiểm `dxos login` (device flow) và tự làm mới token với Keycloak thật | VPS / dev-lite | Chỉ test bằng server giả |
 | V15 | Quyết định: E2E trên VPS cần tạm thêm user dev (mật khẩu đã biết, có 2 admin) + client `dxos-test`; lệnh thêm/gỡ ở `docs/evidence/README.md` (lệnh gỡ chưa chạy thử) | Trưởng nhóm | Rủi ro bảo mật trên host công khai |
 | V16 | ~~Chạy lại `ops/keycloak_upgrade.py --profile dev-lite` trên dev stack~~ — đã chạy 22/10 trên máy trưởng nhóm, lần 2 "không thay đổi gì" | — | Xong |
-| V17 | E2E M2: **phần A xong 22/10** trên Docker Desktop (13 passed, `docs/progress/2026-10-22-e2e-m2-docker-desktop.md`); còn phần B trên VPS p16 (AT-19, AT-20 — cần root token tạm của OpenBao) | VPS | Lệnh đầy đủ ở `docs/handoff/vps-checklist-plan02.md` |
+| V17 | E2E M2: **phần A xong 22/10** trên Docker Desktop (13 passed, `docs/progress/2026-10-22-e2e-m2-docker-desktop.md`); AT-20 chạy 22/10 trên máy trưởng nhóm: phần 503 + Flowable không bị tác động **đạt**, bước mở khóa lại của test hỏng (sửa ở `40d6d64`, chưa chạy lại); còn phần B trên VPS p16 (AT-19, AT-20) | VPS | Lệnh đầy đủ ở `docs/handoff/vps-checklist-plan02.md` |
 | V18 | Gắn tag v0.2.0: nâng version 4 gói lên 0.2.0, `make openapi`, điền ngày CHANGELOG, rồi tag (job `check` chặn nếu thiếu) | Trưởng nhóm | Hành động công khai; sau v0.1.0 |
 | V19 | Sau lần đẩy image đầu: đặt package `trust-core` trên GHCR là public (hoặc `docker login ghcr.io` trên VPS); ghi digest vào `LICENSES-THIRD-PARTY.md` | GitHub / VPS | Hành động công khai |
 | V20 | AT-13 trên VPS với image đã phát hành (`ops/at13_reuse.sh`), hai thành viên khác nhau nộp/duyệt, `DXOS_ALLOW_SELF_APPROVAL=false` | VPS | Cần image GHCR |
@@ -178,4 +178,4 @@ Test gần nhất (`2b78542`): `make check` 1125 passed (không cảnh báo), in
 | V24 | Bật NTP trên VPS (lệch giờ giữa API và worker làm niêm phong bị báo "khóa hết hạn", job sẽ thử lại) | VPS | — |
 | V25 | Viết runbook xử lý bản ghi bị chặn `workflow-inconsistent` (task bị xóa/hoàn thành ngoài lõi trên Flowable) | Trưởng nhóm | Cần quyết định nghiệp vụ |
 | V26 | Chụp lại minh chứng trang `/apps/verify/`: tiêu đề giờ là "Hợp lệ — chưa neo công khai" cho tới khi STH được neo; kịch bản demo phải tính tới | dev-lite / VPS | Tài liệu minh chứng cũ còn tiêu đề "Hợp lệ" |
-| V13 | (Từ Plan 01) Task 7 đo RAM; E2E Task 17; tag `v0.1.0`; repo neo + ruleset + khóa deploy + ảnh AT-18; witness độc lập; duyệt giấy phép pypdfium2; duyệt push GHCR | VPS / trưởng nhóm | Hành động công khai hoặc cần máy thật |
+| V13 | (Từ Plan 01) Task 7 đo RAM; E2E Task 17 trên VPS; ~~tag `v0.1.0`~~ (trưởng nhóm gắn 22/10 trên `5b14e7c`+`7247fe8`, Release có tar.gz, SBOM, 3 wheel); repo neo + ruleset + khóa deploy + ảnh AT-18; witness độc lập; duyệt giấy phép pypdfium2; duyệt push GHCR | VPS / trưởng nhóm | Hành động công khai hoặc cần máy thật |

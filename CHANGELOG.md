@@ -40,7 +40,15 @@ bằng ngày khi gắn tag `v0.2.0`; workflow `release` từ chối mục chưa 
 ### Chưa làm trong bản này
 - E2E M2, AT-13, AT-18, AT-19, AT-20 trên stack thật và VPS: chờ chạy (danh sách việc ở `docs/evidence/README.md`).
 
-## [0.1.0] - Chưa phát hành
+## [0.1.0] - 2026-10-22
+Mốc M1. Tag `v0.1.0` gắn trên mã cuối Plan 01 (commit `5b14e7c`) cộng commit `7247fe8` chỉ ghi ngày phát hành; không
+nằm trên nhánh `main` (mã M2 đã vào `main` trước khi gắn tag).
+
+### Lỗi đã biết (đã sửa ở 0.2.0)
+- Danh sách IP của host quản trị trong Caddy (`@blocked`) không có hiệu lực; ở bản này host quản trị không giới hạn IP.
+- E2E đầu-cuối của M1 chưa chạy trọn trên mã của bản này (4/5 trên Docker Desktop); đạt trên mã 0.2.0 đang phát triển
+  (commit `ea96323`, 22/10/2026).
+
 ### Added
 - Khung kho mã: LICENSE (Apache-2.0), NOTICE, REUSE, CI (reuse, ruff, pytest, gitleaks), mẫu issue.
 - Thư viện `dxos-proof`: JSON chuẩn hóa (NFC, UTC, cấm số thực) và cây Merkle RFC 6962 (inclusion proof, consistency proof).
