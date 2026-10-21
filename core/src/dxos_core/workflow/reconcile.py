@@ -18,9 +18,10 @@ Luồng ``:complete`` ghi ``task_intents`` và commit **trước** khi gọi Flo
   (``WorkflowUnavailable.sent is False``) thì ``:complete`` bỏ ý định ngay, không phải chờ.
 
 Mọi thao tác trên các ý định của một bản ghi chạy dưới khóa advisory phiên ``record_lock`` (``LOCK_WF``),
-trên một kết nối riêng và luôn nhả trong ``finally``. Không gọi Flowable khi đang mở transaction.
-Thứ tự lấy tài nguyên toàn cục (chống cạn pool rồi chờ vòng): **kết nối làm việc trước, rồi tới
-``record_lock``** (kết nối của khóa) — ``:complete`` (kết nối của request) và ``reconcile_all`` đều theo.
+lấy trên **chính kết nối làm việc** của người gọi (kết nối request của ``:complete``, kết nối của từng bản ghi
+trong ``reconcile_all``) và luôn nhả trong ``finally``. Không bao giờ xin kết nối thứ hai từ pool khi đang giữ
+một kết nối (giữ-và-chờ làm cạn pool, rà soát cuối Plan 02 I1). Khóa phiên, không phải khóa transaction:
+không gọi Flowable khi đang mở transaction.
 
 Mô-đun này cũng giữ phần dùng chung của bridge (``WorkflowDeps``, ``SealHooks``, ``process_model``) để
 ``service.py`` import một chiều, không vòng.
@@ -118,29 +119,32 @@ def workflow_unavailable() -> ProblemError:
 
 
 @asynccontextmanager
-async def record_lock(pool: asyncpg.Pool, record_id: uuid.UUID) -> AsyncIterator[None]:
-    """Khóa advisory **phiên** theo bản ghi trên một kết nối riêng của pool; nhả trong ``finally``.
+async def record_lock(conn: asyncpg.Connection, record_id: uuid.UUID) -> AsyncIterator[None]:
+    """Khóa advisory **phiên** theo bản ghi trên ``conn`` (kết nối làm việc của người gọi), nhả ở ``finally``.
 
-    Hai lần ``:complete`` (và đối soát) của cùng một bản ghi vì vậy xếp hàng nối tiếp nhau.
-    Nhả lỗi thì hủy kết nối: khóa phiên mất theo phiên, không bao giờ treo lại trong pool.
+    Hai lần ``:complete`` (và đối soát) của cùng một bản ghi vì vậy xếp hàng nối tiếp nhau. Không xin thêm
+    kết nối nào từ pool. ``conn`` không được đang trong transaction (khóa phiên giữ qua các lời gọi Flowable).
+    Lấy khóa bị ngắt giữa chừng hoặc nhả lỗi thì hủy kết nối: không biết chắc phiên có giữ khóa hay không, nên
+    bỏ phiên (khóa phiên mất theo), không bao giờ để khóa treo lại trong pool.
     """
-    conn = await pool.acquire()
     try:
         await conn.execute("SELECT pg_advisory_lock($1, hashtext($2))", LOCK_WF, str(record_id))
-        try:
-            yield
-        finally:
-            try:
-                await conn.execute("SELECT pg_advisory_unlock($1, hashtext($2))", LOCK_WF, str(record_id))
-            except BaseException as exc:
-                # Hủy kết nối thì phiên mất, khóa phiên mất theo. Việc đã commit không bị biến thành lỗi 500;
-                # chỉ hủy bỏ (CancelledError...) được ném tiếp.
-                log.exception("không nhả được khóa quy trình của bản ghi %s; hủy kết nối", record_id)
-                conn.terminate()
-                if not isinstance(exc, Exception):
-                    raise
+    except BaseException:
+        log.warning("lấy khóa quy trình của bản ghi %s bị ngắt; hủy kết nối", record_id)
+        conn.terminate()
+        raise
+    try:
+        yield
     finally:
-        await pool.release(conn)
+        try:
+            await conn.execute("SELECT pg_advisory_unlock($1, hashtext($2))", LOCK_WF, str(record_id))
+        except BaseException as exc:
+            # Hủy kết nối thì phiên mất, khóa phiên mất theo. Việc đã commit không bị biến thành lỗi 500;
+            # chỉ hủy bỏ (CancelledError...) được ném tiếp.
+            log.exception("không nhả được khóa quy trình của bản ghi %s; hủy kết nối", record_id)
+            conn.terminate()
+            if not isinstance(exc, Exception):
+                raise
 
 
 async def process_model(conn: asyncpg.Connection, deps: WorkflowDeps, m: Manifest) -> ProcessModel:
@@ -399,8 +403,8 @@ async def reconcile_all(deps: WorkflowDeps) -> dict[str, Any]:
                               "inconsistent": []}
     for rid in [*rids, *(r for r in running if r not in set(rids))]:
         try:
-            # Thứ tự toàn cục: kết nối làm việc trước, khóa bản ghi sau (như :complete).
-            async with deps.pool.acquire() as conn, record_lock(deps.pool, rid):
+            # Một kết nối cho mỗi bản ghi; khóa lấy trên chính kết nối đó (như :complete).
+            async with deps.pool.acquire() as conn, record_lock(conn, rid):
                 res = await reconcile_record(deps, conn, rid)
                 row = await conn.fetchrow(
                     "SELECT wf_state, wf_instance_id FROM core.records WHERE id=$1", rid)

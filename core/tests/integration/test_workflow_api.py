@@ -496,3 +496,56 @@ async def test_finalize_refuses_to_write_a_completion_over_a_missing_one(flow):
     assert body["inconsistent"] == [rid] and body["completed"] == 0
     assert await flow.count("task_completions", rid) == 0
     assert [i["outcome"] for i in await flow.intents(rid)] == [None]          # vẫn mở, vẫn được báo
+
+
+# ---------- Rà soát cuối Plan 02, I1: không giữ-và-chờ kết nối của pool ----------
+
+async def _small_pool(flow, max_size: int):
+    from dxos_core.db.pool import create_pool
+
+    return await create_pool(flow.api.app.state.settings.database_url, min_size=0, max_size=max_size)
+
+
+async def test_concurrent_completes_do_not_starve_a_small_pool(flow, monkeypatch):
+    """Pool của API chỉ 2 kết nối, hai ``:complete`` (hai bản ghi) cùng giữ kết nối request rồi mới vào khóa
+    bản ghi. Khóa phải lấy trên chính kết nối request: nếu xin kết nối thứ hai từ pool thì cả hai treo."""
+    rids = [await flow.ready_record(author="a1") for _ in range(2)]
+    for rid in rids:
+        await flow.start(rid, as_="a1")
+    small = await _small_pool(flow, 2)
+    client = flow.api.app.state.flowable
+    real_get, arrived, both = client.get_task, set(), asyncio.Event()
+
+    async def get_task(task_id):
+        # Lần gọi đầu của mỗi request (bước 1, kết nối request đã được giữ): chờ request kia tới đây.
+        if task_id not in arrived:
+            arrived.add(task_id)
+            if len(arrived) == 2:
+                both.set()
+            await asyncio.wait_for(both.wait(), 5)
+        return await real_get(task_id)
+
+    monkeypatch.setattr(client, "get_task", get_task)
+    monkeypatch.setattr(flow.api.app.state, "pool", small)
+    try:
+        rs = await asyncio.wait_for(asyncio.gather(
+            *(flow.complete_task("review", rid, "approve", as_="r1") for rid in rids)), 20)
+    finally:
+        small.terminate()
+    assert [r.status_code for r in rs] == [200, 200], [r.text for r in rs]
+    for rid in rids:
+        assert await flow.count("task_completions", rid) == 1
+
+
+async def test_admin_reconcile_needs_a_single_connection(flow, flowable_response_lost_once, monkeypatch):
+    """``workflow:reconcile`` với pool 1 kết nối: khóa bản ghi lấy trên kết nối làm việc, không xin thêm."""
+    rid = await flow.ready_record(author="a1")
+    await flow.start(rid, as_="a1")
+    assert (await flow.complete_task("review", rid, "approve", as_="r1")).status_code == 503
+    small = await _small_pool(flow, 1)
+    monkeypatch.setattr(flow.api.app.state, "pool", small)
+    try:
+        r = await asyncio.wait_for(flow.admin_post("/admin/v1/workflow:reconcile"), 20)
+    finally:
+        small.terminate()
+    assert r.json()["completed"] == 1 and r.json()["errors"] == 0

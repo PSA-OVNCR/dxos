@@ -311,7 +311,7 @@ async def complete(ctx: Ctx, deps: WorkflowDeps, app: str, task_id: str, body: A
     spec = m.collections[row["collection"]]
     out_spec = active.collections.get(row["collection"], spec)
 
-    async with record_lock(deps.pool, rid):
+    async with record_lock(conn, rid):         # khóa trên kết nối request: không xin kết nối thứ hai
         # 6. Bước 0: đối soát ý định còn treo của bản ghi này.
         await _reconcile_or_problem(deps, conn, rid)
         task = await deps.flowable.get_task(task_id)
