@@ -63,3 +63,24 @@ def test_digest_format_is_validated(tmp_path):
         assert "digest" in str(e)
     else:
         raise AssertionError("phải từ chối digest sai định dạng")
+
+
+def test_script_image_variables_are_pinned_too(tmp_path):
+    (tmp_path / "web.sh").write_text(
+        "set -eu\nNODE_IMAGE=node:22-bookworm-slim\n"
+        "PLAYWRIGHT_IMAGE=mcr.microsoft.com/playwright:v1.63.0-noble  # ghim\nOTHER_IMAGE=busybox:1.37\n",
+        encoding="utf-8")
+    assert sorted(r for _, r in pin_images.find_refs(tmp_path)) == [
+        "mcr.microsoft.com/playwright:v1.63.0-noble", "node:22-bookworm-slim"]
+    pin_images.pin(tmp_path, lambda ref: D1)
+    text = (tmp_path / "web.sh").read_text(encoding="utf-8")
+    assert f"NODE_IMAGE=node:22-bookworm-slim@{D1}\n" in text
+    assert f"PLAYWRIGHT_IMAGE=mcr.microsoft.com/playwright:v1.63.0-noble@{D1}  # ghim\n" in text
+    assert "OTHER_IMAGE=busybox:1.37\n" in text                     # biến khác không bị đụng
+
+
+def test_repo_script_images_are_found_by_default_roots():
+    found = {r for sub in ("ops", "deploy") for _, r in pin_images.find_refs(ROOT / sub)}
+    # Chưa ghim: có trong danh sách chờ ghim; đã ghim: không còn. Cả hai trạng thái đều hợp lệ, nhưng mọi ref
+    # còn lại phải thuộc hai image của Task 10 (deploy/ đã ghim hết từ Plan 01).
+    assert found <= {"node:22-bookworm-slim", "mcr.microsoft.com/playwright:v1.63.0-noble"}

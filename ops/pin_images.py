@@ -3,7 +3,8 @@
 """Ghim mọi image trong deploy/ bằng digest `@sha256:` (Plan 01 Global Constraints).
 
 Tìm `image: <ref>` và `probe_image: <ref>` trong deploy/**/*.yaml và `FROM <ref>`
-trong deploy/**/Dockerfile; tham chiếu nào chưa có digest thì hỏi registry rồi
+trong deploy/**/Dockerfile, và dòng `NODE_IMAGE=<ref>` / `PLAYWRIGHT_IMAGE=<ref>` trong ops/*.sh (image của
+`make web-build` và `make web-live`, Plan 03 Task 10); tham chiếu nào chưa có digest thì hỏi registry rồi
 ghi lại thành `<ref>@sha256:...`. Cần Docker có buildx (Docker Desktop có sẵn).
 
     python ops/pin_images.py            # ghim các ref chưa ghim
@@ -26,6 +27,7 @@ DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 PATTERNS = [
     ("*.yaml", re.compile(r"^(?P<lead>\s*(?:image|probe_image):\s*)(?P<ref>[^\s#!][^\s#]*)", re.M)),
     ("Dockerfile", re.compile(r"^(?P<lead>FROM\s+)(?P<ref>[^\s#]+)", re.M | re.I)),
+    ("*.sh", re.compile(r"^(?P<lead>(?:NODE|PLAYWRIGHT)_IMAGE=)(?P<ref>[^\s#]+)", re.M)),
 ]
 
 
@@ -78,14 +80,20 @@ def pin(root: Path, resolver: Callable[[str], str] = docker_resolver) -> dict[st
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Ghim digest image trong deploy/")
-    ap.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1] / "deploy")
+    repo = Path(__file__).resolve().parents[1]
+    ap.add_argument("--root", type=Path, action="append",
+                    help="thư mục cần quét (lặp lại được); mặc định deploy/ và ops/")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args(argv)
+    roots = args.root or [repo / "deploy", repo / "ops"]
     if args.dry_run:
-        for path, ref in find_refs(args.root):
-            print(f"{path.relative_to(args.root)}: {ref}")
+        for root in roots:
+            for path, ref in find_refs(root):
+                print(f"{path.relative_to(root.parent)}: {ref}")
         return 0
-    digests = pin(args.root)
+    digests: dict[str, str] = {}
+    for root in roots:
+        digests.update(pin(root))
     print("| Image | Digest |\n|---|---|")
     for ref, d in digests.items():
         print(f"| `{ref}` | `{d}` |")

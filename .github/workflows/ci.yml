@@ -47,6 +47,9 @@ jobs:
       - run: npm i -g npm@11.6.2
       - run: npm ci
       - run: npm run check
+      # Bộ kiểm trình duyệt thật (tests/web/live): chỉ kiểm kiểu và xác nhận bị bỏ qua khi không có DXOS_WEB_LIVE=1.
+      - run: npm run typecheck:live
+      - run: npm run test:live
       # Cổng đối soát (AT-25): Playwright chạy bản build thật với API giả; trình duyệt cài bằng lệnh dưới.
       - run: npx playwright install --with-deps chromium
       - run: npx -w dxos-verify-portal playwright test

@@ -76,6 +76,12 @@ def run_caddy(tmp_path):
         (tmp_path / "srv/apps/verify").mkdir(parents=True, exist_ok=True)
         (tmp_path / "srv/apps/other.txt").write_text("ok\n")
         (tmp_path / "srv/apps/verify/index.html").write_text("<!doctype html><title>vue</title>\n")
+        (tmp_path / "srv/apps/verify/assets").mkdir(exist_ok=True)
+        (tmp_path / "srv/apps/verify/assets/x.js").write_text("// x\n")
+        (tmp_path / "srv/apps/phong-ho-so/assets").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "srv/apps/phong-ho-so/index.html").write_text("<!doctype html><title>app</title>\n")
+        (tmp_path / "srv/apps/phong-ho-so/assets/index-abc123.js").write_text("// app\n")
+        (tmp_path / "srv/apps/BUILD-INFO.json").write_text("{}\n")
         text = (ROOT / "deploy/caddy/Caddyfile").read_text(encoding="utf-8")
         text = text.replace("root * /srv/verify-lite", f"root * {ROOT}/verify-portal/minimal")
         text = text.replace("root * /srv/apps/verify", f"root * {tmp_path}/srv/apps/verify")
@@ -161,3 +167,35 @@ def test_vue_portal_csp_allows_only_the_configured_anchor_origin(run_caddy):
         "content-security-policy"]
     _, lite = _fetch(port, "localhost", "/apps/verify-lite/")
     assert lite["content-security-policy"] == LITE_CSP    # trang tối giản không đọc repo neo
+
+
+# CSP của mọi ứng dụng Tầng 2 dưới /apps/* (handle chung); /apps/verify/ và /apps/verify-lite/ giữ CSP riêng.
+APPS_CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
+            "connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; "
+            "frame-ancestors 'none'")
+
+
+def test_generic_apps_route_has_csp_and_cache_rules_while_verify_routes_keep_their_own(run_caddy):
+    _need_caddy()
+    port = run_caddy("127.0.0.1/32")
+    for host in ("localhost", "admin.localhost"):
+        for path in ("/apps/phong-ho-so/", "/apps/phong-ho-so/index.html", "/apps/BUILD-INFO.json"):
+            status, headers = _fetch(port, host, path)
+            assert status == 200, (host, path)
+            assert headers["content-security-policy"] == APPS_CSP, (host, path)
+            assert headers["x-content-type-options"] == "nosniff"
+            assert headers["referrer-policy"] == "no-referrer"
+            assert headers["cache-control"] == "no-cache", (host, path)
+        status, headers = _fetch(port, host, "/apps/phong-ho-so/assets/index-abc123.js")
+        assert status == 200 and headers["cache-control"] == "public, max-age=31536000, immutable"
+        assert headers["content-security-policy"] == APPS_CSP
+        status, headers = _fetch(port, host, "/apps/phong-ho-so")             # thiếu "/" cuối: chuyển hướng
+        assert status == 308 and headers["location"] == "/apps/phong-ho-so/"
+        assert _get(port, host, "/apps/phong-ho-so/assets/missing.js") == 404
+        # Không bị handle chung nuốt: hai route riêng giữ CSP riêng (chặt hơn); cổng Vue cũng cache assets.
+        assert _fetch(port, host, "/apps/verify/")[1]["content-security-policy"] == VUE_CSP
+        assert _fetch(port, host, "/apps/verify-lite/")[1]["content-security-policy"] == LITE_CSP
+        status, headers = _fetch(port, host, "/apps/verify/assets/x.js")
+        assert status == 200 and headers["content-security-policy"] == VUE_CSP
+        assert headers["cache-control"] == "public, max-age=31536000, immutable"
+        assert _fetch(port, host, "/apps/verify/")[1]["cache-control"] == "no-cache"

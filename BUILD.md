@@ -120,6 +120,33 @@ Chi tiết manifest, guard, BPMN, luật nâng phiên bản: [docs/manifest-guid
    duyệt) rồi chạy cả E2E M1 và M2; kết quả ở `<thư mục kết quả>/e2e-junit.xml`.
 6. AT-20 (khóa OpenBao) cần `docker` nên chạy trên máy chủ, ngoài container: xem đầu tệp `tests/e2e/test_m2_attacks.py`.
 
+## Dựng SPA Tầng 2 và kiểm trên trình duyệt thật
+Ba SPA (App A `/apps/phong-ho-so/`, App B `/apps/chung-nhan/`, cổng đối soát `/apps/verify/`) nằm trong volume `apps-static`
+(`dxos_apps-static`, Caddy mount chỉ đọc ở `/srv/apps`). Stack không có dịch vụ build; `make web-build` chạy MỘT
+container Node dùng một lần (image ghim digest ở đầu `ops/web_build_docker.sh`, ghim bằng `make pin-images`):
+
+```bash
+make up                 # lần đầu: tạo volume apps-static
+make web-build          # npm ci + npm run build --workspaces, chép dist vào volume, ghi BUILD-INFO.json
+```
+- `ops/build_web.sh <out_dir>` dựng vào `<out_dir>.tmp` rồi mới thay `<out_dir>`: build lỗi thì thoát khác 0 và bản đang
+  chạy còn nguyên. Danh sách thư mục chép cố định ở đầu tệp. Chạy trực tiếp không cần Docker: `sh ops/build_web.sh /tmp/apps`
+  (cần Node 22, npm 11.6.2; mã commit lấy từ git hoặc `DXOS_BUILD_COMMIT`).
+- Cổng đối soát tự đối chiếu repo neo khi build có `VITE_ANCHOR_RAW_BASE` (môi trường hoặc `.env`) và `.env` có
+  `DXOS_ANCHOR_RAW_ORIGIN` khớp (CSP của Caddy); để trống thì cổng nói rõ là chưa đối chiếu repo neo.
+- Header cho `/apps/*`: CSP `default-src 'self'` (không `unsafe-inline`), `nosniff`, `Referrer-Policy: no-referrer`;
+  HTML `no-cache`, `assets/` cache một năm (`immutable`). `/apps/verify/` và `/apps/verify-lite/` giữ CSP chặt hơn của riêng chúng.
+
+Kiểm trên Chromium thật (`tests/web/live`: App A đủ vòng đời, App B nhập CSV và duyệt lô, cổng đối soát), cần Docker và
+stack dev-lite đang chạy cùng overlay e2e, App A/B đã cài (xem mục E2E), đã `make web-build`:
+```bash
+make web-live           # container mcr.microsoft.com/playwright (ghim digest ở đầu ops/web_live.sh)
+```
+Kết quả ở `test-results/web-live/` (`web-live-junit.xml`, `shots/*.png`, `artifacts/`). Bộ này chỉ chạy khi
+`DXOS_WEB_LIVE=1` (script tự đặt); `npm run test:live` ngoài container thì bỏ qua mọi test, `npm run typecheck:live` kiểm
+kiểu. Mật khẩu người dùng dev đọc từ `DXOS_E2E_PASSWORD` (mặc định `dev-only-password`, chỉ có ở realm dev). Lệnh cho
+Windows: `docs/evidence/README.md`, mục "Kiểm trình duyệt thật (V27)".
+
 ## Tài liệu API (OpenAPI)
 `docs/api/openapi.json` sinh từ ứng dụng FastAPI, không cần dịch vụ nào: `make openapi`. Test
 `tests/ops/test_openapi.py` đỏ nếu tệp đã commit khác bản sinh lại, nên sau khi đổi route hay đổi phiên bản gói thì chạy

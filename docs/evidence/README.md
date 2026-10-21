@@ -11,6 +11,7 @@
 | AT-13 (cài App B trên image đã phát hành, diff `core/` và gateway rỗng) | `at13-reuse.txt` (do `ops/at13_reuse.sh` ghi) | Chưa có: cần tag `v0.2.0` và image trên GHCR trước |
 | AT-19 (40 request đồng thời + `X-Forwarded-For` giả → 429) | trong `e2e-junit.xml` của E2E M2 | Chưa có |
 | AT-20 (OpenBao khóa trước task cuối → 503, task còn ở Flowable; mở khóa → `SEALED`) | trong kết quả pytest chạy trên máy chủ | Chưa có. Giới hạn: trường hợp OpenBao hỏng **sau** khi Flowable đã hoàn thành chỉ chứng minh ở integration test (Plan 02 Task 7, `FlakySigner`) |
+| Kiểm trình duyệt thật App A, App B, cổng đối soát (Plan 03 Task 10, V27) | `docs/progress/<ngày>-web-live.md` + `web-live-junit.xml` + `shots/*.png` | Chưa có: bộ `tests/web/live` đã viết và kiểm kiểu, chưa chạy (sandbox không có Docker); lệnh ở mục "Kiểm trình duyệt thật (V27)" |
 | Cổng năng suất M2 | `docs/progress/2026-11-16.md` | Chưa có: trưởng nhóm ghi sau khi chạy xong các mục trên |
 
 Mỗi minh chứng ghi kèm: ngày giờ, commit của `dxos`, lệnh đã chạy và kết quả.
@@ -53,3 +54,31 @@ unset KC_CLI_PASSWORD
 Kiểm đã gỡ: `python ops/keycloak_upgrade.py` (hồ sơ p16) không còn báo người dùng thừa, và password grant của
 `dxos-test` trả lỗi `invalid_client`.
 
+## Kiểm trình duyệt thật (V27, Plan 03 Task 10)
+
+Việc của máy trưởng nhóm (Windows + Docker Desktop). Chưa được chạy thử: sandbox của người phát triển không có Docker.
+Điều kiện: stack dev-lite đang chạy cùng overlay e2e, Keycloak đã nạp người dùng dev, App A và App B đã cài (BUILD.md, mục E2E).
+
+1. Ghim digest hai image mới (một lần, rồi commit `ops/web_build_docker.sh` và `ops/web_live.sh`):
+   `python ops/pin_images.py`
+2. Dựng SPA vào volume và chạy bộ kiểm. Tệp mẫu `web-live.bat` (đặt ngoài repo, ví dụ `E:\PMMNM 2026\web-live.bat`; sửa `REPO`):
+```bat
+@echo off
+rem Dung SPA roi chay bo kiem trinh duyet that. Can Docker Desktop dang chay, stack dev-lite dang chay, Git for Windows.
+set REPO=E:\PMMNM 2026\dxos
+set BASH="C:\Program Files\Git\bin\bash.exe"
+set CHERE_INVOKING=1
+set MSYS_NO_PATHCONV=1
+cd /d "%REPO%" || exit /b 1
+%BASH% -l ops/web_build_docker.sh || exit /b 1
+%BASH% -l ops/web_live.sh
+echo Ket qua: %REPO%\test-results\web-live  (web-live-junit.xml, shots\*.png)
+pause
+```
+3. Ghi `docs/progress/<ngày>-web-live.md`: ngày giờ, commit, kết quả `web-live-junit.xml`, ảnh trong `shots/`
+   (kể cả `verify-1-app-b.png`), mọi test đỏ kèm trace ở `artifacts/`.
+
+Rủi ro đã biết khi chạy lần đầu: (a) Chromium trong container phải ép `localhost` về máy chủ Docker bằng
+`--host-resolver-rules` (đã cấu hình, chưa thử); (b) CA nội bộ của Caddy được bỏ qua ở phía trình duyệt bằng
+`ignoreHTTPSErrors` (chỉ Node dùng `NODE_EXTRA_CA_CERTS`); (c) bộ kiểm báo đỏ nếu console có vi phạm CSP của `/apps/*`,
+kể cả do một thư viện chèn style nội tuyến; (d) cổng đối soát chờ worker công bố STH nên có thể mất vài phút.

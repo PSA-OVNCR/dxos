@@ -23,6 +23,11 @@
 			X-Content-Type-Options nosniff
 			Referrer-Policy no-referrer
 		}
+		# Cùng quy tắc cache với handle /apps/* bên dưới (đường dẫn đã bị handle_path cắt tiền tố).
+		@no_cache path *.html */ *.json
+		header @no_cache Cache-Control "no-cache"
+		@hashed path /assets/*
+		header @hashed Cache-Control "public, max-age=31536000, immutable"
 		file_server
 	}
 	# Trang đối soát tối giản (Plan 02 Task 10) giữ lại làm dự phòng: tĩnh, không build, CSP chặt. Gắn riêng ở
@@ -37,8 +42,21 @@
 		}
 		file_server
 	}
+	# Ứng dụng Tầng 2 (App A, App B, ví dụ): bản build do `make web-build` ghi vào volume apps-static (/srv/apps/<tên>).
+	# Không cắt tiền tố (root * /srv): /apps/phong-ho-so/ đọc /srv/apps/phong-ho-so/index.html, khớp `base` của Vite.
+	# Hai route /apps/verify/* và /apps/verify-lite/* ở trên có CSP riêng và thắng handle này (đường dẫn cụ thể hơn).
+	# Tệp assets/ có băm nội dung trong tên nên cache vĩnh viễn; HTML (và BUILD-INFO.json) luôn hỏi lại.
 	handle /apps/* {
 		root * /srv
+		header {
+			Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+			X-Content-Type-Options nosniff
+			Referrer-Policy no-referrer
+		}
+		@no_cache path *.html */ *.json
+		header @no_cache Cache-Control "no-cache"
+		@hashed path /apps/*/assets/*
+		header @hashed Cache-Control "public, max-age=31536000, immutable"
 		file_server
 	}
 }
