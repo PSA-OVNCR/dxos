@@ -21,12 +21,13 @@ docker compose -p dxos exec openbao bao operator init -key-shares=1 -key-thresho
 
 ## 2. Mở khóa (sau mỗi lần OpenBao khởi động lại)
 ```bash
-read -rs BAO_UNSEAL_KEY                                  # dán unseal key (không hiện, không vào lịch sử shell)
-printf '%s\n' "$BAO_UNSEAL_KEY" | docker compose -p dxos exec -T openbao bao operator unseal -   # "-": đọc từ stdin
-unset BAO_UNSEAL_KEY
+docker compose -p dxos exec openbao bao operator unseal   # không đối số: hỏi key, gõ không hiện (cần TTY)
 docker compose -p dxos exec openbao bao status          # Sealed: false
 ```
 Không gõ unseal key hay root token thẳng trên dòng lệnh: chúng sẽ nằm trong lịch sử shell và danh sách tiến trình.
+`bao operator unseal -` **không** đọc stdin (OpenBao 2.2.0 gửi nguyên chữ "-" và trả 400); không có TTY (script) thì đưa key
+qua biến môi trường: `read -rs BAO_DXOS_UNSEAL && export BAO_DXOS_UNSEAL`, rồi
+`docker compose -p dxos exec -e BAO_DXOS_UNSEAL openbao sh -c 'bao operator unseal "$BAO_DXOS_UNSEAL"'`.
 Khi OpenBao còn khóa, lõi **từ chối** lập STH và niêm phong (fail-closed, F8): `/verify/v1/keys` trả 503
 `kms-unavailable`, việc neo STH được thử lại sau.
 

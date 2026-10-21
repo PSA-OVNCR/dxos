@@ -170,8 +170,10 @@ def openbao_control():
         for key in keys.split(","):
             if not sealed():
                 break
-            # "-": bao đọc unseal key từ stdin
-            out = _bao("bao", "operator", "unseal", "-", env={}, stdin=key.strip() + "\n")
+            # `bao operator unseal` KHÔNG hiểu "-" là stdin (gửi nguyên chữ "-", OpenBao 2.2.0 trả 400) và chỉ đọc
+            # stdin qua TTY. Key đi qua biến môi trường vào container, chỉ thành argv bên trong container.
+            out = _bao("sh", "-c", 'bao operator unseal "$BAO_DXOS_UNSEAL" >/dev/null',
+                       env={"BAO_DXOS_UNSEAL": key.strip()})
             assert out.returncode == 0, out.stderr
         assert not sealed(), "OpenBao vẫn khóa sau khi dùng hết unseal key"
 
