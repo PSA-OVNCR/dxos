@@ -1,6 +1,6 @@
 # verify-portal/minimal: trang đối soát tối giản
 
-Trang tĩnh (HTML + JS thuần + CSS, không build, không thư viện ngoài) do Caddy phục vụ ở `https://<DXOS_DOMAIN>/apps/verify/#<seal_id>`. Tiêu đề "Kiểm tra tính xác thực và toàn vẹn văn bản điện tử" (spec 25.4).
+Trang tĩnh (HTML + JS thuần + CSS, không build, không thư viện ngoài) do Caddy phục vụ ở `https://<DXOS_DOMAIN>/apps/verify-lite/#<seal_id>` (từ Plan 03 Task 6; `/apps/verify/` là cổng Vue ở `verify-portal/app/`, xem `../README.md`). Tiêu đề "Kiểm tra tính xác thực và toàn vẹn văn bản điện tử" (spec 25.4).
 
 | Tệp | Việc |
 |---|---|
@@ -14,7 +14,7 @@ Trang tĩnh (HTML + JS thuần + CSS, không build, không thư viện ngoài) d
 - **Giới hạn đã biết:** `file.arrayBuffer()` nạp cả tệp vào bộ nhớ để băm (WebCrypto không băm theo luồng), nên tệp rất lớn có thể không băm được trên máy yếu; khi đó trang báo "Không đọc được tệp này" và không gửi gì.
 - **Mọi giá trị từ API gán bằng `textContent`.** Nhãn đến từ manifest, giá trị do người dùng nhập, nên cả hai không đáng tin. Không dùng `innerHTML`, `insertAdjacentHTML`, `outerHTML`, `eval`.
 - **`seal_id` chỉ từ fragment** (không từ query), phải khớp `^[A-Z2-7]{26}$` trước khi đưa vào URL (`encodeURIComponent`).
-- **CSP** (Caddyfile, `handle_path /apps/verify/*`): `default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`.
+- **CSP** (Caddyfile, `handle_path /apps/verify-lite/*`): `default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`.
 
 ## Trạng thái hiển thị
 
@@ -37,7 +37,7 @@ Nút tải gói: niêm phong `require_file: false` dùng `GET .../bundle`; `requ
 
 ## Giới hạn tin cậy
 
-Trang tối giản tin kết quả kiểm của máy chủ. Muốn kiểm độc lập: tải gói và chạy `dxos-witness verify-bundle --anchor-dir <repo neo> <gói>.json`. Cổng Vue ở Plan 03 sẽ tự kiểm chữ ký và STH đã neo ngay trên trình duyệt (spec 13.3).
+Trang tối giản tin kết quả kiểm của máy chủ. Muốn kiểm độc lập: tải gói và chạy `dxos-witness verify-bundle --anchor-dir <repo neo> <gói>.json`. Cổng Vue ở `/apps/verify/` (Plan 03 Task 6) tự kiểm chữ ký và STH đã neo ngay trên trình duyệt (spec 13.3).
 
 ## Kiểm thử
 
@@ -52,4 +52,4 @@ Trang tối giản tin kết quả kiểm của máy chủ. Muốn kiểm độc
   ```
 
   Cần `node`, module `playwright` (`npm i -g playwright`; đặt `NODE_PATH` nếu cần) và dịch vụ của `make test-db-up`. Ảnh chụp ghi vào `DXOS_SHOT_DIR`.
-- Kết quả đã chạy: `docs/evidence/verify-page-live-check.md`. AT-25 chính thức (Playwright, không request nào mang nội dung tệp) làm ở Plan 03.
+- Kết quả đã chạy: `docs/evidence/verify-page-live-check.md`. AT-25 chính thức (Playwright, không request nào mang nội dung tệp) chạy trên cổng Vue: `verify-portal/app/e2e/at25.spec.ts`.

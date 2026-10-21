@@ -12,7 +12,7 @@ const path = require("path");
 const DIR = process.env.DXOS_BROWSER_DIR;
 const ids = JSON.parse(fs.readFileSync(path.join(DIR, "ids.json"), "utf8"));
 const OUT = process.env.DXOS_SHOT_DIR;
-const BASE = `${ids.base}/apps/verify/`;
+const BASE = `${ids.base}/apps/verify-lite/`;
 const log = (...a) => console.log(...a);
 let failed = 0;
 const crypto = require("crypto");

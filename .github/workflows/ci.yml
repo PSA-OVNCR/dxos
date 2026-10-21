@@ -47,6 +47,9 @@ jobs:
       - run: npm i -g npm@11.6.2
       - run: npm ci
       - run: npm run check
+      # Cổng đối soát (AT-25): Playwright chạy bản build thật với API giả; trình duyệt cài bằng lệnh dưới.
+      - run: npx playwright install --with-deps chromium
+      - run: npx -w dxos-verify-portal playwright test
 
   integration:
     runs-on: ubuntu-latest

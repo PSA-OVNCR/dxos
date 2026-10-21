@@ -10,12 +10,26 @@
 	handle @gateway {
 		reverse_proxy apisix:9080
 	}
-	# Trang đối soát tối giản (Plan 02 Task 10): tĩnh, không build, CSP chặt. Caddy tự xếp handle theo độ cụ thể
-	# của đường dẫn nên /apps/verify/* thắng /apps/* (kiểm bằng `caddy adapt` và curl, xem báo cáo Task 10).
-	# Gắn riêng ở /srv/verify (không lồng vào volume chỉ đọc apps-static ở /srv/apps).
+	# Cổng đối soát Vue (Plan 03 Task 6): bản build nằm trong volume apps-static ở /srv/apps/verify (Task 10 dựng vào).
+	# handle_path cắt tiền tố nên /apps/verify/assets/x.js đọc /srv/apps/verify/assets/x.js. Caddy tự xếp handle theo
+	# độ cụ thể của đường dẫn nên /apps/verify/* thắng /apps/* (kiểm bằng `caddy adapt` và curl).
+	# DXOS_ANCHOR_RAW_ORIGIN: origin của repo neo công khai (ví dụ https://raw.githubusercontent.com) để trình duyệt tự
+	# đối chiếu STH; để trống (mặc định) thì CSP chỉ cho connect-src 'self' và cổng được build không có repo neo.
 	redir /apps/verify /apps/verify/ 308
 	handle_path /apps/verify/* {
-		root * /srv/verify
+		root * /srv/apps/verify
+		header {
+			Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' {$DXOS_ANCHOR_RAW_ORIGIN}; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+			X-Content-Type-Options nosniff
+			Referrer-Policy no-referrer
+		}
+		file_server
+	}
+	# Trang đối soát tối giản (Plan 02 Task 10) giữ lại làm dự phòng: tĩnh, không build, CSP chặt. Gắn riêng ở
+	# /srv/verify-lite (không lồng vào volume chỉ đọc apps-static ở /srv/apps).
+	redir /apps/verify-lite /apps/verify-lite/ 308
+	handle_path /apps/verify-lite/* {
+		root * /srv/verify-lite
 		header {
 			Content-Security-Policy "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
 			X-Content-Type-Options nosniff

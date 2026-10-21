@@ -55,11 +55,15 @@ services:
       DXOS_DOMAIN: ${DXOS_DOMAIN:?đặt DXOS_DOMAIN trong .env}
       DXOS_ADMIN_HOST: ${DXOS_ADMIN_HOST:?đặt DXOS_ADMIN_HOST trong .env}
       DXOS_ADMIN_ALLOWED_IPS: ${DXOS_ADMIN_ALLOWED_IPS:?đặt DXOS_ADMIN_ALLOWED_IPS trong .env}
+      # Origin repo neo cho connect-src của cổng đối soát Vue; để trống = chỉ 'self' (Caddyfile, /apps/verify/).
+      DXOS_ANCHOR_RAW_ORIGIN: ${DXOS_ANCHOR_RAW_ORIGIN:-}
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Cổng đối soát Vue (/apps/verify/) nằm trong volume này: Task 10 dựng bản build vào /srv/apps/verify.
       - apps-static:/srv/apps:ro
-      # Trang đối soát tối giản: mount riêng, vì Docker không tạo được điểm mount trong volume chỉ đọc /srv/apps.
-      - ../verify-portal/minimal:/srv/verify:ro
+      # Trang đối soát tối giản (/apps/verify-lite/): mount riêng, vì Docker không tạo được điểm mount trong volume
+      # chỉ đọc /srv/apps.
+      - ../verify-portal/minimal:/srv/verify-lite:ro
       - caddy-data:/data
       - caddy-config:/config
     networks: [net-edge, net-front]

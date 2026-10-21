@@ -42,7 +42,7 @@ Bảng kê giấy phép và nguồn gốc mọi mô-đun bên ngoài. Cập nh�
 | tzdata (gói Debian trong image trust-core) | theo image nền | Public domain (IANA tz database) | Chỉ dữ liệu múi giờ, `zoneinfo` đọc cho `DXOS_TIMEZONE` | Chưa |
 
 ## Gói npm (workspace `web`, Plan 03 Task 2–5)
-Phiên bản ghim chính xác trong `package-lock.json` (đếm từ lockfile ngày 22/10/2026 sau Task 5: **186** gói bên thứ ba, gồm cả các gói nhị phân tùy chọn theo nền tảng; chỉ gói của nền tảng đang chạy được cài. Theo cờ `dev` của lockfile: **55** gói thuộc đồ thị phụ thuộc production (kể cả các gói `peer` mà npm cài kèm) và **131** gói chỉ dùng lúc phát triển). Cập nhật bảng **trong cùng commit** khi một Task sau thêm phụ thuộc (Vue Router, Playwright...).
+Phiên bản ghim chính xác trong `package-lock.json` (đếm từ lockfile ngày 22/10/2026 sau Task 5: **186** gói bên thứ ba, gồm cả các gói nhị phân tùy chọn theo nền tảng; chỉ gói của nền tảng đang chạy được cài. Theo cờ `dev` của lockfile: **55** gói thuộc đồ thị phụ thuộc production (kể cả các gói `peer` mà npm cài kèm) và **131** gói chỉ dùng lúc phát triển). Cập nhật bảng **trong cùng commit** khi một Task sau thêm phụ thuộc (Vue Router...). Task 6 thêm Playwright (3 gói) và npm 11.6.2 bỏ 3 gói tùy chọn `@emnapi/*` khỏi lockfile nên tổng vẫn 186.
 
 **Runtime (vào bundle trình duyệt):**
 | Thành phần | Phiên bản | Giấy phép | Cách dùng | Đã kiểm chứng |
@@ -66,13 +66,14 @@ Phiên bản ghim chính xác trong `package-lock.json` (đếm từ lockfile ng
 | jsdom (môi trường DOM giả cho test cần `sessionStorage`/`location`) | 29.1.1 | MIT | Công cụ (test đơn vị; ghim 29.1.1 vì 30.x đòi Node >=22.22.2; các gói gián tiếp kèm theo đều `dev` trong lockfile) | Có (22/10/2026, lockfile) |
 | @vitejs/plugin-vue | 6.0.9 | MIT | Công cụ (biên dịch `.vue` cho Vite/Vitest) | Có (22/10/2026, lockfile) |
 | @vue/test-utils (kéo js-beautify 2.0.3, config-chain, editorconfig, @one-ini/wasm, js-cookie, commander, glob 13, minimatch, minipass, path-scurry, brace-expansion, balanced-match, ini, proto-list, semver, abbrev, nopt, vue-component-type-helpers) | 2.5.1 | MIT (js-beautify, config-chain, editorconfig, @one-ini/wasm, js-cookie, commander, brace-expansion, balanced-match, vue-component-type-helpers: MIT; ini, proto-list, semver, abbrev, nopt: ISC; glob, minimatch, minipass, path-scurry: **BlueOak-1.0.0**) | Công cụ (test thành phần Vue; tất cả đều `dev` trong lockfile). `nopt` bị `overrides` ghim 9.0.0 vì `js-beautify` 2.0.3 đòi nopt 10.0.1, mà nopt 10.0.1 đòi Node >=22.22.2 (môi trường dùng 22.22.0, `engine-strict`); `js-beautify` chỉ dùng hàm định dạng HTML, không dùng phần dòng lệnh của nopt | Có (22/10/2026, lockfile) |
+| @playwright/test (kéo playwright, playwright-core) | 1.63.0 | Apache-2.0 | Công cụ (AT-25 trên trình duyệt thật cho `verify-portal/app`, Plan 03 Task 6; `dev` trong lockfile, không vào bundle; trình duyệt Chromium do `npx playwright install` tải, không phân phối kèm kho này) | Có (22/10/2026, lockfile) |
 | @types/qrcode (kèm @types/node, undici-types) | 1.5.5 | MIT | Công cụ (kiểu TypeScript cho `qrcode`) | Có (22/10/2026, lockfile) |
 
 **Gói gián tiếp (theo trường `license` trong lockfile, 22/10/2026; tổng 186 gói, gồm cả các gói trực tiếp ở trên):**
 | Giấy phép | Số gói | Ghi chú |
 |---|---|---|
-| MIT | 141 | `@babel/*`, `@rolldown/*`, `@vue/*`, `@vitejs/plugin-vue`, `@volar/*`, `@asamuzakjp/*`, `qrcode` và phụ thuộc của nó, `vue`, `jsdom` và phần lớn phụ thuộc của nó (`parse5`, `whatwg-url`, `undici`, `css-tree`, `decimal.js`...), `@vue/test-utils` và `js-beautify`, `chai`, `postcss`, `rolldown`, `jwt-decode`... |
-| Apache-2.0 | 5 | `typescript`, `detect-libc`, `expect-type`, `oidc-client-ts`, `xml-name-validator` |
+| MIT | 138 | `@babel/*`, `@rolldown/*`, `@vue/*`, `@vitejs/plugin-vue`, `@volar/*`, `@asamuzakjp/*`, `qrcode` và phụ thuộc của nó, `vue`, `jsdom` và phần lớn phụ thuộc của nó (`parse5`, `whatwg-url`, `undici`, `css-tree`, `decimal.js`...), `@vue/test-utils` và `js-beautify`, `chai`, `postcss`, `rolldown`, `jwt-decode`... |
+| Apache-2.0 | 8 | `typescript`, `detect-libc`, `expect-type`, `oidc-client-ts`, `xml-name-validator`, `@playwright/test`, `playwright`, `playwright-core` |
 | MPL-2.0 | 12 | `lightningcss` và 11 gói nhị phân theo nền tảng của nó (do Vite kéo vào) |
 | BSD-2-Clause | 3 | `entities` (hai phiên bản), `webidl-conversions` |
 | BSD-3-Clause | 2 | `source-map-js`, `tough-cookie` |

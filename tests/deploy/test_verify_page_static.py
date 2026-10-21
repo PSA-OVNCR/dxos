@@ -1,9 +1,12 @@
 # SPDX-FileCopyrightText: 2026 PSA_OVNCR
 # SPDX-License-Identifier: Apache-2.0
-"""Kiểm tĩnh trang đối soát tối giản (Plan 02 Task 10; spec 6.2, 13.3, 25.1, 25.4; R-2, AT-25 phần tĩnh).
+"""Kiểm tĩnh trang đối soát tối giản (``/apps/verify-lite/``) và cổng Vue (``/apps/verify/``).
 
-Trang chỉ có hash tính tại trình duyệt, CSP chặt, mọi giá trị từ API gán bằng ``textContent``. Kiểm bằng
-trình duyệt thật (không request nào mang nội dung tệp) để ở Plan 03; kiểm sống qua Caddy xem báo cáo Task 10.
+Plan 02 Task 10, Plan 03 Task 6; spec 6.2, 13.3, 25.1, 25.4; R-2, AT-25 phần tĩnh.
+
+Trang tối giản: hash tính tại trình duyệt, CSP chặt, mọi giá trị từ API gán bằng ``textContent``.
+Cổng Vue: xem các test ``test_vue_portal_*``. AT-25 bằng trình duyệt thật (không request nào mang nội dung
+tệp) ở ``verify-portal/app/e2e/at25.spec.ts``; kiểm sống qua Caddy ở ``test_caddy_admin_allowlist_live.py``.
 """
 
 import re
@@ -11,12 +14,17 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 PAGE = ROOT / "verify-portal/minimal"
+APP = ROOT / "verify-portal/app"
 JS = PAGE / "verify.js"
 HTML = PAGE / "index.html"
 CSS = PAGE / "verify.css"
 SPEC = ROOT / "docs/superpowers/specs/2026-10-20-dxos-trust-core-design.md"
 CSP = ("default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'self'; img-src 'self'; "
        "base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+# Cổng Vue: connect-src có chỗ cho origin repo neo (Caddy thay {$DXOS_ANCHOR_RAW_ORIGIN}; trống = chỉ 'self').
+VUE_CSP = ("default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
+           "connect-src 'self' {$DXOS_ANCHOR_RAW_ORIGIN}; base-uri 'none'; form-action 'none'; "
+           "frame-ancestors 'none'")
 
 
 def _flat(text: str) -> str:
@@ -63,7 +71,7 @@ def test_seal_id_taken_from_fragment_only():
 
 
 def test_caddy_serves_page_with_strict_csp():
-    assert "verify-portal/minimal:/srv/verify:ro" in (ROOT / "deploy/compose.yaml").read_text()
+    assert "verify-portal/minimal:/srv/verify-lite:ro" in (ROOT / "deploy/compose.yaml").read_text()
     assert "frame-ancestors 'none'" in (ROOT / "deploy/caddy/Caddyfile").read_text()
 
 
@@ -249,24 +257,43 @@ def test_bundle_download_rules():
         assert "file" not in m.group(1).lower()
 
 
-def test_caddy_route_for_verify_page():
+def test_caddy_routes_for_verify_pages():
     caddy = (ROOT / "deploy/caddy/Caddyfile").read_text(encoding="utf-8")
     routes = _caddy_block(caddy, "(gateway_routes)")
+    # Trang tối giản chuyển sang /apps/verify-lite/ (bind mount riêng), CSP cũ.
+    assert "redir /apps/verify-lite /apps/verify-lite/ 308" in routes
+    lite = _caddy_block(routes, "handle_path /apps/verify-lite/*")
+    assert "root * /srv/verify-lite" in lite and "file_server" in lite
+    assert f'Content-Security-Policy "{CSP}"' in lite
+    # Cổng Vue ở /apps/verify/ lấy bản build từ volume apps-static.
     assert "redir /apps/verify /apps/verify/ 308" in routes
-    block = _caddy_block(routes, "handle_path /apps/verify/*")
-    assert "root * /srv/verify" in block and "file_server" in block
-    assert f'Content-Security-Policy "{CSP}"' in block
-    for hardening in ("X-Content-Type-Options", "Referrer-Policy"):
-        assert hardening in block
+    vue = _caddy_block(routes, "handle_path /apps/verify/*")
+    assert "root * /srv/apps/verify" in vue and "file_server" in vue
+    assert f'Content-Security-Policy "{VUE_CSP}"' in vue
+    for block in (lite, vue):
+        for hardening in ("X-Content-Type-Options", "Referrer-Policy"):
+            assert hardening in block
     # Chỉ trong snippet dùng chung: cả hai host đều có route, và không lặp ngoài snippet.
-    assert caddy.count("handle_path /apps/verify/*") == 1
+    for path in ("/apps/verify/*", "/apps/verify-lite/*"):
+        assert caddy.count(f"handle_path {path}") == 1
     assert caddy.count("import gateway_routes") == 2
 
 
 def test_compose_mounts_page_outside_readonly_apps_volume():
     compose = (ROOT / "deploy/compose.yaml").read_text(encoding="utf-8")
-    assert "../verify-portal/minimal:/srv/verify:ro" in compose
-    assert "apps-static:/srv/apps:ro" in compose and "/srv/apps/verify" not in compose
+    assert "../verify-portal/minimal:/srv/verify-lite:ro" in compose
+    assert "apps-static:/srv/apps:ro" in compose and "/srv/verify:" not in compose
+    mounts = [ln for ln in compose.splitlines() if not ln.lstrip().startswith("#")]
+    assert not any("/srv/apps/verify" in ln for ln in mounts)    # Vue nằm TRONG volume, không có mount riêng
+
+
+def test_anchor_origin_is_configurable_with_an_empty_default():
+    compose = (ROOT / "deploy/compose.yaml").read_text(encoding="utf-8")
+    assert "DXOS_ANCHOR_RAW_ORIGIN: ${DXOS_ANCHOR_RAW_ORIGIN:-}" in compose   # mặc định trống
+    env_example = (ROOT / ".env.example").read_text(encoding="utf-8")
+    assert re.search(r"^DXOS_ANCHOR_RAW_ORIGIN=$", env_example, re.M)
+    # Placeholder trống vẫn cho CSP hợp lệ: "connect-src 'self' ; base-uri ..." (xem test sống với Caddy).
+    assert VUE_CSP.replace("{$DXOS_ANCHOR_RAW_ORIGIN}", "").count("connect-src 'self' ;") == 1
 
 
 # ---------- Fix round 0 ----------
@@ -302,3 +329,78 @@ def test_admin_allow_list_is_enforced_before_any_handle():
     assert 'respond "Forbidden" 403' in block
     assert admin.index("handle @blocked") < admin.index("import gateway_routes")
     assert admin.index("handle @blocked") < admin.index("handle /auth/*")
+
+
+# ---------- Cổng Vue (verify-portal/app): AT-25 phần tĩnh ----------
+
+def _app_sources() -> dict[str, str]:
+    return {str(f.relative_to(APP / "src")): f.read_text(encoding="utf-8")
+            for f in sorted((APP / "src").rglob("*")) if f.is_file()}
+
+
+def test_vue_portal_csp_in_vite_preview_equals_caddy_csp_with_empty_origin():
+    """Playwright chạy bản build dưới CSP của vite preview: phải bằng CSP của Caddy khi origin neo trống."""
+    cfg = _flat((APP / "vite.config.ts").read_text(encoding="utf-8"))
+    parts = re.findall(r'"([^"]*)"', cfg.split("const CSP =", 1)[1].split("//", 1)[0])
+    assert "".join(parts) == VUE_CSP.replace("{$DXOS_ANCHOR_RAW_ORIGIN}", "")
+    assert "base: '/apps/verify/'" in cfg
+
+
+def test_vue_portal_never_uploads_the_user_file():
+    sources = _app_sources()
+    assert {"main.ts", "App.vue", "state.ts", "verify.ts"} <= set(sources)
+    for name, text in sources.items():
+        code = re.sub(r"//[^\n]*|/\*.*?\*/|<!--.*?-->", "", text, flags=re.S)
+        assert "FormData" not in code, name
+        assert not re.search(r"<form\b", code, re.I), name
+        assert "XMLHttpRequest" not in code and "sendBeacon" not in code and "WebSocket" not in code, name
+        for banned in ("v-html", "innerHTML", "outerHTML", "insertAdjacentHTML", "eval(", "new Function",
+                       "localStorage", "sessionStorage", "document.write", "document.cookie"):
+            assert banned not in code, (name, banned)
+        # Chỉ DxosClient gọi mạng (SDK), cổng không tự gọi fetch với tệp người dùng.
+        assert not re.search(r"\bfetch\(", code), name
+    app = sources["App.vue"]
+    assert "sha256Hex(picked)" in app and "client.checkHash(id, hex)" in app
+    assert "client.bundle(id, sha)" in app
+    # Blob chỉ dựng từ văn bản máy chủ trả về.
+    for m in re.finditer(r"new Blob\(([^)]*)\)", app):
+        assert "picked" not in m.group(1) and "file" not in m.group(1).lower()
+
+
+def test_vue_portal_takes_seal_id_from_fragment_and_anchor_from_build_config_only():
+    app = _app_sources()["App.vue"]
+    assert "location.hash" in app and "location.search" not in app
+    assert "SEAL_ID.test(raw)" in app
+    assert "import.meta.env.VITE_ANCHOR_RAW_BASE" in app
+    # Chuỗi `repo` của máy chủ không bao giờ được đưa vào nguồn neo.
+    assert "rawAnchor(ANCHOR_BASE)" in app and not re.search(r"rawAnchor\([^)]*(view|repo|anchored)", app)
+    assert "anchored.repo" not in app
+
+
+def test_vue_portal_has_verbatim_title_and_legal_text():
+    html = _flat((APP / "index.html").read_text(encoding="utf-8"))
+    app = _flat(_app_sources()["App.vue"])
+    lite = _flat(HTML.read_text(encoding="utf-8"))
+    assert "<title>Kiểm tra tính xác thực và toàn vẹn văn bản điện tử</title>" in html
+    assert "<h1>Kiểm tra tính xác thực và toàn vẹn văn bản điện tử</h1>" in app
+    assert _unified_sentence() in app                                   # câu ở spec 25.1, nguyên văn
+    lede = re.search(r'<p class="lede">(.*?)</p>', lite).group(1)       # câu dẫn của Nghị định 30
+    assert lede in app
+    assert "Điều 21 khoản 2 điểm a Nghị định 30/2020/NĐ-CP" in app
+
+
+def test_vue_portal_labels_every_input_and_shows_vietnam_time():
+    app = _app_sources()["App.vue"]
+    assert 'for="seal-input"' in app and 'id="seal-input"' in app
+    assert 'for="file-input"' in app and 'id="file-input"' in app
+    assert "Thời điểm niêm phong" in app and "formatVn(" in app
+    assert "Asia/Ho_Chi_Minh" in _app_sources()["state.ts"]
+    assert "Máy chủ báo" in app and "Trình duyệt tự kiểm" in app
+
+
+def test_ci_runs_playwright_for_the_verify_portal_in_web_job():
+    ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    web = ci[ci.index("  web:"):ci.index("  integration:")]
+    assert "npx playwright install --with-deps chromium" in web
+    assert "npx -w dxos-verify-portal playwright test" in web
+    assert web.index("npm run check") < web.index("playwright test")

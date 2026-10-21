@@ -1,0 +1,26 @@
+{
+  "name": "dxos-verify-portal",
+  "version": "0.3.0",
+  "private": true,
+  "type": "module",
+  "description": "Cổng đối soát công khai của DX-OS (Vue): tự kiểm gói bằng chứng ngay trên trình duyệt, tệp không rời máy.",
+  "license": "Apache-2.0",
+  "scripts": {
+    "typecheck": "vue-tsc --noEmit -p .",
+    "test": "vitest run",
+    "build": "vite build",
+    "e2e": "playwright test"
+  },
+  "dependencies": {
+    "dxos-sdk-js": "0.3.0",
+    "vue": "3.5.43"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@vitejs/plugin-vue": "6.0.9",
+    "typescript": "5.9.3",
+    "vite": "8.1.6",
+    "vitest": "5.0.3",
+    "vue-tsc": "3.3.12"
+  }
+}

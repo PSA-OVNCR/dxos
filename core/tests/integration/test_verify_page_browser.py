@@ -100,7 +100,7 @@ async def test_verify_page_in_real_browser(browser_env, flow, local_signer, tmp_
     uv_port, caddy_port = _free_port(), _free_port()
     text = (ROOT / "deploy/caddy/Caddyfile").read_text(encoding="utf-8")
     text = text.replace("apisix:9080", f"127.0.0.1:{uv_port}")
-    text = text.replace("root * /srv/verify", f"root * {ROOT}/verify-portal/minimal")
+    text = text.replace("root * /srv/verify-lite", f"root * {ROOT}/verify-portal/minimal")
     text = text.replace("root * /srv\n", f"root * {work}/srv\n")
     (work / "Caddyfile").write_text("{\n\tadmin off\n\tauto_https off\n}\n" + text, encoding="utf-8")
     base = f"http://localhost:{caddy_port}"

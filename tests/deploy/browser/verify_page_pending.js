@@ -12,7 +12,7 @@ const ids = JSON.parse(fs.readFileSync(path.join(DIR, "ids.json"), "utf8"));
   const b = await chromium.launch();
   const ctx = await b.newContext({ viewport: { width: 760, height: 700 } });
   const page = await ctx.newPage();
-  await page.goto(`${ids.base}/apps/verify/#${ids.pending}`);
+  await page.goto(`${ids.base}/apps/verify-lite/#${ids.pending}`);
   await page.waitForFunction(() => /Chờ niêm phong/.test(document.getElementById("status-badge").textContent));
   const ok = (await page.locator("#fields dt").count()) === 0 && await page.locator("#bundle").isHidden() && await page.locator("#file-check").isHidden();
   console.log((ok ? "PASS" : "FAIL") + " Chờ niêm phong: không lộ trường, không ô tệp, không nút gói | " + (await page.locator("#status-note").innerText()));

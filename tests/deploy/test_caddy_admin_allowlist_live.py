@@ -51,25 +51,34 @@ def _free_port() -> int:
         return s.getsockname()[1]
 
 
-def _get(port: int, host: str, path: str) -> int:
+def _fetch(port: int, host: str, path: str) -> tuple[int, dict[str, str]]:
+    """Trạng thái và header (tên viết thường) của một GET, không theo chuyển hướng."""
     conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
     try:
         conn.request("GET", path, headers={"Host": f"{host}:{port}"})
-        return conn.getresponse().status
+        resp = conn.getresponse()
+        resp.read()
+        return resp.status, {k.lower(): v for k, v in resp.getheaders()}
     finally:
         conn.close()
+
+
+def _get(port: int, host: str, path: str) -> int:
+    return _fetch(port, host, path)[0]
 
 
 @pytest.fixture
 def run_caddy(tmp_path):
     procs = []
 
-    def start(allowed: str) -> int:
+    def start(allowed: str, anchor_origin: str | None = None) -> int:
         port = _free_port()
-        (tmp_path / "srv/apps").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "srv/apps/verify").mkdir(parents=True, exist_ok=True)
         (tmp_path / "srv/apps/other.txt").write_text("ok\n")
+        (tmp_path / "srv/apps/verify/index.html").write_text("<!doctype html><title>vue</title>\n")
         text = (ROOT / "deploy/caddy/Caddyfile").read_text(encoding="utf-8")
-        text = text.replace("root * /srv/verify", f"root * {ROOT}/verify-portal/minimal")
+        text = text.replace("root * /srv/verify-lite", f"root * {ROOT}/verify-portal/minimal")
+        text = text.replace("root * /srv/apps/verify", f"root * {tmp_path}/srv/apps/verify")
         text = text.replace("root * /srv\n", f"root * {tmp_path}/srv\n")
         cfg = tmp_path / f"Caddyfile.{port}"
         cfg.write_text("{\n\tadmin off\n\tauto_https off\n}\n" + text, encoding="utf-8")
@@ -77,6 +86,9 @@ def run_caddy(tmp_path):
                "XDG_CONFIG_HOME": str(tmp_path / "config"),
                "DXOS_DOMAIN": f"http://localhost:{port}", "DXOS_ADMIN_HOST": f"http://admin.localhost:{port}",
                "DXOS_ADMIN_ALLOWED_IPS": allowed}
+        env.pop("DXOS_ANCHOR_RAW_ORIGIN", None)                  # không đặt = trống (mặc định của compose)
+        if anchor_origin is not None:
+            env["DXOS_ANCHOR_RAW_ORIGIN"] = anchor_origin
         log = open(tmp_path / f"caddy-{port}.log", "w")
         procs.append(subprocess.Popen([CADDY, "run", "--config", str(cfg), "--adapter", "caddyfile"], env=env,
                                       stdout=log, stderr=subprocess.STDOUT))
@@ -97,8 +109,8 @@ def run_caddy(tmp_path):
             p.kill()
 
 
-BLOCKED_PATHS = ("/", "/apps/other.txt", "/apps/verify/", "/auth/realms/dxos", "/admin/v1/ledger/status",
-                 "/api/v1/apps", "/verify/v1/seals/AAAAAAAAAAAAAAAAAAAAAAAAAA")
+BLOCKED_PATHS = ("/", "/apps/other.txt", "/apps/verify/", "/apps/verify-lite/", "/auth/realms/dxos",
+                 "/admin/v1/ledger/status", "/api/v1/apps", "/verify/v1/seals/AAAAAAAAAAAAAAAAAAAAAAAAAA")
 
 
 def test_ip_outside_allow_list_gets_403_on_every_admin_path(run_caddy):
@@ -115,5 +127,37 @@ def test_ip_inside_allow_list_passes_on_admin_host(run_caddy):
     assert _get(port, "admin.localhost", "/apps/other.txt") == 200
     assert _get(port, "admin.localhost", "/") == 404       # tới được fallback, không bị 403
     assert _get(port, "admin.localhost", "/apps/verify/") == 200
+    assert _get(port, "admin.localhost", "/apps/verify-lite/") == 200
     for path in ("/admin", "/admin/v1/health", "/admin/v1/apps"):      # API quản trị: chỉ host admin
         assert _get(port, "localhost", path) == 404, path
+
+
+# CSP của cổng Vue khi DXOS_ANCHOR_RAW_ORIGIN trống: khoảng trắng thừa trước ";" vẫn là CSP hợp lệ.
+VUE_CSP = ("default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
+           "connect-src 'self' ; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+LITE_CSP = ("default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'self'; img-src 'self'; "
+            "base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+
+
+def test_both_verify_portals_are_served_with_their_own_csp(run_caddy):
+    _need_caddy()
+    port = run_caddy("127.0.0.1/32")                       # DXOS_ANCHOR_RAW_ORIGIN không đặt
+    for host in ("localhost", "admin.localhost"):
+        status, headers = _fetch(port, host, "/apps/verify/")
+        assert status == 200 and headers["content-security-policy"] == VUE_CSP, host
+        status, headers = _fetch(port, host, "/apps/verify-lite/")
+        assert status == 200 and headers["content-security-policy"] == LITE_CSP, host
+        assert headers["x-content-type-options"] == "nosniff" and headers["referrer-policy"] == "no-referrer"
+        for bare, target in (("/apps/verify", "/apps/verify/"), ("/apps/verify-lite", "/apps/verify-lite/")):
+            status, headers = _fetch(port, host, bare)
+            assert status == 308 and headers["location"] == target, (host, bare)
+
+
+def test_vue_portal_csp_allows_only_the_configured_anchor_origin(run_caddy):
+    _need_caddy()
+    port = run_caddy("127.0.0.1/32", anchor_origin="https://raw.githubusercontent.com")
+    _, headers = _fetch(port, "localhost", "/apps/verify/")
+    assert "connect-src 'self' https://raw.githubusercontent.com; base-uri 'none'" in headers[
+        "content-security-policy"]
+    _, lite = _fetch(port, "localhost", "/apps/verify-lite/")
+    assert lite["content-security-policy"] == LITE_CSP    # trang tối giản không đọc repo neo
