@@ -7,7 +7,8 @@ PROFILE ?= p16
 ENV_FILE ?= .env
 COMPOSE = docker compose -p dxos --env-file $(ENV_FILE) -f deploy/compose.yaml -f deploy/compose.$(PROFILE).yaml
 
-.PHONY: help dev-install lint test reuse check up down ps logs netcheck test-infra test-db-up test-integration pin-images
+.PHONY: help dev-install lint test reuse check up down ps logs netcheck test-infra test-db-up test-integration pin-images \
+	openapi
 
 help:
 	@echo "make dev-install  - cài công cụ phát triển và các gói Python ở chế độ editable"
@@ -22,6 +23,7 @@ help:
 	@echo "make test-db-up   - dựng dịch vụ cho integration test (PostgreSQL :55432, OpenBao, SeaweedFS, Flowable :58080)"
 	@echo "make test-integration - integration test (marker integration), cần make test-db-up"
 	@echo "make pin-images   - ghim digest mọi image trong deploy/ (cần Docker có buildx)"
+	@echo "make openapi      - sinh lại docs/api/openapi.json từ ứng dụng FastAPI (không cần dịch vụ)"
 
 dev-install:
 	$(PYTHON) -m pip install -r requirements-dev.txt
@@ -64,6 +66,9 @@ test-infra:
 
 pin-images:
 	$(PYTHON) ops/pin_images.py
+
+openapi:
+	$(PYTHON) ops/openapi.py
 
 netcheck:
 	$(PYTHON) ops/netcheck.py --matrix deploy/network-matrix.yaml --project dxos

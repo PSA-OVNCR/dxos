@@ -396,6 +396,25 @@
       ]
     },
     {
+      "username": "chuyen_vien_tp1",
+      "enabled": true,
+      "email": "chuyen_vien_tp1@dev.dxos.invalid",
+      "emailVerified": true,
+      "firstName": "chuyen_vien_tp1",
+      "lastName": "Dev",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "dev-only-password",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "app:phong-ho-so:chuyen_vien",
+        "app:phong-ho-so:truong_phong"
+      ]
+    },
+    {
       "username": "truong_phong1",
       "enabled": true,
       "email": "truong_phong1@dev.dxos.invalid",

@@ -1,5 +1,5 @@
 {
-  "_comment": "CHỈ DÙNG KHI PHÁT TRIỂN/TEST. Nạp vào realm-dxos-dev.json bằng `python ops/build_dev_realm.py`. Mật khẩu chung của người dùng dev: dev-only-password. admin2 là admin thứ hai để duyệt app theo bốn mắt (P2-D21).",
+  "_comment": "CHỈ DÙNG KHI PHÁT TRIỂN/TEST. Nạp vào realm-dxos-dev.json bằng `python ops/build_dev_realm.py`. Mật khẩu chung của người dùng dev: dev-only-password. admin2 là admin thứ hai để duyệt app theo bốn mắt (P2-D21). chuyen_vien_tp1 giữ cả vai trò chuyên viên lẫn trưởng phòng, để E2E chứng minh người tạo không tự duyệt được văn bản của mình (AT-07, not_same_actor).",
   "roles": [
     "app:phong-ho-so:chuyen_vien", "app:phong-ho-so:truong_phong", "app:phong-ho-so:giam_doc",
     "app:phong-ho-so:van_thu", "app:phong-ho-so:nhan_vien",
@@ -8,6 +8,7 @@
   ],
   "users": {
     "chuyen_vien1": ["app:phong-ho-so:chuyen_vien"],
+    "chuyen_vien_tp1": ["app:phong-ho-so:chuyen_vien", "app:phong-ho-so:truong_phong"],
     "truong_phong1": ["app:phong-ho-so:truong_phong"],
     "giam_doc1": ["app:phong-ho-so:giam_doc"],
     "van_thu1": ["app:phong-ho-so:van_thu"],

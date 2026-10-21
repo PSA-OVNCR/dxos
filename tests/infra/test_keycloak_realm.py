@@ -163,6 +163,15 @@ def test_dev_realm_keeps_production_service_account_and_adds_admin2():
     assert _client(dev, "dxos-cli")["directAccessGrantsEnabled"] is False
 
 
+def test_dev_realm_has_creator_who_is_also_reviewer_for_at07():
+    """E2E M2 (Plan 02 Task 15): người tạo văn bản cũng giữ vai trò trưởng phòng mà vẫn bị chặn tự duyệt
+    (AT-07)."""
+    users = {u["username"]: u for u in _load(DEV)["users"]}
+    assert sorted(users["chuyen_vien_tp1"]["realmRoles"]) == ["app:phong-ho-so:chuyen_vien",
+                                                              "app:phong-ho-so:truong_phong"]
+    assert "chuyen_vien_tp1" not in {u["username"] for u in realm().get("users", [])}   # chỉ ở realm dev
+
+
 # ---------------- sống ----------------
 
 httpx = pytest.importorskip("httpx")

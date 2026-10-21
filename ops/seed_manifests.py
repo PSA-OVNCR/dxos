@@ -2,7 +2,12 @@
 # SPDX-License-Identifier: Apache-2.0
 """Đưa manifest `test-app`, `phong-ho-so`, `chung-nhan` vào trạng thái ACTIVE (Plan 01 Task 17).
 
-**Chỉ dùng tạm** tới khi có installer ở Plan 02. Hai cách chạy:
+**Chỉ dùng cho test lõi.** Từ Plan 02 Task 15, ứng dụng thật được cài bằng installer qua CLI `dxos`, duyệt
+theo bốn mắt (`ops/e2e/install_apps.sh`); E2E và minh chứng AT-13 không dùng script này. Script ghi thẳng
+vào DB, bỏ qua installer: không tạo realm role trong Keycloak, không deploy BPMN lên Flowable, không qua
+bước duyệt.
+
+Hai cách chạy:
 
     # trên máy có dxos-core (make dev-install), DB truy cập được:
     DXOS_DATABASE_URL=... DXOS_ACTOR_HMAC_KEY_FILE=... python ops/seed_manifests.py

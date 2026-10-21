@@ -1,0 +1,16 @@
+# SPDX-FileCopyrightText: 2026 PSA_OVNCR
+# SPDX-License-Identifier: Apache-2.0
+#
+# Overlay PHÁT HÀNH (Plan 02 Task 15, AT-13): trust-core-api và trust-core-worker chạy đúng image trust-core đã phát
+# hành trên GHCR, ghim theo digest; không build từ mã nguồn trên máy chủ. Dùng chồng lên compose.yaml + một hồ sơ:
+#   docker compose -p dxos --env-file .env -f deploy/compose.yaml -f deploy/compose.p16.yaml \
+#     -f deploy/compose.release.yaml up -d
+# DXOS_TRUST_CORE_DIGEST (64 hex, không có tiền tố sha256:) lấy từ trang GitHub Release của tag, đặt trong .env.
+x-release-image: &release-image
+  image: ghcr.io/psa-ovncr/trust-core@sha256:${DXOS_TRUST_CORE_DIGEST:?đặt DXOS_TRUST_CORE_DIGEST (digest trên trang Release) trong .env}
+  build: !reset null
+  pull_policy: missing
+
+services:
+  trust-core-api: *release-image
+  trust-core-worker: *release-image

@@ -1,29 +1,103 @@
 # SPDX-FileCopyrightText: 2026 PSA_OVNCR
 # SPDX-License-Identifier: Apache-2.0
 #
-# Phát hành khi đẩy tag vX.Y.Z (Plan 01 Task 17). Tệp đính kèm:
-#   dxos-X.Y.Z.tar.gz (git archive, định dạng mở — TL tr.2), sbom-X.Y.Z.cdx.json (syft, CycloneDX),
-#   wheel của dxos-proof, dxos-core, dxos-witness, dxos-cli. Mô tả release = mục [X.Y.Z] của CHANGELOG.md.
+# Phát hành khi đẩy tag vX.Y.Z (Plan 01 Task 17; Plan 02 Task 15 thêm image). Chỉ chạy khi trưởng nhóm đẩy tag.
+# - Kiểm trước (job check): phiên bản các gói Python bằng tag; CHANGELOG.md có mục "## [X.Y.Z] - YYYY-MM-DD" (mục còn
+#   ghi "Chưa phát hành" thì dừng, không đẩy gì).
+# - Image trust-core build từ đúng commit của tag (core/Dockerfile), đẩy lên ghcr.io/psa-ovncr/trust-core:X.Y.Z bằng
+#   GITHUB_TOKEN (quyền packages: write chỉ cấp cho job image). Digest ghi vào mô tả Release và tệp
+#   trust-core-image-X.Y.Z.txt; VPS chạy image theo digest này (deploy/compose.release.yaml, AT-13).
+# - Tệp đính kèm: dxos-X.Y.Z.tar.gz (git archive, định dạng mở — TL tr.2), sbom-X.Y.Z.cdx.json (syft, CycloneDX),
+#   wheel của dxos-proof, dxos-core, dxos-witness, dxos-cli. Mô tả release = mục [X.Y.Z] của CHANGELOG.md + digest.
 name: release
 on:
   push:
     tags: ["v*.*.*"]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  release:
+  check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with: { fetch-depth: 0 }
+        with: { ref: "${{ github.ref }}" }
+      - name: Phiên bản gói bằng tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          for f in libs/dxos-proof/pyproject.toml core/pyproject.toml witness/pyproject.toml cli/pyproject.toml; do
+            grep -qx "version = \"${VERSION}\"" "$f" || { echo "$f không có version = \"${VERSION}\"" >&2; exit 1; }
+          done
+          for f in core/src/dxos_core/__init__.py witness/src/dxos_witness/__init__.py cli/src/dxos_cli/__init__.py; do
+            grep -qx "__version__ = \"${VERSION}\"" "$f" || { echo "$f không có __version__ = \"${VERSION}\"" >&2; exit 1; }
+          done
+      - name: CHANGELOG có mục của phiên bản, đã ghi ngày phát hành
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          python ops/changelog_section.py "$VERSION" > /dev/null
+          grep -Eq "^## \[${VERSION//./\\.}\] - [0-9]{4}-[0-9]{2}-[0-9]{2}\$" CHANGELOG.md \
+            || { echo "CHANGELOG.md: mục [${VERSION}] chưa có ngày phát hành (YYYY-MM-DD)" >&2; exit 1; }
+
+  image:
+    needs: check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.push.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: "${{ github.ref }}" }
+      - name: Build image trust-core từ commit của tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          docker build -f core/Dockerfile -t "ghcr.io/psa-ovncr/trust-core:${VERSION}" \
+            --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
+            --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
+            --label "org.opencontainers.image.version=${VERSION}" \
+            --label "org.opencontainers.image.licenses=Apache-2.0" .
+      - name: Đẩy lên GHCR và lấy digest
+        id: push
+        env: { GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker push "ghcr.io/psa-ovncr/trust-core:${VERSION}"
+          ref=$(docker inspect --format '{{index .RepoDigests 0}}' "ghcr.io/psa-ovncr/trust-core:${VERSION}")
+          digest="${ref##*@sha256:}"
+          [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || { echo "không đọc được digest: $ref" >&2; exit 1; }
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+          docker logout ghcr.io
+
+  release:
+    needs: image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: "${{ github.ref }}", fetch-depth: 0 }
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
       - name: Phiên bản từ tag
         run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
-      - name: Ghi chú phát hành (bắt buộc có mục trong CHANGELOG)
-        run: python ops/changelog_section.py "$VERSION" > notes.md
+      - name: Ghi chú phát hành (mục CHANGELOG + digest image)
+        env: { DIGEST: "${{ needs.image.outputs.digest }}" }
+        run: |
+          python ops/changelog_section.py "$VERSION" > notes.md
+          mkdir -p dist
+          {
+            echo
+            echo "## Image trust-core"
+            echo
+            echo "- Thẻ: \`ghcr.io/psa-ovncr/trust-core:${VERSION}\`"
+            echo "- Digest: \`ghcr.io/psa-ovncr/trust-core@sha256:${DIGEST}\`"
+            echo "- Dùng trên máy chủ: đặt \`DXOS_TRUST_CORE_DIGEST=${DIGEST}\` trong \`.env\` và thêm \`-f deploy/compose.release.yaml\`."
+          } >> notes.md
+          printf 'ghcr.io/psa-ovncr/trust-core:%s\nghcr.io/psa-ovncr/trust-core@sha256:%s\n' "$VERSION" "$DIGEST" \
+            > "dist/trust-core-image-${VERSION}.txt"
       - name: Wheel
         run: |
           python -m pip install build
