@@ -359,3 +359,16 @@ async def test_unparseable_stored_rows_are_skipped_for_bundle(core_conn):
                             th.tree_size, CAL_A, reply_for(CAL_A))
     assert await receipts_ots(core_conn, th.tree_size, sth) == detached_timestamp(
         ots_request_digest(sth), [reply_for(CAL_A)])
+
+
+# ---------- fix vòng 2: URL hỏng lọt qua cấu hình không làm hỏng các calendar khác ----------
+
+async def test_invalid_url_on_one_calendar_does_not_cut_the_loop(make_ctx, core_conn):
+    ctx = make_ctx(CAL_B)
+    # model_copy bỏ qua validator: URL mà httpx không dựng được (httpx.InvalidURL không phải HTTPError)
+    ctx.settings = ctx.settings.model_copy(update={"ots_calendars": f"https://x.calendar.test:abc,{CAL_B}"})
+    await enqueue(core_conn, "anchor_sth", {})
+    await run_all(ctx, core_conn)
+    assert await core_conn.fetchval("SELECT calendar FROM ots_receipts") == CAL_B
+    job = await core_conn.fetchrow("SELECT state, attempts, last_error FROM jobs WHERE kind=$1", OTS_JOB)
+    assert job["state"] == "QUEUED" and job["attempts"] == 1 and "InvalidURL" in job["last_error"]

@@ -125,6 +125,10 @@ def test_attestation_branches_come_before_op_branches():
     b"\x00" + PENDING + bytes([0xd2, 0x0f]) + bytes([0xd0, 0x0f]) + b"x" * 2000,   # URI 2000 > 1000
     b"\x00" + PENDING + vb(vb(b"https://x") + b"rac"),     # payload pending thừa byte
     b"\x00" + bytes.fromhex("0588960d73d71901") + vb(b"\x01\x02"),             # bitcoin: thừa byte
+    # fix vòng 2: đối chiếu python-opentimestamps 0.4.5
+    b"\x00" + bytes.fromhex("06869a0d73d71b45") + vb(b"\x01\x02"),             # litecoin: thừa byte
+    b"\x00" + bytes.fromhex("30fe8087b5c7ead7") + vb(b"\x01\x02"),             # ethereum: thừa byte
+    b"\x08" * 256 + pending("https://x"),                  # 256 op lồng nhau: RecursionLimitError
 ])
 def test_malformed_reply_rejected(bad):
     with pytest.raises(ots.OtsFormatError):
@@ -139,6 +143,9 @@ def test_limits_of_official_reader_still_accepted():
     ots.parse_timestamp(b"\x08\x00" + PENDING + bytes([0xea, 0x07, 0xe8, 0x07]) + b"x" * 1000)   # URI 1000
     ots.parse_timestamp(b"\x00" + bytes.fromhex("0588960d73d71901") + vb(b"\x81\x01"))   # bitcoin, cao 129
     ots.parse_timestamp(b"\x00" + b"\x11" * 8 + vb("thẻ lạ".encode()))           # thẻ lạ: giữ nguyên
+    ots.parse_timestamp(b"\x00" + bytes.fromhex("06869a0d73d71b45") + vb(b"\x01"))   # litecoin
+    ots.parse_timestamp(b"\x00" + bytes.fromhex("30fe8087b5c7ead7") + vb(b"\x01"))   # ethereum
+    ots.parse_timestamp(b"\x08" * 255 + pending("https://x"))                     # 255 op: tối đa
     with pytest.raises(ots.OtsFormatError):
         ots.parse_timestamp(b"\xf0" + bytes([0xe1, 0x1f]) + b"a" * 4065 + pending("https://x"))
 
@@ -232,9 +239,10 @@ def test_calendar_setting(make_settings):
     assert ots.calendar_urls(make_settings(ots_calendars="https://a.example/cal/")) == ["https://a.example/cal"]
     for bad in ("https://", "https:///x", "https://a b.example", "https://u:p@a.example",
                 "https://a.example?x=1", "https://a.example#f", "ftp://a.example", "a.example",
-                "https://a.example\t/x"):
+                "https://a.example\t/x", "https://a.example:abc", "https://a.example:99999"):
         with pytest.raises(ValueError, match="https"):
             make_settings(ots_calendars=bad)
+    make_settings(ots_calendars="https://a.example:8443/cal")
     make_settings(ots_calendars=",".join(f"https://c{i}.example" for i in range(8)))
     with pytest.raises(ValueError, match="tối đa 8"):
         make_settings(ots_calendars=",".join(f"https://c{i}.example" for i in range(9)))

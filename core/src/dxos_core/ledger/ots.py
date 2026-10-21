@@ -61,7 +61,9 @@ _MAX_MSG = 4096                   # MAX_RESULT_LENGTH / MAX_MSG_LENGTH của cli
 _MAX_PAYLOAD = 8192
 _MAX_DEPTH = 256
 _PENDING_TAG = bytes.fromhex("83dfe30d2ef90c8e")
-_BITCOIN_TAG = bytes.fromhex("0588960d73d71901")
+# Thẻ biên nhận mà client chính thức biết, payload là varuint chiều cao khối: bitcoin, litecoin, ethereum.
+_HEIGHT_TAGS = frozenset(bytes.fromhex(t) for t in (
+    "0588960d73d71901", "06869a0d73d71b45", "30fe8087b5c7ead7"))
 _MAX_URI = 1000
 _URI_CHARS = frozenset(b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._/:")
 
@@ -123,7 +125,7 @@ def _check_attestation(tag: bytes, payload: bytes) -> None:
         uri, end = _read_varbytes(payload, 0, _MAX_URI)
         if not set(uri) <= _URI_CHARS:
             raise OtsFormatError("URI của biên nhận pending có ký tự không cho phép")
-    elif tag == _BITCOIN_TAG:
+    elif tag in _HEIGHT_TAGS:
         _, end = _read_varuint(payload, 0)
     else:
         return                    # thẻ lạ: client chính thức giữ nguyên (UnknownAttestation)
@@ -160,7 +162,7 @@ def _parse_branch(buf: bytes, pos: int, tag: int, node: _Node, depth: int, msg_l
 
 
 def _parse_node(buf: bytes, pos: int, depth: int, msg_len: int) -> tuple[_Node, int]:
-    if depth > _MAX_DEPTH:
+    if depth >= _MAX_DEPTH:      # như _recursion_limit=256 của client chính thức: 255 op lồng nhau là tối đa
         raise OtsFormatError("timestamp lồng quá sâu")
     node = _Node()
     while True:
@@ -291,7 +293,8 @@ async def process_ots_job(ctx: WorkerContext, job: Job) -> None:
                         await conn.execute(
                             "INSERT INTO ots_receipts(tree_size, calendar, reply) VALUES ($1, $2, $3)"
                             " ON CONFLICT DO NOTHING", size, cal, reply)
-                    except (httpx.HTTPError, OtsFormatError, TimeoutError, asyncpg.PostgresError) as exc:
+                    except (httpx.HTTPError, httpx.InvalidURL, OtsFormatError, TimeoutError,
+                            asyncpg.PostgresError) as exc:
                         log.warning("calendar %s không cấp biên nhận cho STH %s: %s", cal, size, exc)
                         errors.append(f"{cal}: {type(exc).__name__}: {exc}")
         replies = await _receipts(conn, size)

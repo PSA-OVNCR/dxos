@@ -100,6 +100,11 @@ class Settings(BaseSettings):
             raise ValueError(f"DXOS_OTS_CALENDARS: tối đa {MAX_OTS_CALENDARS} calendar")
         for u in urls:
             parts = urlsplit(u)
+            try:
+                _ = parts.port          # urlsplit chỉ kiểm cổng khi đọc: "a.example:abc" → ValueError
+            except ValueError as exc:
+                raise ValueError(f"calendar OpenTimestamps phải là URL https:// có cổng hợp lệ: {u!r}"
+                                 ) from exc
             if (parts.scheme != "https" or not parts.hostname or parts.username is not None
                     or parts.password is not None or parts.query or parts.fragment
                     or any(c.isspace() or c == "," for c in u)):
