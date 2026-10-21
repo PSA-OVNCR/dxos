@@ -42,7 +42,7 @@ Bảng kê giấy phép và nguồn gốc mọi mô-đun bên ngoài. Cập nh�
 | tzdata (gói Debian trong image trust-core) | theo image nền | Public domain (IANA tz database) | Chỉ dữ liệu múi giờ, `zoneinfo` đọc cho `DXOS_TIMEZONE` | Chưa |
 
 ## Gói npm (workspace `web`, Plan 03 Task 2–3)
-Phiên bản ghim chính xác trong `package-lock.json` (đếm từ lockfile ngày 22/10/2026 sau Task 3: 119 gói bên thứ ba, gồm cả các gói nhị phân tùy chọn theo nền tảng; chỉ gói của nền tảng đang chạy được cài). Cập nhật bảng **trong cùng commit** khi một Task sau thêm phụ thuộc (Vue, Vue Router, qrcode, @vue/test-utils, Playwright...).
+Phiên bản ghim chính xác trong `package-lock.json` (đếm từ lockfile ngày 22/10/2026 sau Task 3: 122 gói bên thứ ba, gồm cả các gói nhị phân tùy chọn theo nền tảng; chỉ gói của nền tảng đang chạy được cài). Cập nhật bảng **trong cùng commit** khi một Task sau thêm phụ thuộc (Vue, Vue Router, qrcode, @vue/test-utils, Playwright...).
 
 **Runtime (vào bundle trình duyệt):**
 | Thành phần | Phiên bản | Giấy phép | Cách dùng | Đã kiểm chứng |
@@ -59,12 +59,12 @@ Phiên bản ghim chính xác trong `package-lock.json` (đếm từ lockfile ng
 | vue-tsc | 3.3.12 | MIT | Công cụ (kiểm kiểu `.ts`/`.vue`) | Có (22/10/2026, lockfile) |
 | Vite (kèm Rolldown 1.1.5, PostCSS 8.5.31, lightningcss 1.33.0) | 8.1.6 | MIT (Rolldown, PostCSS: MIT; lightningcss: **MPL-2.0**) | Công cụ (build thư viện/ứng dụng) | Có (22/10/2026, lockfile) |
 | Vitest | 5.0.3 | MIT | Công cụ (test đơn vị) | Có (22/10/2026, lockfile) |
-| jsdom (môi trường DOM giả cho test cần `sessionStorage`/`location`) | 30.1.2 | MIT | Công cụ (test đơn vị; các gói gián tiếp kèm theo đều `dev` trong lockfile) | Có (22/10/2026, lockfile) |
+| jsdom (môi trường DOM giả cho test cần `sessionStorage`/`location`) | 29.1.1 | MIT | Công cụ (test đơn vị; ghim 29.1.1 vì 30.x đòi Node >=22.22.2; các gói gián tiếp kèm theo đều `dev` trong lockfile) | Có (22/10/2026, lockfile) |
 
-**Gói gián tiếp (theo trường `license` trong lockfile, 22/10/2026; tổng 119 gói, gồm cả các gói trực tiếp ở trên):**
+**Gói gián tiếp (theo trường `license` trong lockfile, 22/10/2026; tổng 122 gói, gồm cả các gói trực tiếp ở trên):**
 | Giấy phép | Số gói | Ghi chú |
 |---|---|---|
-| MIT | 90 | `@babel/*`, `@rolldown/*`, `@vue/*`, `@volar/*`, `@asamuzakjp/*`, `jsdom` và phần lớn phụ thuộc của nó (`parse5`, `whatwg-url`, `undici`, `css-tree`, `decimal.js`...), `chai`, `postcss`, `rolldown`, `jwt-decode`... |
+| MIT | 93 | `@babel/*`, `@rolldown/*`, `@vue/*`, `@volar/*`, `@asamuzakjp/*`, `jsdom` và phần lớn phụ thuộc của nó (`parse5`, `whatwg-url`, `undici`, `css-tree`, `decimal.js`...), `chai`, `postcss`, `rolldown`, `jwt-decode`... |
 | Apache-2.0 | 5 | `typescript`, `detect-libc`, `expect-type`, `oidc-client-ts`, `xml-name-validator` |
 | MPL-2.0 | 12 | `lightningcss` và 11 gói nhị phân theo nền tảng của nó (do Vite kéo vào) |
 | BSD-2-Clause | 3 | `entities` (hai phiên bản), `webidl-conversions` |
