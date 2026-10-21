@@ -3,16 +3,18 @@ SPDX-FileCopyrightText: 2026 PSA_OVNCR
 SPDX-License-Identifier: Apache-2.0
 -->
 <script setup lang="ts">
-// Dữ liệu cá nhân của một văn bản: xác nhận đã rà (giám đốc, văn thư, khi đang duyệt) và xóa trường pii (văn thư).
+// Dữ liệu cá nhân của một bản ghi: xác nhận đã rà (khi quy trình có điều kiện pii_reviewed) và xóa trường pii.
 // Vai trò và trạng thái chỉ quyết định nút hiện hay ẩn; lõi kiểm lại. Ghi một lần, không tự thử lại.
-import { ApiError, type CollectionView, type DxRecord } from 'dxos-sdk-js'
-import { ConfirmDialog, ProblemMessage } from 'dxos-sdk-js/vue'
 import { computed, onBeforeUnmount, ref, useId } from 'vue'
-import { APP, COL, useSession } from '../session'
-import { ERASE_REASONS } from '../reasons'
-import { hasRole } from '../status'
+import { ApiError } from '../errors'
+import { hasRole } from '../format'
+import type { CollectionView, DxRecord } from '../types'
+import ConfirmDialog from './ConfirmDialog.vue'
+import ProblemMessage from './ProblemMessage.vue'
+import { ERASE_REASONS } from './reasons'
+import { useSession } from './session'
 
-const props = defineProps<{ record: DxRecord; collection: CollectionView }>()
+const props = defineProps<{ app: string; col: string; record: DxRecord; collection: CollectionView }>()
 const emit = defineEmits<{ changed: [] }>()
 const { client, roles, view } = useSession()
 
@@ -29,8 +31,11 @@ onBeforeUnmount(() => { alive = false })
 
 const piiFields = computed(() =>
   Object.entries(props.collection.fields).filter(([, f]) => f.pii !== null).map(([name, f]) => ({ name, label: f.label ?? name })))
+/** Chỉ có nút "đã rà" khi manifest có điều kiện pii_reviewed ở một bước nào đó (App B không có). */
+const needsReview = computed(() =>
+  Object.values(view.value?.workflow?.tasks ?? {}).some((t) => t.guards.includes('pii_reviewed')))
 const canReview = computed(() =>
-  props.record.wf_state === 'running' && hasRole(roles.value, view.value?.policies.pii.reveal_roles))
+  needsReview.value && props.record.wf_state === 'running' && hasRole(roles.value, view.value?.policies.pii.reveal_roles))
 const canErase = computed(() =>
   piiFields.value.length > 0 && props.record.wf_state !== 'running' && props.record.seal_state !== 'SEAL_PENDING'
   && hasRole(roles.value, view.value?.policies.pii.erase_roles))
@@ -56,7 +61,7 @@ async function act(fn: () => Promise<void>): Promise<boolean> {
 }
 
 async function review(): Promise<void> {
-  if (!(await act(async () => { await client.piiReview(APP, COL, props.record.id) })) || !alive) return
+  if (!(await act(async () => { await client.piiReview(props.app, props.col, props.record.id) })) || !alive) return
   notice.value = 'Đã ghi nhận xác nhận rà dữ liệu cá nhân.'
   emit('changed')
 }
@@ -70,7 +75,7 @@ function startErase(): void {
 
 async function confirmErase(): Promise<void> {
   const fields = [...chosen.value]
-  if (!(await act(async () => { await client.erasePii(APP, COL, props.record.id, fields, reason.value) })) || !alive) return
+  if (!(await act(async () => { await client.erasePii(props.app, props.col, props.record.id, fields, reason.value) })) || !alive) return
   erasing.value = false
   notice.value = 'Đã xóa dữ liệu cá nhân đã chọn.'
   emit('changed')

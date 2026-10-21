@@ -3,17 +3,21 @@ SPDX-FileCopyrightText: 2026 PSA_OVNCR
 SPDX-License-Identifier: Apache-2.0
 -->
 <script setup lang="ts">
-// Niêm phong của một văn bản: trạng thái, mã QR và liên kết đối soát, tải bản PDF đã ban hành, thu hồi (giám đốc).
+// Niêm phong của một bản ghi: trạng thái, mã QR và liên kết đối soát, thu hồi (vai trò trong policies.seal.revoke_roles).
+// Nút riêng của ứng dụng (ví dụ tải bản PDF đã ban hành) đi vào slot "actions", dùng `run` để có chung trạng thái bận và lỗi.
 // Ẩn/hiện nút theo vai trò và trạng thái chỉ là tiện dụng; lõi quyết định. Ghi một lần, không tự thử lại.
-import { ApiError, type AttachmentItem, type DxRecord, type SealInfo } from 'dxos-sdk-js'
-import { ConfirmDialog, ProblemMessage, SealQr, VerifyLink } from 'dxos-sdk-js/vue'
 import { computed, onBeforeUnmount, ref, useId, watch } from 'vue'
-import { APP, COL, useSession } from '../session'
-import { pdfFileName, saveBlob } from '../download'
-import { REVOKE_REASONS } from '../reasons'
-import { formatVn, hasRole, sealLabel } from '../status'
+import { ApiError } from '../errors'
+import { formatVn, hasRole, sealLabel } from '../format'
+import type { DxRecord, SealInfo } from '../types'
+import ConfirmDialog from './ConfirmDialog.vue'
+import ProblemMessage from './ProblemMessage.vue'
+import { REVOKE_REASONS } from './reasons'
+import SealQr from './SealQr.vue'
+import { useSession } from './session'
+import VerifyLink from './VerifyLink.vue'
 
-const props = defineProps<{ record: DxRecord; files: AttachmentItem[] }>()
+const props = defineProps<{ app: string; col: string; record: DxRecord }>()
 const emit = defineEmits<{ changed: [] }>()
 const { client, roles, view } = useSession()
 
@@ -39,9 +43,6 @@ const reloadHint = computed(() => {
   const e = actionError.value
   return e instanceof ApiError && (e.status === 409 || e.status === 412)
 })
-/** Tệp đã qua kiểm dịch sạch: chỉ bản đã niêm phong mới đưa tải về. */
-const cleanFiles = computed(() =>
-  seal.value?.seal_state === 'SEALED' ? props.files.filter((f) => f.status === 'CLEAN' && f.sha256) : [])
 
 async function loadSeal(): Promise<void> {
   const mine = ++run
@@ -51,7 +52,7 @@ async function loadSeal(): Promise<void> {
     return
   }
   try {
-    const s = await client.seal(APP, COL, props.record.id)
+    const s = await client.seal(props.app, props.col, props.record.id)
     if (mine === run && alive) seal.value = s
   } catch (e) {
     if (mine === run && alive) {
@@ -79,14 +80,6 @@ async function act(fn: () => Promise<void>): Promise<boolean> {
   }
 }
 
-function download(f: AttachmentItem, index: number): Promise<boolean> {
-  return act(async () => {
-    const blob = await client.download(f.sha256 ?? '')
-    const many = cleanFiles.value.length > 1
-    saveBlob(blob, pdfFileName(props.record.data.so_hieu, props.record.id, many ? index + 1 : undefined))
-  })
-}
-
 function startRevoke(): void {
   reason.value = ''
   note.value = ''
@@ -97,7 +90,7 @@ function startRevoke(): void {
 async function confirmRevoke(): Promise<void> {
   const n = note.value.trim()
   const ok = await act(async () => {
-    await client.revoke(APP, COL, props.record.id, reason.value, n === '' ? undefined : n)
+    await client.revoke(props.app, props.col, props.record.id, reason.value, n === '' ? undefined : n)
   })
   if (!ok || !alive) return
   revoking.value = false
@@ -136,9 +129,7 @@ async function confirmRevoke(): Promise<void> {
     <p v-if="notice" role="status">{{ notice }}</p>
 
     <div class="dx-actions">
-      <button v-for="(f, i) in cleanFiles" :key="f.upload_id" type="button" :disabled="busy" @click="download(f, i)">
-        Tải bản PDF đã ban hành{{ cleanFiles.length > 1 ? ` (tệp ${i + 1})` : '' }}
-      </button>
+      <slot name="actions" :sealed="seal?.seal_state === 'SEALED'" :busy="busy" :run="act" />
       <button v-if="canRevoke && !revoking" type="button" class="dx-secondary" :disabled="busy" @click="startRevoke">Thu hồi niêm phong</button>
     </div>
 

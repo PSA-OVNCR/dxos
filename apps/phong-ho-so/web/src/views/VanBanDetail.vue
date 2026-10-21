@@ -7,10 +7,9 @@ SPDX-License-Identifier: Apache-2.0
 // Ẩn nút theo chủ sở hữu/trạng thái chỉ là tiện dụng; lõi quyết định và mọi lỗi của lõi hiện bằng ProblemMessage.
 // Không có yêu cầu ghi nào được tự thử lại; lỗi 409/412 thì báo và gợi ý tải lại.
 import { ApiError, type AttachmentItem, type DxRecord, type UploadStatus } from 'dxos-sdk-js'
-import { ProblemMessage, QuarantineStatus, RecordForm } from 'dxos-sdk-js/vue'
+import { PiiPanel, ProblemMessage, QuarantineStatus, RecordForm, SealPanel } from 'dxos-sdk-js/vue'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import PiiPanel from '../components/PiiPanel.vue'
-import SealPanel from '../components/SealPanel.vue'
+import { pdfFileName, saveBlob } from '../download'
 import { APP, COL, useSession } from '../session'
 import { formatVn, statusLabel } from '../status'
 
@@ -157,6 +156,19 @@ function submitForApproval(): Promise<void> {
   })
 }
 
+/** Tệp đã qua kiểm dịch sạch: chỉ bản đã niêm phong mới đưa tải về. */
+function sealedFiles(sealed: boolean): AttachmentItem[] {
+  return sealed ? files.value.filter((f) => f.status === 'CLEAN' && f.sha256) : []
+}
+
+/** `run` là hàm chạy-một-lần của SealPanel: chung trạng thái bận và khung báo lỗi với các nút của nó. */
+function download(run: (fn: () => Promise<void>) => Promise<boolean>, f: AttachmentItem, index: number, count: number): Promise<boolean> {
+  return run(async () => {
+    const blob = await client.download(f.sha256 ?? '')
+    saveBlob(blob, pdfFileName(record.value?.data.so_hieu, props.id, count > 1 ? index + 1 : undefined))
+  })
+}
+
 function isPdf(f: File): boolean {
   return f.type === 'application/pdf' || (f.type === '' && /\.pdf$/i.test(f.name))
 }
@@ -222,8 +234,20 @@ async function onFile(ev: Event): Promise<void> {
       <button type="button" :disabled="busy" @click="submitForApproval">Gửi duyệt</button>
     </div>
 
-    <SealPanel :record="record" :files="files" @changed="refresh()" />
-    <PiiPanel :record="record" :collection="collection" @changed="refresh()" />
+    <SealPanel :app="APP" :col="COL" :record="record" @changed="refresh()">
+      <template #actions="{ sealed, busy: sealBusy, run }">
+        <button
+          v-for="(f, i) in sealedFiles(sealed)"
+          :key="f.upload_id"
+          type="button"
+          :disabled="sealBusy"
+          @click="download(run, f, i, sealedFiles(sealed).length)"
+        >
+          Tải bản PDF đã ban hành{{ sealedFiles(sealed).length > 1 ? ` (tệp ${i + 1})` : '' }}
+        </button>
+      </template>
+    </SealPanel>
+    <PiiPanel :app="APP" :col="COL" :record="record" :collection="collection" @changed="refresh()" />
 
     <section aria-labelledby="dx-files-h">
       <h2 id="dx-files-h">Tệp đính kèm</h2>
