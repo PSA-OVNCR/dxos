@@ -28,6 +28,11 @@ const status = ref<UploadStatus>({ status: 'STAGING' })
 const timedOut = ref(false)
 const failure = ref<ApiError | null>(null)
 
+/** Lỗi tạm thời đáng thử lại: hết giờ yêu cầu, quá tải hoặc máy chủ/cổng hỏng. */
+function isTransient(status: number): boolean {
+  return status === 408 || status === 429 || status >= 500
+}
+
 let run = 0
 let pollTimer: ReturnType<typeof setTimeout> | undefined
 let deadline: ReturnType<typeof setTimeout> | undefined
@@ -62,12 +67,12 @@ function start(): void {
       }
     } catch (e) {
       if (mine !== run) return
-      if (e instanceof ApiError) {
-        failure.value = e // lỗi do máy chủ trả (404, 403...) thì thử lại cũng không khác
+      if (e instanceof ApiError && !isTransient(e.status)) {
+        failure.value = e // lỗi 4xx dứt khoát (404, 403...) thì thử lại cũng không khác
         stop()
         return
       }
-      // lỗi mạng tạm thời: thử lại cho tới khi hết hạn
+      // lỗi mạng, 408, 429 hoặc 5xx là tạm thời: thử lại cho tới khi hết hạn (đây là GET, thử lại an toàn)
     }
     pollTimer = setTimeout(() => { void poll() }, props.intervalMs)
   }

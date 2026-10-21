@@ -226,6 +226,42 @@ describe('QuarantineStatus', () => {
     expect(c.uploadStatus).toHaveBeenCalledTimes(1)
   })
 
+  test.each([[503], [500], [429], [408]])('a transient %i is retried until CLEAN', async (status) => {
+    vi.useFakeTimers()
+    const c = fakeClient({
+      uploadStatus: [problem('unavailable', { status }), problem('unavailable', { status }),
+        { status: 'CLEAN', sha256: 'c'.repeat(64) }],
+    })
+    const w = mount(QuarantineStatus, { props: { client: c, uploadId: 'u', intervalMs: 10 } })
+    await vi.advanceTimersByTimeAsync(10)
+    expect(w.find('[role="alert"]').exists()).toBe(false)
+    await vi.advanceTimersByTimeAsync(60)
+    expect(w.text()).toMatch(/Sạch/)
+    expect(c.uploadStatus).toHaveBeenCalledTimes(3)
+    expect(w.emitted('settled')).toHaveLength(1)
+  })
+
+  test.each([[400], [401], [403], [404], [410]])('a definitive %i stops polling and is shown', async (status) => {
+    vi.useFakeTimers()
+    const c = fakeClient({ uploadStatus: problem('forbidden', { status }) })
+    const w = mount(QuarantineStatus, { props: { client: c, uploadId: 'u', intervalMs: 10 } })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(w.find('[role="alert"]').exists()).toBe(true)
+    expect(c.uploadStatus).toHaveBeenCalledTimes(1)
+  })
+
+  test('keeps retrying a transient error only until the deadline', async () => {
+    vi.useFakeTimers()
+    const c = fakeClient({ uploadStatus: problem('unavailable', { status: 503 }) })
+    const w = mount(QuarantineStatus, { props: { client: c, uploadId: 'u', intervalMs: 10, timeoutMs: 100 } })
+    await vi.advanceTimersByTimeAsync(150)
+    expect(w.text()).toContain('Kiểm dịch lâu bất thường')
+    expect(c.uploadStatus.mock.calls.length).toBeGreaterThan(3)
+    const n = c.uploadStatus.mock.calls.length
+    await vi.advanceTimersByTimeAsync(500)
+    expect(c.uploadStatus.mock.calls.length).toBe(n)
+  })
+
   test('a network failure is retried', async () => {
     vi.useFakeTimers()
     const c = fakeClient({ uploadStatus: [new TypeError('Failed to fetch'), { status: 'CLEAN', sha256: 'b'.repeat(64) }] })
