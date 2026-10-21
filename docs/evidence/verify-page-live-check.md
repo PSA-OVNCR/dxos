@@ -182,6 +182,87 @@ PASS Chờ niêm phong: không lộ trường, không ô tệp, không nút gói
 | `verify-page-3-file-mismatch.png` | Tệp sửa 1 byte: Không khớp, không có nút gói |
 | `verify-page-4-valid-no-file.png` | Niêm phong không cần tệp: nút gói (GET) |
 | `verify-page-5-revoked.png` | Đã thu hồi |
-| `verify-page-6-valid-waiting-sth.png` | Hợp lệ, chưa có STH phủ lá: "Gói bằng chứng sẵn sàng sau lần công bố STH kế tiếp" |
+| `verify-page-6-valid-waiting-sth.png` | Chữ ký hợp lệ, chưa có STH phủ lá: "Chữ ký hợp lệ — đang chờ công bố vào sổ cái" + "Gói bằng chứng sẵn sàng sau lần công bố STH kế tiếp" (chụp lại ở fix round 0) |
 | `verify-page-7-mobile.png` | Cùng trang ở 375 px |
 | `verify-page-8-pending.png` | Chờ niêm phong |
+
+## Fix round 0 (21/10, sau commit đầu)
+
+Thay đổi: trạng thái trước STH, tên tệp gói, danh sách IP host quản trị (lỗi từ Plan 01), script trình duyệt được commit (opt-in). Các phần trên là lần chạy đầu (https, trang bản đầu); phần dưới là lần chạy lại.
+
+### Danh sách IP của host quản trị (Caddyfile thật, http, client 127.0.0.1; 502 = qua được tới upstream không có mặt)
+
+Trước khi sửa: `DXOS_ADMIN_ALLOWED_IPS=203.0.113.7/32` vẫn cho 127.0.0.1 vào host quản trị (200). Sau khi sửa (`handle @blocked { respond "Forbidden" 403 }`, xếp ngay sau redir và trước mọi handle theo `caddy adapt`):
+
+```
+=== DXOS_ADMIN_ALLOWED_IPS=203.0.113.7/32 (client 127.0.0.1)
+admin.localhost /                          -> 403
+admin.localhost /apps/other.txt            -> 403
+admin.localhost /apps/verify               -> 308
+admin.localhost /apps/verify/              -> 403
+admin.localhost /auth/realms/dxos          -> 403
+admin.localhost /admin/v1/ledger/status    -> 403
+localhost       /apps/other.txt            -> 200
+=== DXOS_ADMIN_ALLOWED_IPS=127.0.0.1/32 (client 127.0.0.1)
+admin.localhost /                          -> 404
+admin.localhost /apps/other.txt            -> 200
+admin.localhost /apps/verify               -> 308
+admin.localhost /apps/verify/              -> 200
+admin.localhost /auth/realms/dxos          -> 502
+admin.localhost /admin/v1/ledger/status    -> 502
+localhost       /apps/other.txt            -> 200
+```
+
+`/apps/verify` (không dấu `/` cuối) vẫn trả 308 cho IP bị chặn: `redir` là directive chạy trước mọi `handle`, chỉ chuyển hướng tới `/apps/verify/` (lúc đó bị 403), không lộ nội dung.
+
+### Playwright lần chạy lại (qua pytest opt-in `core/tests/integration/test_verify_page_browser.py`, Caddy http cục bộ)
+
+```
+PASS tiêu đề
+PASS h1
+PASS không có kết quả khi chưa có mã
+  badge: Hợp lệ | issuer: Đơn vị niêm phong: Tổ chức thử nghiệm
+  fields: ["ref","01/TF","Tiêu đề","Hồ sơ thử","Thời điểm niêm phong","17:32:13 21/10/2026 (giờ Việt Nam) — 2026-10-21T10:32:13Z","Mã niêm phong","AAO7YGOO2UYLZJ4GVYR7TKXG3M","Số tệp đính kèm","1"]
+  ledger: Sổ cái: đã kiểm niêm phong nằm ở vị trí 9 của cây có 35 mục (máy chủ kiểm). | anchor: Chưa neo công khai.
+PASS Hợp lệ
+PASS Đơn vị niêm phong hiển thị
+PASS Thời điểm niêm phong
+PASS nhãn Tiêu đề thay cho title / tên trường khi không có nhãn
+PASS ô chọn tệp hiện
+PASS chưa có nút gói trước khi khớp tệp
+PASS tệp đúng: Khớp  Khớp: tệp này đúng là tệp đã được niêm phong.
+PASS nút gói hiện sau khi khớp
+PASS đúng 1 request :check, thân chỉ là {sha256}  {"sha256":"fe4a35f0ca98e73ee2f8879ef86a2d3993f0e3d388639716138d275d51eb0ee1"}
+PASS không request nào mang nội dung tệp (thân < 300 byte, không chứa byte đầu của tệp)
+PASS tải gói: tên tệp như máy chủ đặt  dxos-seal-AAO7YGOO2UYLZJ4GVYR7TKXG3M.json
+PASS gói là JSON có chữ ký + sth  format,status,payload,signature,seal_key,ledger,inclusion,sth,sth_keys,anchored,generated_at
+PASS POST :bundle chỉ mang hash
+PASS tệp sửa 1 byte: Không khớp  Không khớp: tệp này khác tệp đã được niêm phong (đã bị sửa hoặc là tệp khác).
+PASS nút gói ẩn khi không khớp
+PASS không cần tệp: không có ô chọn tệp
+PASS không cần tệp: có nút gói
+PASS GET bundle tải về dxos-seal-<id>.json  dxos-seal-O7V3DHNYERXPIB6KQKKZWPYC2U.json
+  anchor-line: Chưa neo công khai.
+PASS Đã thu hồi
+PASS chưa có STH phủ: không phải 'Hợp lệ' trần, có lớp wait riêng
+PASS chưa có STH phủ: dòng chờ STH, không nút gói  Gói bằng chứng sẵn sàng sau lần công bố STH kế tiếp. | Sổ cái: chưa có STH phủ niêm phong này (chờ lần công bố STH kế tiếp).
+PASS Không tìm thấy
+PASS sai dạng: báo lỗi, không gọi API
+PASS XSS: không tạo phần tử img/script từ dữ liệu
+PASS XSS: chuỗi hiện nguyên văn
+PASS 503: thông báo thử lại, không phải Không hợp lệ
+PASS signature_valid=false → Không hợp lệ, issuer null → (không xác định), không nút gói
+PASS inclusion.verified=false (có STH) → Không hợp lệ
+PASS signature_valid=true + tree_size=null → chờ công bố, không Hợp lệ
+PASS thiếu inclusion → Không hợp lệ
+PASS nhập tay mã + Enter → đặt location.hash
+PASS không vi phạm CSP nào trong cả phiên  []
+PASS không lỗi console/trang  []
+  CSP header: default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
+PASS CSP chặn script nội tuyến
+PASS 375px: không cuộn ngang
+ALL PASS
+PASS Chờ niêm phong: không lộ trường, không ô tệp, không nút gói | Văn bản đã được duyệt, niêm phong đang được hoàn tất. Thử lại sau ít phút.
+  /home/claude/dxos/.venv/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+```

@@ -48,7 +48,12 @@
 # Host quản trị: chỉ IP cho phép (DXOS_ADMIN_ALLOWED_IPS, ví dụ "private_ranges" hoặc "203.0.113.7/32").
 {$DXOS_ADMIN_HOST} {
 	@blocked not remote_ip {$DXOS_ADMIN_ALLOWED_IPS}
-	respond @blocked "Forbidden" 403
+	# Phải là `handle`: một `respond` rời rạc bị Caddy xếp SAU mọi `handle`, mà `handle {}` cuối khớp tất cả nên
+	# danh sách IP không bao giờ được áp dụng. `handle @blocked` được xếp trước mọi handle còn lại (kiểm bằng
+	# `caddy adapt` và tests/deploy/test_caddy_admin_allowlist_live.py).
+	handle @blocked {
+		respond "Forbidden" 403
+	}
 
 	handle /auth/* {
 		reverse_proxy keycloak:8080

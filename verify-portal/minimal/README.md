@@ -24,11 +24,12 @@ Trang tĩnh (HTML + JS thuần + CSS, không build, không thư viện ngoài) d
 | `SEAL_PENDING` | Chờ niêm phong (không lộ trường nào) |
 | `signature_valid: false`, hoặc `inclusion.verified: false` khi đã có STH phủ lá | Không hợp lệ |
 | `REVOKED` | Đã thu hồi |
-| `VALID` | Hợp lệ |
+| `VALID`, `signature_valid: true` và `inclusion.verified: true` | Hợp lệ |
+| `VALID`, `signature_valid: true`, chưa có STH phủ lá (`inclusion.tree_size` null) | "Chữ ký hợp lệ — đang chờ công bố vào sổ cái" (lớp CSS `wait`, không phải "Hợp lệ") |
 
-`inclusion.verified` cũng là `false` khi chưa có STH nào phủ lá (`inclusion.tree_size` là `null`, ngay sau khi niêm phong). Khi đó trang vẫn báo "Hợp lệ" (chữ ký đúng) kèm dòng chờ STH và **không** hiện nút tải gói: "Gói bằng chứng sẵn sàng sau lần công bố STH kế tiếp".
+Ngay sau khi niêm phong, `inclusion.verified` là `false` vì chưa có STH nào phủ lá (`inclusion.tree_size` là `null`). Trang không báo "Không hợp lệ" cũng không báo "Hợp lệ" trần: hiện trạng thái chờ ở trên, dòng "Gói bằng chứng sẵn sàng sau lần công bố STH kế tiếp" và **không** có nút tải gói. Thiếu `inclusion` hoặc `signature_valid` khác `true` đều là "Không hợp lệ".
 
-Nút tải gói: niêm phong `require_file: false` dùng `GET .../bundle`; `require_file: true` dùng `POST ...:bundle` với hash của tệp đã khớp. Gói lưu thành `<seal_id>.dxos-bundle.json` (Blob dựng từ **phản hồi của máy chủ**, không phải tệp người dùng).
+Nút tải gói: niêm phong `require_file: false` dùng `GET .../bundle`; `require_file: true` dùng `POST ...:bundle` với hash của tệp đã khớp. Gói lưu thành `dxos-seal-<seal_id>.json`, đúng tên máy chủ đặt ở `Content-Disposition` (cũng là tên trong tài liệu `dxos-witness`); Blob dựng từ **phản hồi của máy chủ**, không phải tệp người dùng.
 
 ## Giới hạn tin cậy
 
@@ -37,5 +38,14 @@ Trang tối giản tin kết quả kiểm của máy chủ. Muốn kiểm độc
 ## Kiểm thử
 
 - Tĩnh: `tests/deploy/test_verify_page_static.py` (chạy trong `make check`).
-- Sống qua Caddy + API thật, Playwright, ảnh chụp: `docs/evidence/verify-page-live-check.md`.
-- Playwright "không request nào mang nội dung tệp" (AT-25) làm chính thức ở Plan 03.
+- Caddy thật, danh sách IP của host quản trị: `tests/deploy/test_caddy_admin_allowlist_live.py` (cần binary `caddy`: `CADDY_BIN=/đường/dẫn/caddy`; không có thì bỏ qua).
+- Trình duyệt thật (opt-in, bỏ qua khi chưa bật): dựng niêm phong thật + API + Caddy rồi chạy Playwright (Node) `tests/deploy/browser/*.js`:
+
+  ```
+  DXOS_TEST_BROWSER=1 CADDY_BIN=/đường/dẫn/caddy PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers \
+  DXOS_SHOT_DIR=docs/evidence DXOS_TEST_REQUIRE_DB=1 \
+  python -m pytest core/tests/integration/test_verify_page_browser.py -s
+  ```
+
+  Cần `node`, module `playwright` (`npm i -g playwright`; đặt `NODE_PATH` nếu cần) và dịch vụ của `make test-db-up`. Ảnh chụp ghi vào `DXOS_SHOT_DIR`.
+- Kết quả đã chạy: `docs/evidence/verify-page-live-check.md`. AT-25 chính thức (Playwright, không request nào mang nội dung tệp) làm ở Plan 03.

@@ -34,7 +34,8 @@ def _unified_sentence() -> str:
 def _caddy_block(caddyfile: str, opener: str) -> str:
     """Nội dung trong cặp ngoặc nhọn của khối bắt đầu bằng ``opener`` (Caddyfile không lồng sâu)."""
     start = caddyfile.index(opener)
-    body = caddyfile[caddyfile.index("{", start) + 1:]
+    skip = len(opener) - 1 if opener.endswith("{") else 0           # opener có thể tự chứa "{$VAR}"
+    body = caddyfile[caddyfile.index("{", start + skip) + 1:]
     depth, out = 1, []
     for ch in body:
         depth += ch == "{"
@@ -152,7 +153,9 @@ def test_page_text_uses_required_labels_and_states():
 def test_bundle_download_rules():
     js = JS.read_text(encoding="utf-8")
     assert ":check" in js and ":bundle" in js and "/bundle" in js
-    assert ".dxos-bundle.json" in js
+    # Tên tệp như máy chủ đặt (Content-Disposition) để trang, máy chủ và tài liệu witness thống nhất.
+    assert "dxos-seal-" in js and "content-disposition" in js.lower()
+    assert ".dxos-bundle.json" not in js
     assert "inclusion.verified" in js                               # nút gói chỉ hiện khi đã có STH phủ lá
     # Chỉ Blob dựng từ PHẢN HỒI của máy chủ (text), không dựng từ tệp người dùng.
     for m in re.finditer(r"new Blob\(([^)]*)\)", js):
@@ -177,3 +180,26 @@ def test_compose_mounts_page_outside_readonly_apps_volume():
     compose = (ROOT / "deploy/compose.yaml").read_text(encoding="utf-8")
     assert "../verify-portal/minimal:/srv/verify:ro" in compose
     assert "apps-static:/srv/apps:ro" in compose and "/srv/apps/verify" not in compose
+
+
+# ---------- Fix round 0 ----------
+
+def test_pre_sth_state_is_not_a_bare_valid():
+    js, css = JS.read_text(encoding="utf-8"), CSS.read_text(encoding="utf-8")
+    assert "Chữ ký hợp lệ — đang chờ công bố vào sổ cái" in js
+    assert ".badge.wait" in css                                 # lớp CSS riêng, khác .ok
+    # "Hợp lệ" chỉ khi chữ ký đúng VÀ inclusion.verified đúng.
+    assert re.search(r'if \(sigOk && verifiedOk\) \{\s*showStatus\("Hợp lệ", "ok"', js)
+    assert re.search(r'showStatus\("Chữ ký hợp lệ — đang chờ công bố vào sổ cái", "wait"', js)
+
+
+def test_admin_allow_list_is_enforced_before_any_handle():
+    caddy = (ROOT / "deploy/caddy/Caddyfile").read_text(encoding="utf-8")
+    admin = _caddy_block(caddy, "{$DXOS_ADMIN_HOST} {")
+    assert "@blocked not remote_ip {$DXOS_ADMIN_ALLOWED_IPS}" in admin
+    # `respond` rời rạc bị Caddy xếp SAU mọi `handle` (và `handle {}` cuối khớp tất cả): allow-list vô hiệu.
+    assert not re.search(r"^\s*respond\s+@blocked", admin, re.M)
+    block = _caddy_block(admin, "handle @blocked")
+    assert 'respond "Forbidden" 403' in block
+    assert admin.index("handle @blocked") < admin.index("import gateway_routes")
+    assert admin.index("handle @blocked") < admin.index("handle /auth/*")

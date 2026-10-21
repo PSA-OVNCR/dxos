@@ -16,6 +16,8 @@ SPDX-License-Identifier: Apache-2.0
   --warn-bg: #fdf0d5;
   --bad: #a31524;
   --bad-bg: #fbe3e6;
+  --wait: #1f4fbf;
+  --wait-bg: #e3ebfb;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -32,6 +34,8 @@ SPDX-License-Identifier: Apache-2.0
     --warn-bg: #33270d;
     --bad: #ff9aa5;
     --bad-bg: #3a1419;
+    --wait: #8fb0ff;
+    --wait-bg: #1b2745;
   }
 }
 
@@ -103,6 +107,7 @@ button:disabled { opacity: 0.6; cursor: progress; }
 .msg.bad { color: var(--bad); }
 .msg.ok { color: var(--ok); font-weight: 600; }
 .msg.warn { color: var(--warn); font-weight: 600; }
+.msg.wait { color: var(--wait); font-weight: 600; }
 
 .badge {
   display: inline-block;
@@ -115,6 +120,7 @@ button:disabled { opacity: 0.6; cursor: progress; }
 .badge.ok { color: var(--ok); background: var(--ok-bg); }
 .badge.warn { color: var(--warn); background: var(--warn-bg); }
 .badge.bad { color: var(--bad); background: var(--bad-bg); }
+.badge.wait { color: var(--wait); background: var(--wait-bg); border: 1px dashed var(--wait); }
 
 .issuer { font-weight: 600; }
 

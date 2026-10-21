@@ -31,7 +31,7 @@
   // ---------------------------------------------------------------- tiện ích DOM
   function setText(node, text, tone) {
     node.textContent = text;
-    node.classList.remove("ok", "warn", "bad");
+    node.classList.remove("ok", "warn", "bad", "wait");
     if (tone) node.classList.add(tone);
   }
 
@@ -110,16 +110,29 @@
     setText(el.note, note || "");
   }
 
+  // Kết quả kiểm phía máy chủ (signature_valid, inclusion.verified): phải là true đúng nghĩa đen mới được tin.
+  function checks(v) {
+    const inc = v.inclusion && typeof v.inclusion === "object" ? v.inclusion : null;
+    return {
+      sigOk: v.signature_valid === true,
+      verifiedOk: inc !== null && inc.verified === true,
+      // Chưa có STH nào phủ lá (tree_size null): chưa thể kiểm inclusion, không phải "Không hợp lệ".
+      treeKnown: inc !== null && inc.tree_size !== null && inc.tree_size !== undefined,
+      hasInclusion: inc !== null,
+    };
+  }
+
   function isInvalid(v) {
-    const treeKnown = v.inclusion && v.inclusion.tree_size !== null && v.inclusion.tree_size !== undefined;
-    // Chưa có STH phủ lá (tree_size null) thì chưa thể kiểm inclusion: không phải "Không hợp lệ".
-    return v.signature_valid === false || (v.inclusion && v.inclusion.verified === false && treeKnown);
+    const c = checks(v);
+    return !c.sigOk || !c.hasInclusion || (c.treeKnown && !c.verifiedOk);
   }
 
   function invalidReason(v) {
+    const c = checks(v);
     const reasons = [];
-    if (v.signature_valid === false) reasons.push("chữ ký niêm phong không khớp nội dung đã niêm phong");
-    if (v.inclusion && v.inclusion.verified === false && v.inclusion.tree_size !== null) {
+    if (!c.sigOk) reasons.push("chữ ký niêm phong không khớp nội dung đã niêm phong");
+    if (!c.hasInclusion) reasons.push("phản hồi của máy chủ thiếu kết quả kiểm sổ cái");
+    if (c.hasInclusion && c.treeKnown && !c.verifiedOk) {
       reasons.push("không kiểm được chứng minh niêm phong thuộc sổ cái (STH)");
     }
     return "Không đáng tin: " + reasons.join("; ") + ".";
@@ -210,7 +223,14 @@
     } else if (v.status === "REVOKED") {
       showStatus("Đã thu hồi", "bad", "Niêm phong này đã bị thu hồi: không dùng làm căn cứ xác nhận văn bản.");
     } else if (v.status === "VALID") {
-      showStatus("Hợp lệ", "ok", "Chữ ký niêm phong khớp nội dung đã niêm phong (máy chủ kiểm).");
+      const { sigOk, verifiedOk } = checks(v);
+      if (sigOk && verifiedOk) {
+        showStatus("Hợp lệ", "ok", "Chữ ký niêm phong khớp nội dung đã niêm phong và niêm phong đã nằm trong sổ cái (máy chủ kiểm).");
+      } else {
+        // Chữ ký đúng nhưng chưa có STH phủ lá: không báo "Hợp lệ" trần.
+        showStatus("Chữ ký hợp lệ — đang chờ công bố vào sổ cái", "wait",
+          "Chữ ký niêm phong khớp nội dung, nhưng niêm phong chưa nằm trong STH nào đã công bố. Thử lại sau lần công bố STH kế tiếp.");
+      }
     } else {
       showStatus("Không hợp lệ", "bad", "Trạng thái niêm phong không nhận diện được.");
       return;
@@ -360,6 +380,15 @@
     setTimeout(function () { URL.revokeObjectURL(href); }, 10000);
   }
 
+  // Tên tệp do máy chủ đặt (Content-Disposition); chỉ nhận đúng dạng dxos-seal-<seal_id>.json của mã đang xem,
+  // ngược lại tự dựng đúng tên đó.
+  function bundleName(resp) {
+    const expected = "dxos-seal-" + sealId + ".json";
+    const disposition = resp.headers.get("Content-Disposition") || "";
+    const m = /filename="([^"]+)"/.exec(disposition);
+    return m !== null && m[1] === expected ? m[1] : expected;
+  }
+
   async function onBundle() {
     if (view === null || sealId === null) return;
     const mine = generation;
@@ -386,7 +415,7 @@
       }
       const text = await resp.text();
       if (mine !== generation) return;
-      saveText(text, sealId + ".dxos-bundle.json");
+      saveText(text, bundleName(resp));
     } catch (_err) {
       setText(el.bundleError, "Không kết nối được máy chủ, thử lại sau.", "bad");
       show(el.bundleError, true);
