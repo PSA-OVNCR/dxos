@@ -49,8 +49,11 @@ def problem(status: int, slug: str, **ext) -> httpx.Response:
 class FakeStack:
     """Một stack giả đủ cho 10 kịch bản. ``leak``: tập mã kịch bản mà máy chủ giả để lọt."""
 
-    def __init__(self, leak: set[str] | None = None, *, token_status: int = 200) -> None:
+    def __init__(self, leak: set[str] | None = None, *, token_status: int = 200,
+                 rewrite: dict[int, str] | None = None, stuck_staging: bool = False) -> None:
         self.leak = leak or set()
+        self.rewrite = rewrite or {}        # {mã: "bare" | slug}: thay thân phản hồi như gateway/app khác
+        self.stuck_staging = stuck_staging
         self.token_status = token_status
         self.requests: list[httpx.Request] = []
         self.records: dict[str, dict] = {}
@@ -81,6 +84,15 @@ class FakeStack:
     # ------------------------------------------------------------------ định tuyến
     def handle(self, req: httpx.Request) -> httpx.Response:
         self.requests.append(req)
+        resp = self.route(req)
+        how = self.rewrite.get(resp.status_code)
+        if how is None:
+            return resp
+        if how == "bare":                            # gateway/nginx: thân không phải problem+json của lõi
+            return httpx.Response(resp.status_code, text="error", headers={"content-type": "text/plain"})
+        return problem(resp.status_code, how)
+
+    def route(self, req: httpx.Request) -> httpx.Response:
         path, user = req.url.path, self.user(req)
         if path.endswith("/openid-connect/token"):
             form = dict(x.split("=", 1) for x in req.content.decode().split("&"))
@@ -102,8 +114,8 @@ class FakeStack:
             up = self.uploads.get(m[1])
             if up is None:
                 return problem(404, "not-found")
-            body = {"status": up["status"]}
-            clean = up["status"] == "CLEAN"
+            body = {"status": "STAGING" if self.stuck_staging else up["status"]}
+            clean = up["status"] == "CLEAN" and not self.stuck_staging
             body.update({"sha256": up["sha"]} if clean else {"reason": "Eicar-Test-Signature"})
             return httpx.Response(200, json=body)
         if m := re.fullmatch(r"/api/v1/objects/([0-9a-f]{64})", path):
@@ -288,15 +300,15 @@ def test_expectations_column_matches_the_brief():
     _, out, _ = run(FakeStack())
     table = rows(out)
     assert table["V1"][2] == "403 guard-failed (same_actor)"
-    assert table["V2"][2] == "404"
-    assert table["V3"][2] == "403"
-    assert table["V4"][2] == "403"
+    assert table["V2"][2] == "404 not-found"
+    assert table["V3"][2] == "403 forbidden"
+    assert table["V4"][2] == "403 forbidden"
     assert table["V5"][2] == "409 record-sealed"
     assert table["V6"][2] == "409 guard-failed (pii_reviewed)"
-    assert table["V7"][2] == "415"
-    assert table["V8"][2] == "INFECTED; đọc tệp → 404"
+    assert table["V7"][2] == "415 unsupported-media-type"
+    assert table["V8"][2] == "INFECTED; đọc tệp → 404 not-found"
     assert table["V9"][2] == "422 manifest-invalid"
-    assert table["V10"][2] == "404"
+    assert table["V10"][2] == "404 not-found"
 
 
 @pytest.mark.parametrize("vid", ALL)
@@ -522,3 +534,43 @@ def test_script_runs_as_a_program_and_refuses_remote_without_flag():
     assert done.returncode == 2
     assert "--allow-remote" in done.stderr
     assert done.stdout == ""
+
+
+# ------------------------------------------------- đúng mã nhưng sai slug thì không phải "bị chặn"
+@pytest.mark.parametrize("how", ["bare", "app-not-active"])
+@pytest.mark.parametrize("vid", ["V2", "V8", "V10"])
+def test_404_without_the_core_not_found_slug_is_not_blocked(vid, how):
+    """404 của gateway (không phải problem+json) hay ``app-not-active`` không chứng minh lõi chặn IDOR."""
+    code, out, _ = run(FakeStack(rewrite={404: how}), "--only", vid)
+    assert code == 1, out
+    assert rows(out)[vid][4] == "❌", out
+
+
+@pytest.mark.parametrize("vid", ["V3", "V4"])
+def test_403_from_the_gateway_is_not_blocked(vid):
+    code, out, _ = run(FakeStack(rewrite={403: "bare"}), "--only", vid)
+    assert code == 1, out
+    assert rows(out)[vid][3] == "403" and rows(out)[vid][4] == "❌"
+
+
+def test_415_from_the_gateway_is_not_blocked():
+    code, out, _ = run(FakeStack(rewrite={415: "bare"}), "--only", "V7")
+    assert code == 1, out
+    assert rows(out)["V7"][4] == "❌"
+
+
+def test_wrong_slug_with_the_right_status_is_not_blocked():
+    code, out, _ = run(FakeStack(rewrite={403: "guard-failed"}), "--only", "V3")
+    assert code == 1 and rows(out)["V3"][4] == "❌"
+
+
+def test_v8_still_staging_at_timeout_is_not_run_not_a_leak():
+    ticks = iter(range(0, 10**6, 100))                    # đồng hồ giả: mỗi lần hỏi nhảy 100 giây
+    out, err = io.StringIO(), io.StringIO()
+    stack = FakeStack(stuck_staging=True)
+    code = vuot_rao.main(["--only", "V8"], transport=stack.transport, environ={}, stdout=out, stderr=err,
+                         sleep=lambda _s: None, clock=lambda: float(next(ticks)))
+    assert code == 2, out.getvalue()
+    row = rows(out.getvalue())["V8"]
+    assert row[4] == "⚠️" and "STAGING" in row[3]
+    assert not any(r.url.path.startswith("/api/v1/objects/") for r in stack.requests)

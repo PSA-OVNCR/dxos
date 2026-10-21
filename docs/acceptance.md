@@ -54,18 +54,19 @@ repo. "Chưa có" nghĩa là chưa ai chạy hoặc chưa lưu kết quả.
 
 ## Bảng thử vượt rào (`ops/vuot_rao.py`)
 
+Mỗi kịch bản đòi cả mã lẫn `type` problem+json của lõi: 404 của gateway hay `app-not-active` không tính là bị chặn.
 Chạy trên stack dev (`make vuot-rao`, hoặc `python ops/vuot_rao.py`), in bảng `| # | Hành vi tấn công | Kỳ vọng | Thực tế |
 Kết quả |` rồi 20 lá `policy.denied` gần nhất. Dùng khi demo (H11) và đối chiếu AT. Kết quả thật là việc V28.
 
 | # | Hành vi tấn công | Kỳ vọng | AT |
 |---|---|---|---|
 | V1 | Người tạo tự duyệt văn bản của mình | 403 `guard-failed` (`same_actor`) | AT-07 |
-| V2 | `chuyen_vien1` đọc văn bản của `chuyen_vien_tp1` | 404 | AT-06 |
-| V3 | Token chỉ có vai trò App B gọi danh sách App A | 403 | Review Focus 3 (Plan 00) |
-| V4 | `admin1` đọc dữ liệu App A | 403 | spec 9.2 |
+| V2 | `chuyen_vien1` đọc văn bản của `chuyen_vien_tp1` | 404 `not-found` | AT-06 |
+| V3 | Token chỉ có vai trò App B gọi danh sách App A | 403 `forbidden` | Review Focus 3 (Plan 00) |
+| V4 | `admin1` đọc dữ liệu App A | 403 `forbidden` | spec 9.2 |
 | V5 | Sửa văn bản đã niêm phong | 409 `record-sealed` | AT-09 |
 | V6 | Giám đốc ban hành khi chưa rà PII | 409 `guard-failed` (`pii_reviewed`) | spec 9.3 |
-| V7 | Gửi nguyên tệp PDF tới `:check` | 415 | AT-25 |
-| V8 | Tải EICAR rồi đọc tệp | `INFECTED`; đọc tệp 404 | AT-03 |
+| V7 | Gửi nguyên tệp PDF tới `:check` | 415 `unsupported-media-type` | AT-25 |
+| V8 | Tải EICAR rồi đọc tệp | `INFECTED`; đọc tệp 404 `not-found` | AT-03 |
 | V9 | Nộp thẳng lên API quản trị manifest nới `quarantine` | 422 `manifest-invalid` | AT-11 |
-| V10 | Duyệt bằng task của app khác | 404 | Plan 02 |
+| V10 | Duyệt bằng task của app khác | 404 `not-found` | Plan 02 |

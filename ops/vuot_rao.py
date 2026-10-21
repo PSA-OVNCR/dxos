@@ -257,17 +257,17 @@ def v1(api: Api) -> Outcome:
 def v2(api: Api) -> Outcome:
     rid = api.create("chuyen_vien_tp1", "Vượt rào V2")
     r = api.call("GET", f"{api.base}{api.records()}/{rid}", "chuyen_vien1")
-    return judge(r, 404)
+    return judge(r, 404, "not-found")           # slug của lõi; 404 của gateway hay app-not-active không tính
 
 
 def v3(api: Api) -> Outcome:
     r = api.call("GET", api.base + api.records(), "can_bo_clb1")             # chỉ có vai trò của App B
-    return judge(r, 403)
+    return judge(r, 403, "forbidden")
 
 
 def v4(api: Api) -> Outcome:
     r = api.call("GET", api.base + api.records(), ADMIN_USER)                # dxos-admin không có vai trò app
-    return judge(r, 403)
+    return judge(r, 403, "forbidden")
 
 
 def v5(api: Api) -> Outcome:
@@ -294,17 +294,19 @@ def v7(api: Api) -> Outcome:
     seal_id = "A" * 26                  # đúng dạng; lõi kiểm Content-Type trước khi tra niêm phong
     r = api.call("POST", f"{api.base}/verify/v1/seals/{seal_id}:check", content=clean_pdf(),
                  headers={"Content-Type": "application/pdf"})
-    return judge(r, 415)
+    return judge(r, 415, "unsupported-media-type")
 
 
 def v8(api: Api) -> Outcome:
     data = eicar()
     rid = api.create("chuyen_vien1", "Vượt rào V8")
     status = api.wait_upload(api.upload(rid, "chuyen_vien1", data), "chuyen_vien1")["status"]
+    if status == "STAGING":                     # hết thời gian chờ mà chưa quét xong: chưa kết luận được gì
+        raise StepError("tệp EICAR vẫn STAGING sau khi hết thời gian chờ (ClamAV chưa trả lời?)")
     read = api.call("GET", f"{api.base}/api/v1/objects/{hashlib.sha256(data).hexdigest()}", "chuyen_vien1",
                     params={"variant": "original"})
-    ok = status == "INFECTED" and read.status_code == 404
-    return Outcome(f"{status}; đọc tệp → {read.status_code}", ok)
+    blocked = judge(read, 404, "not-found")
+    return Outcome(f"{status}; đọc tệp → {blocked.actual}", status == "INFECTED" and blocked.ok)
 
 
 def v9(api: Api) -> Outcome:
@@ -328,20 +330,20 @@ def v10(api: Api) -> Outcome:
     task_id = api.task(APP_A, rid, "truong_phong1", "duyet_noi_dung")
     version = api.version(rid, "truong_phong1")
     r = api.complete(APP_B, task_id, "truong_clb1", version)                # task của App A, đi đường App B
-    return judge(r, 404)
+    return judge(r, 404, "not-found")
 
 
 SCENARIOS = [
     Scenario("V1", "Người tạo tự duyệt văn bản của mình", "403 guard-failed (same_actor)", v1),
-    Scenario("V2", "`chuyen_vien1` đọc văn bản của `chuyen_vien_tp1`", "404", v2),
-    Scenario("V3", "Token chỉ có vai trò App B gọi danh sách văn bản App A", "403", v3),
-    Scenario("V4", "Admin (`admin1`) đọc dữ liệu App A", "403", v4),
+    Scenario("V2", "`chuyen_vien1` đọc văn bản của `chuyen_vien_tp1`", "404 not-found", v2),
+    Scenario("V3", "Token chỉ có vai trò App B gọi danh sách văn bản App A", "403 forbidden", v3),
+    Scenario("V4", "Admin (`admin1`) đọc dữ liệu App A", "403 forbidden", v4),
     Scenario("V5", "Sửa văn bản đã niêm phong", "409 record-sealed", v5),
     Scenario("V6", "Giám đốc ban hành khi chưa rà PII", "409 guard-failed (pii_reviewed)", v6),
-    Scenario("V7", "Gửi nguyên tệp PDF tới `:check`", "415", v7),
-    Scenario("V8", "Tải EICAR rồi đọc tệp", "INFECTED; đọc tệp → 404", v8),
+    Scenario("V7", "Gửi nguyên tệp PDF tới `:check`", "415 unsupported-media-type", v7),
+    Scenario("V8", "Tải EICAR rồi đọc tệp", "INFECTED; đọc tệp → 404 not-found", v8),
     Scenario("V9", "Nộp manifest nới `quarantine`", "422 manifest-invalid", v9),
-    Scenario("V10", "Duyệt bằng task của app khác", "404", v10),
+    Scenario("V10", "Duyệt bằng task của app khác", "404 not-found", v10),
 ]
 SCENARIO_IDS = [s.id for s in SCENARIOS]
 
@@ -452,7 +454,8 @@ def _client(ca_file: str | None, transport: httpx.BaseTransport | None) -> httpx
 
 def main(argv: list[str] | None = None, *, transport: httpx.BaseTransport | None = None,
          environ: dict[str, str] | None = None, stdout: TextIO | None = None, stderr: TextIO | None = None,
-         sleep: Callable[[float], None] = time.sleep) -> int:
+         sleep: Callable[[float], None] = time.sleep,
+         clock: Callable[[], float] = time.monotonic) -> int:
     out, err = stdout or sys.stdout, stderr or sys.stderr
     env = dict(os.environ if environ is None else environ)
     try:
@@ -464,7 +467,7 @@ def main(argv: list[str] | None = None, *, transport: httpx.BaseTransport | None
     except ConfigError as exc:
         print(f"Lỗi cấu hình: {exc}", file=err)
         return 2
-    api = Api(client, base, admin, env.get("DXOS_E2E_PASSWORD") or DEFAULT_PASSWORD, sleep=sleep)
+    api = Api(client, base, admin, env.get("DXOS_E2E_PASSWORD") or DEFAULT_PASSWORD, sleep=sleep, clock=clock)
     with client:
         try:
             results = run_scenarios(api, chosen)
