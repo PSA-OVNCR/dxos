@@ -314,7 +314,7 @@ collections:
       create: [role:chuyen_vien]
 policies:
   pii:  { reveal_roles: [giam_doc, van_thu], document_detect: [CCCD, PHONE, BANK_ACCOUNT] }
-  seal: { on_event: "process.completed:approved", target: [record, attachments], public_fields: [so_hieu, trich_yeu] }
+  seal: { on_event: "process.completed:approved", target: [record, attachments], public_fields: [so_hieu, trich_yeu], revoke_roles: [giam_doc] }
   verify: { public: true, require_file: true }
 workflow:
   bpmn: bpmn/ban-hanh.bpmn
@@ -326,6 +326,16 @@ workflow:
 *`access.update` mặc định là `[owner]` khi không khai báo (bản 1.0.2).*
 
 *Bản 1.0.3 thêm: `fields.<f>.label`, `fields.<f>.reset` (cho `sequence`), định dạng `{n:02}`, `policies.pii.erase_roles`. Manifest App A 1.1.0 đầy đủ ở mục 25.4.*
+
+*Bản 1.0.3 (phần B) thêm `policies.seal.revoke_roles` (mảng role, mặc định `[]`, tức không ai được thu hồi niêm phong) và các luật của validator. Mọi lỗi dưới đây là `SCHEMA_INVALID`, trừ khi ghi khác:*
+- *Một trường không được vừa `pii` vừa `public: true`.*
+- *`policies.seal.on_event` khớp `^process\.completed:[A-Za-z_][A-Za-z0-9_-]{0,63}$` (phần sau dấu `:` là `id` của end event trong BPMN).*
+- *Khai `policies.seal` thì bắt buộc khai `workflow`.*
+- *`seal.revoke_roles`, `pii.reveal_roles`, `pii.erase_roles` đều phải là tập con của `roles`.*
+- *Tên task trong `workflow.tasks` khớp `^[a-z][a-z0-9_]{0,30}$` và khác `creator` (trùng tham số đặc biệt của `not_same_actor`).*
+- *`fields.<f>.label`: 1–64 ký tự, không có ký tự điều khiển. `reset` chỉ khai cho `type: sequence`. `format` của `sequence` chứa đúng một token `{n}` hoặc `{n:0W}` (W từ 2 đến 9) và không còn dấu ngoặc nhọn nào khác.*
+- *Tham số guard sai (mục 9.3) → `UNKNOWN_GUARD`.*
+- *Tên role và collection không được chứa `:`, không được là `app` hay bắt đầu bằng `app_` (`NAMESPACE_VIOLATION`). Tên chỉ **bắt đầu bằng** chữ `app` (như `approver`) hợp lệ, vì lõi luôn tự thêm tiền tố `app:<id>:` nên không thể trùng.*
 
 ### 9.2. Chính sách sàn của lõi (không manifest nào nới lỏng được)
 | # | Chính sách sàn | Kiểm thử |
@@ -350,6 +360,27 @@ workflow:
 
 *Thêm guard mới = thay đổi lõi, nên chỉ được thêm guard **chung**, không bao giờ thêm guard mang tên nghiệp vụ.*
 
+**Tham số guard** (validator kiểm lúc nộp; sai → `UNKNOWN_GUARD`):
+- `not_same_actor:creator`, hoặc `not_same_actor:<task>` với `<task>` thuộc `workflow.tasks`.
+- `field_required:<f>` với `f` là trường của ít nhất một collection.
+- `role_in:<r1>,<r2>` (có hoặc không có dấu `[...]`), các role phải đã khai báo.
+- Các guard còn lại **không** có tham số.
+
+**Ngữ nghĩa từng guard** (bản 1.0.3 phần B; lõi cài đặt ở `workflow/guards.py`):
+
+| Guard | Đạt khi | Lý do khi trượt | Mã |
+|---|---|---|---|
+| `attachments_clean` | không còn upload `STAGING` của bản ghi, và số tệp `CLEAN` ≥ `attachments.min` | `attachments_not_clean` | 409 (AT-08) |
+| `pii_reviewed` | collection không có trường `pii` và không có `document_detect`, hoặc xác nhận rà PII mới nhất khớp đúng tập hiện tại (dữ liệu, tệp `CLEAN`, `pii_findings`; digest có salt, mục 25.2) | `pii_not_reviewed` | 409 |
+| `not_same_actor:creator` | người gọi khác chủ bản ghi | `same_actor` | 403 (AT-07) |
+| `not_same_actor:<task>` | người gọi chưa từng hoàn thành `<task>` trong instance hiện tại (đọc `task_completions`, nơi lưu `sub`) | `same_actor` | 403 |
+| `role_in:<r…>` | người gọi có ít nhất một role trong danh sách | `role_not_allowed` | 403 |
+| `field_required:<f>` | `data[f]` khác `null` và khác `""` | `field_missing` | 409 |
+| `record_not_sealed` | `seal_state = NONE` | `record_sealed` | 409 |
+| `assignee_is_caller` | task có assignee và đó là người gọi; task không có assignee thì **trượt** | `not_assignee` | 403 |
+
+*Plan 02 chưa có API nhận việc (claim), nên `assignee_is_caller` hiện luôn trượt. Guard được kiểm lại ở phía lõi trước khi gọi Flowable (mục 9.4, PEP 4).*
+
 ### 9.4. Năm điểm ép buộc chính sách (PEP)
 1. **Mạng:** phân vùng theo ma trận ở mục 6.2. Chỉ caddy publish 443. Vùng dữ liệu `net-data` chỉ có trust-core + kho. Viewer và ứng dụng Tầng 2 chỉ ở `net-app`. Flowable chỉ ở `net-wf` và `net-fldb`.
 2. **Gateway:** JWT, phân loại route, rate-limit.
@@ -372,12 +403,13 @@ sequenceDiagram
   API->>LED: app.submitted
   API-->>DEV: 202 PENDING
   ADM->>API: POST /admin/v1/apps/{id}/approve (xem diff quyền)
-  API->>KC: tạo client role app:{id}:{role} (tài khoản dịch vụ quyền tối thiểu)
+  API->>KC: tạo realm role app:{id}:{role} (tài khoản dịch vụ dxos-installer, mục 15 T5)
   API->>FL: deploy BPMN với key tiền tố {id}.
   API->>API: đăng ký collections, sequence, chính sách
   API->>LED: app.installed (hash manifest)
   API-->>ADM: 200 ACTIVE
 ```
+- **Role Keycloak:** là **realm role** `app:{id}:{role}` (đúng với mã `identity/jwt.py`), không phải client role. Token mang chúng trong `realm_access.roles`; lõi cắt tiền tố `app:{id}:` để ra role của app.
 - **Gỡ app:** chỉ `disable` (giữ dữ liệu và ledger).
 - **Nâng phiên bản:** MVP chỉ cho phép thêm trường (additive). Migration phức tạp: WON'T. Ngoại lệ cho chính sách niêm phong khi app chưa từng niêm phong, và các thuộc tính đổi tự do (`erase_roles`, `label`, `reset`): mục 25.4 (1.0.3).
 
@@ -399,6 +431,28 @@ sequenceDiagram
 | `ledger_entries` | idx bigserial, ts, app_id, actor_ref, type, subject, body_sha256, leaf_hash | **Chỉ INSERT**; actor_ref là HMAC của `sub` (giảm lộ metadata) |
 | `tree_heads` | tree_size, root_hash, ts, key_version, signature, anchor_commit | Chỉ INSERT |
 | `jobs` | id, kind, payload, state, attempts, run_after | Lấy việc bằng `SKIP LOCKED` |
+
+**Bản 1.0.3 phần B (migration 003, Plan 02).** Mọi bảng mới dưới đây đều **chỉ thêm** (trigger chặn UPDATE, DELETE, TRUNCATE; `dxos_core` chỉ có SELECT, INSERT), trừ hai bảng xóa được ghi riêng:
+
+| Bảng | Cột chính | Ràng buộc / ghi chú |
+|---|---|---|
+| `app_files` | app_id, version, path, sha256, content | Tệp đi kèm bản app (BPMN). `path` không có `..`; khóa ngoại tới `apps` |
+| `app_deployments` | app_id, version, deployment_id, process_definition_id, rendered_sha256, deployed_at | Định nghĩa quy trình đã deploy cho từng bản app; `workflow:start` dùng đúng `process_definition_id` này, không dùng "bản mới nhất theo key" |
+| `task_intents` | id, task_id, record_id, wf_instance_id, task_key, actor_sub, actor_roles, decision, created_at | Ý định hoàn thành task, **ghi và commit trước khi gọi Flowable** (chịu lỗi DB sau Flowable, mục 15 T6) |
+| `task_intent_outcomes` | intent_id, outcome (`completed`/`abandoned`/`guard_failed`), decided_at | Mỗi ý định tối đa một kết quả; chưa có dòng = chưa có kết quả |
+| `task_completions` | task_id, intent_id, record_id, wf_instance_id, task_key, actor_sub, decision, completed_at | Nguồn của `not_same_actor:<task>`; lưu `sub` (ledger chỉ có HMAC) |
+| `pii_reviews` | id, record_id, review_digest, reviewed_by, reviewed_at | Xác nhận rà PII (`:pii-review`); digest có salt, không giữ cam kết không salt |
+| `seal_requests` | seal_id, record_id (duy nhất), app_id, app_version, record_digest, attachments, public_fields, requested_at | Ảnh chụp nội dung được duyệt, ghi cùng transaction với task cuối; job niêm phong ký đúng ảnh chụp này. **Không** chứa salt |
+| `seal_revocations` | seal_id, reason_code, revoked_by, revoked_at | Mã lý do cố định (mục 25.2); không chứa chữ tự do |
+| `seal_revocation_notes` | seal_id, note (1–500 ký tự) | **Xóa được**; ghi chú tự do của người thu hồi (mục 25.2) |
+| `record_salts` | record_id, salt, created_at | **Xóa được, không UPDATE được**; salt 128 bit của từng bản ghi (mục 25.2) |
+| `pii_erasures` | id, record_id, fields, reason_code, erased_by, txid, erased_at | Bằng chứng cho phép trigger `record_seal_guard` cho xóa trường `pii` của bản ghi đã niêm phong (mục 25.2) |
+| `key_statements` | key, version, statement, statement_sha256, created_at | Tuyên bố khóa (mục 25.3); không tự ký |
+
+Các thay đổi trên bảng cũ:
+- `records` thêm `wf_app_version`, `wf_definition_id` (ghim phiên bản app và định nghĩa quy trình lúc bắt đầu quy trình). `wf_state` chỉ nhận `NULL`, `running` hoặc `ended:<id end event>`. Trigger `record_workflow_guard` chặn sửa `data` khi `running`.
+- `uploads`: trigger chặn INSERT khi bản ghi đang `running` hoặc `seal_state ≠ NONE` (đọc bản ghi bằng `FOR SHARE` để chờ `workflow:start` đang chạy).
+- `seals`: một niêm phong cho mỗi bản ghi; khóa ngoại `(seal_id, record_id)` tới `seal_requests`; chữ ký ed25519 64 byte dạng base64.
 
 ### 10.2. Vòng đời tệp (khái niệm chung của lõi)
 ```mermaid
@@ -472,6 +526,7 @@ stateDiagram-v2
   {seal_id, app_id, record_id, record_digest, attachments: [sha256…], issued_at, public_fields, key_version}
   ```
   trong đó `record_digest = data_digest(data, salt) = SHA-256(canonical({"salt": salt, "data": data}))`, với `salt` là salt riêng của bản ghi (bảng `record_salts`, mục 25.2; bản 1.0.3). Payload được ký bằng `seal-key`, rồi thêm lá `record.sealed` vào ledger.
+- **Phản hồi công khai không chứa hash tệp.** `GET /verify/v1/seals/{id}` chỉ trả `attachments_count`. Người xác minh phải tự có tệp để so (R-2); không ai tra ngược từ `seal_id` ra hash tệp.
 - **Thuật toán đối soát (`/verify`):**
   1. Tra `seal_id`.
   2. Kiểm chữ ký niêm phong.
@@ -481,6 +536,8 @@ stateDiagram-v2
   6. STH ≤ STH đã neo, và consistency proof hợp lệ.
   7. Trạng thái `VALID`/`REVOKED`. Bản ghi đang `SEAL_PENDING` thì hiển thị "Chờ niêm phong", không có kết quả hợp lệ.
 - **Gói bằng chứng tải về** (`.json`) chứa đủ dữ liệu để kiểm chứng **ngoại tuyến** bằng `dxos-witness verify-bundle`.
+  - Niêm phong `require_file: false`: `GET …/bundle`.
+  - Niêm phong `require_file: true`: chỉ lấy được qua `POST …/seals/{id}:bundle` với body `{sha256}` khớp một tệp của niêm phong (không khớp → 404). Dùng POST vì hash trong URL sẽ nằm trong log của Caddy và APISIX. Nhờ vậy gói (chứa danh sách hash tệp trong payload đã ký) chỉ đến tay người đã có tệp.
 - **Giới hạn:** trạng thái thu hồi luôn cần tra trực tuyến.
 
 ### 11.6. Quản lý khóa và mô hình admin bị xâm phạm
@@ -536,6 +593,7 @@ Từ đó repo của witness là một **bản sao lịch sử STH do bên thứ
 | `POST …/records/{id}/workflow:start` | Khởi tạo quy trình | 409 |
 | `GET /api/v1/apps/{app}/tasks?assigned=me` | Hộp việc | — |
 | `POST /api/v1/apps/{app}/tasks/{task}:complete` | `{decision, comment}`, `If-Match` → kiểm guard → Flowable | 403 (guard), 409 |
+| `POST …/records/{id}:pii-review` | Xác nhận đã rà PII cho đúng tập hiện tại (dữ liệu, tệp `CLEAN`, `pii_findings`), `If-Match`. Người gọi phải đọc được bản ghi và thuộc `reveal_roles`; chỉ khi `seal_state = NONE`; ghi `pii.reviewed`; không sửa `pii_findings`. Làm cho guard `pii_reviewed` đạt | 404, 409 |
 | `POST …/records/{id}:revoke` | Thu hồi niêm phong; body `{reason_code, note?}` (1.0.3) | 403, 409 |
 | `POST …/records/{id}:erase-pii` | Xóa trường có khai `pii`; body `{fields, reason_code}`, `If-Match` (1.0.3, mục 25.2) | 404, 409, 422 |
 | `GET …/records/{id}/seal` | Niêm phong + liên kết đối soát + QR | 404 |
@@ -545,7 +603,8 @@ Từ đó repo của witness là một **bản sao lịch sử STH do bên thứ
 |---|---|
 | `GET /verify/v1/seals/{seal_id}` | Trạng thái + trường public + kết quả kiểm chữ ký và inclusion |
 | `POST /verify/v1/seals/{seal_id}:check` | Body `{sha256: "<64 hex>"}` (hash do trình duyệt tự tính) → khớp / không khớp. **Không nhận tệp** (R-2) |
-| `GET /verify/v1/seals/{seal_id}/bundle` | Gói bằng chứng ngoại tuyến |
+| `GET /verify/v1/seals/{seal_id}/bundle` | Gói bằng chứng ngoại tuyến, chỉ cho niêm phong **không** yêu cầu tệp (`require_file: false`); loại kia → 404 |
+| `POST /verify/v1/seals/{seal_id}:bundle` | Body `{sha256: "<64 hex>"}` (cùng giới hạn thân request như `:check`). Niêm phong `require_file: true`: hash khớp một tệp thì trả gói, không khớp → 404. Hash không nằm trong URL nên không vào log proxy |
 | `GET /verify/v1/sth/latest`, `GET /verify/v1/sth/consistency?first=&second=` | Dành cho witness |
 | `GET /verify/v1/keys` | Khóa công khai theo phiên bản; kèm tuyên bố khóa của `seal-key` (1.0.3) |
 
@@ -553,6 +612,8 @@ Từ đó repo của witness là một **bản sao lịch sử STH do bên thứ
 | Đường dẫn | Mô tả |
 |---|---|
 | `POST /admin/v1/apps` · `POST /admin/v1/apps/{id}:approve` · `POST …:disable` | Vòng đời app |
+| `GET /admin/v1/apps/{id}/versions/{v}/diff` | Diff quyền của một phiên bản so với bản ACTIVE (hoặc rỗng): role, trường, truy cập, chính sách PII/niêm phong/đối soát, task và guard. Đây là "xem diff quyền" của mục 9.5 |
+| `POST /admin/v1/workflow:reconcile` | Đối soát ý định hoàn thành task chưa có kết quả với lịch sử Flowable, hoàn tất phía DB nếu Flowable đã chạy (mục 15 T6) |
 | `GET /admin/v1/quarantine` | Danh sách tệp bị cách ly |
 | `GET /admin/v1/ledger/status` · `POST /admin/v1/anchor:run` | Trạng thái ledger, neo thủ công |
 | `GET /admin/v1/health` | Trạng thái ClamAV, OpenBao, Flowable, neo |
@@ -562,7 +623,7 @@ Admin dùng **CLI `dxos`** (MUST) gọi các API này. Giao diện admin đáp �
 ### 12.4. Loại sự kiện ledger
 `app.submitted`, `app.installed`, `app.disabled`, `record.created`, `record.updated`, `upload.staged`, `object.clean`, `object.infected`, `object.rejected`, `object.read`, `field.revealed`, `pii.detected`, `pii.reviewed`, `task.completed`, `record.sealed`, `record.revoked`, `policy.denied`, `sth.published`.
 
-Bản 1.0.3 thêm `pii.erased`, `key.published`. Body của `record.created` và `record.updated` chứa `data_digest` có salt thay cho `data_sha256` (mục 25.2).
+Bản 1.0.3 thêm `pii.erased`, `key.published`. Bản 1.0.3 phần B thêm `workflow.started`, `workflow.completed` (cùng `task.completed` đều có `subject` là `record_id`). Body của `record.created` và `record.updated` chứa `data_digest` có salt thay cho `data_sha256` (mục 25.2).
 
 ### 12.5. SDK cho lập trình viên (MUST, bản tối giản)
 `dxos-sdk-js` (Apache-2.0) gồm: đăng nhập OIDC Authorization Code + PKCE, client gọi API có `If-Match`, thành phần hiển thị trạng thái kiểm dịch, nút đối soát. Cả App A và App B đều dùng SDK này; chính SDK là minh chứng cho vai trò PaaS của Tầng 1 (G9, tiêu chí 10).
@@ -689,8 +750,8 @@ sequenceDiagram
 | T2 | Bỏ qua kiểm dịch (Tampering) | Staging không đọc được; chỉ worker chuyển sang CLEAN; chính sách sàn F1; fail-closed | AT-03, AT-04 | ClamAV không bắt mã độc mới; **không phải sandbox** |
 | T3 | Truy cập storage hoặc DB trực tiếp (từ app Tầng 2, Viewer, Flowable) | Phân vùng mạng: chỉ trust-core ở `net-data`; Flowable dùng CSDL riêng; thông tin truy cập chỉ có ở lõi; bucket không công khai; không có URL ký sẵn trao cho client | AT-01 | Root VPS |
 | T4 | IDOR | Kiểm theo bản ghi ở PDP; UUID; trả 404 | AT-06 | Lỗi logic → test cho mọi endpoint |
-| T5 | Leo thang đặc quyền (manifest, vai trò chéo app) | Namespace; validator; admin duyệt; audience riêng; guard thuộc danh mục | AT-11, AT-12 | Admin Keycloak bị xâm phạm |
-| T6 | Race condition / TOCTOU | CAS sha256; khóa lạc quan; task idempotent; trigger sealed | AT-05, AT-09 | — |
+| T5 | Leo thang đặc quyền (manifest, vai trò chéo app) | Namespace; validator; admin duyệt theo nguyên tắc bốn mắt; audience riêng; guard thuộc danh mục | AT-11, AT-12 | Admin Keycloak bị xâm phạm. **`manage-realm`:** Keycloak 26 buộc service account `dxos-installer` có client role `realm-management/manage-realm` mới tạo được realm role; ai chiếm được API thì chiếm được realm (ví dụ gán `dxos-admin` vào role mặc định). Bù bằng: secret chỉ ở API; client chỉ gọi endpoint tạo role; realm bật admin events; `/admin/v1/health` kiểm composite `default-roles-dxos` không chứa `dxos-admin` hay `app:*`. Phương án thay nếu cần: fine-grained admin permissions v2 |
+| T6 | Race condition / TOCTOU | CAS sha256; khóa lạc quan; task idempotent; trigger sealed; ý định hoàn thành task ghi và commit **trước** khi gọi Flowable, dưới khóa advisory theo bản ghi | AT-05, AT-09 | **Flowable đi trước DB:** Flowable và PostgreSQL không chung transaction. Nếu Flowable đã hoàn thành task mà DB lỗi, bản ghi kẹt `running` cho tới khi lần gọi sau hoặc `POST /admin/v1/workflow:reconcile` đọc lịch sử Flowable và hoàn tất (chỉ khi `dxos_intent_id` khớp). Guard sai sau khi Flowable đã chạy thì lõi hủy instance. `/admin/v1/health` báo số ý định treo |
 | T7 | Rò rỉ metadata | Tên tệp chỉ lưu hash; `actor_ref` HMAC; lọc log; trường public tối thiểu; seal_id 128 bit; rate-limit; `:check` yêu cầu seal_id | AT-19 | Mẫu thời gian truy cập |
 | T8 | Sửa DB | Role không UPDATE/DELETE trên ledger; trigger; chữ ký; STH | AT-15 | Superuser tắt trigger → phát hiện được, không ngăn được |
 | T9 | Admin/root bị xâm phạm | Mục 11.6: neo ngoài + witness + consistency | AT-16, AT-18 | Hành động sau thời điểm xâm phạm |
@@ -1007,7 +1068,8 @@ Giờ của AT-24..26 đã nằm trong giờ của H1, H6, H13 và **không** c�
 | | | UI quản trị: console nguồn mở (Keycloak; Flowable kiểm ở M0) + CLI là MUST, trang admin web là SHOULD; demo phải chỉ ra giao diện admin thật (R7, 12.3, 20.1) |
 | | | Giao trách nhiệm AT-24 → H1, AT-25 → H6, AT-26 → H13; không tính giờ hai lần trong H11 |
 | | | **I1 làm rõ (sửa kỹ thuật quan trọng nhất):** phân vùng mạng theo chủ sở hữu dữ liệu; Flowable chỉ có quyền với `flowable-db` riêng; Viewer và app Tầng 2 chỉ gọi API (4.1, 5, 6.2, 9.4, T1, T3, AT-01, ADR-22, RAM) |
-| 1.0.3 (phần A) | 21/10/2026 | Trưởng nhóm duyệt phương án A của tài liệu đề xuất khác biệt (Đ3, Đ4, Đ5; Đ2 neo OpenTimestamps để Plan 03) và duyệt từng phần thiết kế. Thêm mục 25 (pháp lý, dữ liệu cá nhân, tuyên bố khóa, văn thư, nghiệm thu); bất biến I5; ngoại lệ F2; AT-27, AT-28; sửa 4.1, 9.1, 9.2, 11.5, 11.6, 12.1, 12.2, 12.4, 14, 15, 19. Phần B (các sửa ở Plan 02 Task 1) chưa làm |
+| 1.0.3 (phần A) | 21/10/2026 | Trưởng nhóm duyệt phương án A của tài liệu đề xuất khác biệt (Đ3, Đ4, Đ5; Đ2 neo OpenTimestamps để Plan 03) và duyệt từng phần thiết kế. Thêm mục 25 (pháp lý, dữ liệu cá nhân, tuyên bố khóa, văn thư, nghiệm thu); bất biến I5; ngoại lệ F2; AT-27, AT-28; sửa 4.1, 9.1, 9.2, 11.5, 11.6, 12.1, 12.2, 12.4, 14, 15, 19. Phần B (các sửa ở Plan 02 Task 1) ghi ở dòng "1.0.3 (phần B)" bên dưới |
+| 1.0.3 (phần B) | 21/10/2026 | Các sửa kèm Plan 02 Task 1 (manifest cộng thêm, sự kiện ledger). 9.1: `seal.revoke_roles` và luật validator; 9.3: tham số và ngữ nghĩa từng guard; 9.5: role Keycloak là **realm role** `app:{id}:{role}`, không phải client role (đúng với mã `identity/jwt.py`); 10.1: bảng và cột mới của migration 003; 11.5: phản hồi công khai không chứa hash tệp, gói của niêm phong cần tệp lấy qua `POST …:bundle`; 12.1: `:pii-review`; 12.2: `POST …/seals/{id}:bundle`; 12.3: `…/versions/{v}/diff`, `workflow:reconcile`; 12.4: `workflow.started`, `workflow.completed`; 15: rủi ro còn lại của `manage-realm` (T5) và của việc Flowable đi trước DB (T6). Quy tắc namespace hẹp lại: chỉ chặn role/collection là `app` hoặc bắt đầu bằng `app_` (trước đó chặn mọi tên bắt đầu bằng `app`, làm role `approver` bị từ chối oan) |
 | 1.0.2 | 20/10/2026 | Mục 9.1: thêm `public: true` cho `so_hieu`. Trường này nằm trong `seal.public_fields`, mà quy tắc validator (Plan 01 Task 11) đòi mọi `public_fields` phải có cờ `public` |
 | | | Mục 9.1: `access.update` không khai báo thì mặc định là `[owner]` (chủ bản ghi sửa và đính kèm tệp khi bản ghi chưa niêm phong) |
 

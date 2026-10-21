@@ -26,6 +26,8 @@ class FieldSpec(_Strict):
     public: bool = False
     pii: PiiType | None = None
     format: str | None = None
+    label: str | None = None                          # nhãn hiển thị ở trang đối soát (spec 25.4)
+    reset: Literal["never", "yearly"] = "never"       # chỉ cho type: sequence (spec 25.4)
 
 
 class AttachmentSpec(_Strict):
@@ -51,12 +53,14 @@ class CollectionSpec(_Strict):
 class PiiPolicy(_Strict):
     reveal_roles: list[str] = Field(default_factory=list)
     document_detect: list[PiiType] = Field(default_factory=list)
+    erase_roles: list[str] = Field(default_factory=list)   # role được gọi :erase-pii (spec 25.2)
 
 
 class SealPolicy(_Strict):
     on_event: str
     target: list[Literal["record", "attachments"]]
     public_fields: list[str] = Field(default_factory=list)
+    revoke_roles: list[str] = Field(default_factory=list)  # mặc định rỗng: không ai được thu hồi (P2-D8)
 
 
 class VerifyPolicy(_Strict):

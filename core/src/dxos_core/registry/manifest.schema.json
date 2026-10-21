@@ -21,7 +21,13 @@
         "required": {"type": "boolean"},
         "public": {"type": "boolean"},
         "pii": {"enum": ["CCCD", "PHONE", "BANK_ACCOUNT", "EMAIL", "NAME"]},
-        "format": {"type": "string", "minLength": 1, "maxLength": 64}
+        "format": {"type": "string", "minLength": 1, "maxLength": 64},
+        "label": {
+          "type": "string", "minLength": 1, "maxLength": 64,
+          "pattern": "^[^\\u0000-\\u001f]{1,64}$",
+          "not": {"pattern": "[\\u0000-\\u001f]"}
+        },
+        "reset": {"enum": ["never", "yearly"]}
       }
     },
     "collection": {
@@ -87,6 +93,7 @@
           "additionalProperties": false,
           "properties": {
             "reveal_roles": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/name"}},
+            "erase_roles": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/name"}},
             "document_detect": {
               "type": "array", "uniqueItems": true,
               "items": {"enum": ["CCCD", "PHONE", "BANK_ACCOUNT", "EMAIL", "NAME"]}
@@ -98,9 +105,10 @@
           "additionalProperties": false,
           "required": ["on_event", "target"],
           "properties": {
-            "on_event": {"type": "string", "pattern": "^process\\.completed:[a-z_]+$"},
+            "on_event": {"type": "string", "pattern": "^process\\.completed:[A-Za-z_][A-Za-z0-9_-]{0,63}$"},
             "target": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["record", "attachments"]}},
-            "public_fields": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/name"}}
+            "public_fields": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/name"}},
+            "revoke_roles": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/name"}}
           }
         },
         "verify": {
@@ -129,7 +137,7 @@
             "required": ["role"],
             "properties": {
               "role": {"$ref": "#/$defs/name"},
-              "guards": {"type": "array", "items": {"type": "string", "pattern": "^[a-z_]+(:.+)?$"}}
+              "guards": {"type": "array", "items": {"type": "string", "pattern": "^[a-z_]+(:.*)?$"}}
             }
           }
         }

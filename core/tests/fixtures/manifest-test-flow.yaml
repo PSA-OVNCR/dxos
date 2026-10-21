@@ -1,0 +1,24 @@
+# SPDX-FileCopyrightText: 2026 PSA_OVNCR
+# SPDX-License-Identifier: Apache-2.0
+# Manifest tổng hợp để kiểm thử quy trình, niêm phong và đối soát của lõi (D6): lõi không bao giờ được thử bằng
+# manifest của App A/B. BPMN của nó (bpmn/test-review.bpmn) do Plan 02 Task 3 tạo.
+apiVersion: dxos/v1
+app: { id: test-flow, version: 0.1.0, name: "Test flow", spaces: [D] }
+roles: [author, reviewer, approver]
+collections:
+  doc:
+    fields:
+      title: { type: string, required: true, public: true, label: "Tiêu đề" }
+      ref:   { type: sequence, format: "{n:02}/TF", reset: yearly, public: true }
+      cccd:  { type: string, pii: CCCD }
+    attachments: { kinds: [pdf], max_mb: 1, min: 1 }
+    access: { read: [owner, "role:reviewer", "role:approver"], create: ["role:author"] }
+policies:
+  pii: { reveal_roles: [approver], erase_roles: [approver] }
+  seal: { on_event: "process.completed:approved", target: [record, attachments], public_fields: [ref, title], revoke_roles: [approver] }
+  verify: { public: true, require_file: true }
+workflow:
+  bpmn: bpmn/test-review.bpmn
+  tasks:
+    review:  { role: reviewer, guards: [attachments_clean, "not_same_actor:creator"] }
+    approve: { role: approver, guards: [attachments_clean, pii_reviewed, "not_same_actor:creator", "not_same_actor:review"] }

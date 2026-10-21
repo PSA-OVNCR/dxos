@@ -4,16 +4,18 @@
 
 import copy
 from pathlib import Path
+from typing import get_args
 
 import pytest
 import yaml
-from dxos_core.registry.validator import GUARD_CATALOG, ManifestError, validate_manifest
+from dxos_core.registry.validator import GUARD_CATALOG, ErrorCode, ManifestError, validate_manifest
 
 ROOT = Path(__file__).resolve().parents[2]
 PATHS = {
     "phong-ho-so": ROOT / "apps/phong-ho-so/manifest.yaml",
     "chung-nhan": ROOT / "apps/chung-nhan/manifest.yaml",
     "test-app": ROOT / "core/tests/fixtures/manifest-test-app.yaml",
+    "test-flow": ROOT / "core/tests/fixtures/manifest-test-flow.yaml",
 }
 
 
@@ -34,7 +36,8 @@ def raises_code(doc: dict) -> str:
 # ---------- Các test do Plan 01 Task 11 quy định ----------
 
 @pytest.mark.parametrize("path", ["apps/phong-ho-so/manifest.yaml", "apps/chung-nhan/manifest.yaml",
-                                  "core/tests/fixtures/manifest-test-app.yaml"])
+                                  "core/tests/fixtures/manifest-test-app.yaml",
+                                  "core/tests/fixtures/manifest-test-flow.yaml"])
 def test_shipped_manifests_valid(path):
     assert validate_manifest(load_yaml(path)).app.id
 
@@ -104,12 +107,21 @@ def test_app_id_format(bad_id):
     assert raises_code(doc) in ("SCHEMA_INVALID", "NAMESPACE_VIOLATION")
 
 
-@pytest.mark.parametrize("role", ["application", "app_admin", "a:b", "Admin", "1x"])
+@pytest.mark.parametrize("role", ["app", "app_admin", "a:b", "Admin", "1x"])
 def test_role_namespace_or_format(role):
     doc = load("test-app")
     doc["roles"].append(role)
-    expected = "NAMESPACE_VIOLATION" if (":" in role or role.startswith("app")) else "SCHEMA_INVALID"
+    reserved = ":" in role or role == "app" or role.startswith("app_")
+    expected = "NAMESPACE_VIOLATION" if reserved else "SCHEMA_INVALID"
     assert raises_code(doc) == expected
+
+
+@pytest.mark.parametrize("name", ["approver", "application", "apps"])
+def test_names_merely_starting_with_app_are_allowed(name):        # "approver" là role của manifest test-flow
+    doc = load("test-app")
+    doc["roles"].append(name)
+    doc["collections"][name] = {"fields": {}, "access": {"read": ["owner"], "create": [f"role:{name}"]}}
+    assert validate_manifest(doc).roles[-1] == name
 
 
 @pytest.mark.parametrize("entry", ["role:ghost", "everyone", "role:", "owner:x"])
@@ -173,3 +185,160 @@ def test_pii_only_on_string_fields(ftype):                                      
     doc = load("test-app")
     doc["collections"]["item"]["fields"]["so"] = {"type": ftype, "pii": "CCCD"}
     assert raises_code(doc) == "SCHEMA_INVALID"
+
+
+# ---------- Plan 02 Task 1: manifest 1.0.3 (cộng thêm) ----------
+
+def test_test_flow_fixture_is_valid_and_parsed():
+    m = validate_manifest(load("test-flow"))
+    doc = m.collections["doc"]
+    assert m.app.id == "test-flow" and m.roles == ["author", "reviewer", "approver"]
+    assert doc.fields["ref"].type == "sequence" and doc.fields["ref"].reset == "yearly"
+    assert doc.fields["title"].label == "Tiêu đề" and doc.fields["cccd"].pii == "CCCD"
+    assert doc.attachments.min == 1 and doc.attachments.max_mb == 1
+    assert m.policies.seal.revoke_roles == ["approver"] and m.policies.pii.erase_roles == ["approver"]
+    assert m.workflow.bpmn == "bpmn/test-review.bpmn"
+    assert m.workflow.tasks["approve"].guards == [
+        "attachments_clean", "pii_reviewed", "not_same_actor:creator", "not_same_actor:review"]
+
+
+def test_pii_field_cannot_be_public():
+    doc = load("test-flow")
+    doc["collections"]["doc"]["fields"]["cccd"]["public"] = True
+    assert raises_code(doc) == "SCHEMA_INVALID"
+
+
+@pytest.mark.parametrize("ev", ["approved", "process.completed:", "process.completed:a b", "x:approved",
+                                "process.completed:1abc", "process.completed:" + "a" * 65,
+                                "process.completed:approved\n"])
+def test_seal_on_event_format(ev):
+    doc = load("test-flow")
+    doc["policies"]["seal"]["on_event"] = ev
+    assert raises_code(doc) == "SCHEMA_INVALID"
+
+
+@pytest.mark.parametrize("ev", ["process.completed:approved", "process.completed:Approved-1",
+                                "process.completed:_end", "process.completed:" + "a" * 64])
+def test_seal_on_event_accepts_valid_end_event_ids(ev):
+    doc = load("test-flow")
+    doc["policies"]["seal"]["on_event"] = ev
+    assert validate_manifest(doc).policies.seal.on_event == ev
+
+
+def test_seal_requires_workflow():
+    doc = load("test-flow")
+    del doc["workflow"]
+    assert raises_code(doc) == "SCHEMA_INVALID"
+
+
+def test_revoke_roles_must_be_declared():
+    doc = load("test-flow")
+    doc["policies"]["seal"]["revoke_roles"] = ["ghost"]
+    assert raises_code(doc) == "SCHEMA_INVALID"
+
+
+@pytest.mark.parametrize("bad", [["approver", "approver"], ["Bad-Role"], "approver"])
+def test_revoke_roles_shape_checked_by_schema(bad):
+    doc = load("test-flow")
+    doc["policies"]["seal"]["revoke_roles"] = bad
+    assert raises_code(doc) == "SCHEMA_INVALID"
+
+
+@pytest.mark.parametrize("name", ["creator", "Bad-Name", "1x", "a" * 32])
+def test_task_name_checked(name):
+    doc = load("test-flow")
+    doc["workflow"]["tasks"][name] = {"role": "reviewer"}
+    assert raises_code(doc) == "SCHEMA_INVALID"
+
+
+@pytest.mark.parametrize("guard", ["not_same_actor:nope", "not_same_actor", "field_required:missing",
+                                   "role_in:ghost", "role_in:", "role_in", "field_required",
+                                   "attachments_clean:x", "record_not_sealed:1", "pii_reviewed:x",
+                                   "assignee_is_caller:me"])
+def test_guard_arguments_checked(guard):
+    doc = load("test-flow")
+    doc["workflow"]["tasks"]["review"]["guards"].append(guard)
+    assert raises_code(doc) == "UNKNOWN_GUARD"
+
+
+@pytest.mark.parametrize("guard", ["not_same_actor:review", "not_same_actor:creator",
+                                   "role_in:reviewer,approver", "role_in:[reviewer]",
+                                   "role_in:[reviewer,approver]", "field_required:title",
+                                   "record_not_sealed", "assignee_is_caller"])
+def test_guard_arguments_accepted(guard):
+    doc = load("test-flow")
+    doc["workflow"]["tasks"]["approve"]["guards"].append(guard)
+    validate_manifest(doc)
+
+
+def test_revoke_roles_default_empty():
+    doc = load("test-app")
+    assert validate_manifest(doc).policies.seal is None
+    doc = load("test-flow")
+    del doc["policies"]["seal"]["revoke_roles"]
+    assert validate_manifest(doc).policies.seal.revoke_roles == []
+
+
+def test_erase_roles_must_be_declared():
+    doc = load("test-flow")
+    doc["policies"]["pii"]["erase_roles"] = ["ghost"]
+    assert raises_code(doc) == "SCHEMA_INVALID"
+
+
+def test_erase_roles_default_empty():
+    doc = load("test-flow")
+    del doc["policies"]["pii"]["erase_roles"]
+    assert validate_manifest(doc).policies.pii.erase_roles == []
+
+
+@pytest.mark.parametrize("label", ["", "x" * 65, "a\nb", "ab\n", "a\tb", "a\x00b"])
+def test_bad_label_rejected(label):
+    doc = load("test-flow")
+    doc["collections"]["doc"]["fields"]["title"]["label"] = label
+    assert raises_code(doc) == "SCHEMA_INVALID"
+
+
+def test_label_max_length_accepted():
+    doc = load("test-flow")
+    doc["collections"]["doc"]["fields"]["title"]["label"] = "x" * 64
+    assert validate_manifest(doc).collections["doc"].fields["title"].label == "x" * 64
+
+
+@pytest.mark.parametrize("fmt", ["no-token", "{n}/{n}", "{n:01}", "{n:010}", "{n:2}", "{n}/{n:02}", "{N}",
+                                 "{n}}", "{n}/{x}", ""])
+def test_bad_sequence_format_rejected(fmt):
+    doc = load("test-flow")
+    doc["collections"]["doc"]["fields"]["ref"]["format"] = fmt
+    assert raises_code(doc) == "SCHEMA_INVALID"
+
+
+@pytest.mark.parametrize("fmt", ["{n}/QĐ-SM", "{n:02}/TF", "{n:09}", "TF-{n:05}-X"])
+def test_good_sequence_format_accepted(fmt):
+    doc = load("test-flow")
+    doc["collections"]["doc"]["fields"]["ref"]["format"] = fmt
+    validate_manifest(doc)
+
+
+def test_sequence_without_format_rejected():
+    doc = load("test-flow")
+    del doc["collections"]["doc"]["fields"]["ref"]["format"]
+    assert raises_code(doc) == "SCHEMA_INVALID"
+
+
+def test_reset_only_on_sequence():
+    doc = load("test-flow")
+    doc["collections"]["doc"]["fields"]["title"]["reset"] = "yearly"
+    assert raises_code(doc) == "SCHEMA_INVALID"
+
+
+def test_reset_value_checked_and_defaults_never():
+    doc = load("test-flow")
+    doc["collections"]["doc"]["fields"]["ref"]["reset"] = "monthly"
+    assert raises_code(doc) == "SCHEMA_INVALID"
+    doc = load("test-flow")
+    del doc["collections"]["doc"]["fields"]["ref"]["reset"]
+    assert validate_manifest(doc).collections["doc"].fields["ref"].reset == "never"
+
+
+def test_error_codes_include_plan02_codes():          # BPMN_INVALID: Task 3; UPGRADE_NOT_ADDITIVE: Task 12
+    assert {"BPMN_INVALID", "UPGRADE_NOT_ADDITIVE"} <= set(get_args(ErrorCode))

@@ -5,13 +5,15 @@
 Thứ tự kiểm (lỗi đầu tiên thắng):
 1. ``FLOOR_WEAKENED``: có khóa ``quarantine`` ở bất kỳ đâu với giá trị khác ``"required"``.
 2. ``NAMESPACE_VIOLATION``: tên role/collection (hoặc ``app.id``) chứa ``:``, hoặc role/collection
-   bắt đầu bằng ``app``.
+   là ``app`` hay bắt đầu bằng ``app_``.
 3. ``SCHEMA_INVALID``: sai JSON Schema ``manifest.schema.json``.
-4. ``UNKNOWN_GUARD``: guard ngoài danh mục chung.
-5. ``SCHEMA_INVALID``: tham chiếu sai (role chưa khai báo, ``public_fields`` không có cờ ``public``...).
+4. ``UNKNOWN_GUARD``: guard ngoài danh mục chung, hoặc tham số guard sai (mục 9.3, bản 1.0.3).
+5. ``SCHEMA_INVALID``: tham chiếu và ràng buộc chéo (role chưa khai báo, ``public_fields`` không có cờ
+   ``public``, trường vừa ``pii`` vừa ``public``, ``seal`` thiếu ``workflow``, định dạng ``sequence``...).
 """
 
 import json
+import re
 from functools import cache
 from importlib import resources
 from typing import Any, Literal
@@ -26,7 +28,16 @@ GUARD_CATALOG = frozenset({
     "field_required", "record_not_sealed", "assignee_is_caller",
 })
 
-ErrorCode = Literal["SCHEMA_INVALID", "NAMESPACE_VIOLATION", "FLOOR_WEAKENED", "UNKNOWN_GUARD"]
+# Guard không có tham số: thêm ``:x`` vào là sai.
+_NO_ARG_GUARDS = frozenset({"attachments_clean", "pii_reviewed", "record_not_sealed", "assignee_is_caller"})
+
+# ``$`` của Python khớp cả trước ``\n`` cuối chuỗi, nên các mẫu quan trọng được kiểm lại bằng ``fullmatch``.
+_ON_EVENT = re.compile(r"process\.completed:[A-Za-z_][A-Za-z0-9_-]{0,63}")
+# Token số thứ tự hợp lệ: ``{n}`` hoặc ``{n:0W}`` với W từ 2 đến 9 (spec 25.4).
+_SEQ_TOKEN = re.compile(r"\{n(?::0[2-9])?\}")
+
+ErrorCode = Literal["SCHEMA_INVALID", "NAMESPACE_VIOLATION", "FLOOR_WEAKENED", "UNKNOWN_GUARD",
+                    "BPMN_INVALID", "UPGRADE_NOT_ADDITIVE"]
 
 
 class ManifestError(ValueError):
@@ -60,7 +71,9 @@ def _check_floor(node: Any, path: list) -> None:
 
 
 def _bad_namespace(name: Any) -> bool:
-    return isinstance(name, str) and (":" in name or name.startswith("app"))
+    # Lõi tự thêm tiền tố ``app:<id>:`` cho role. Giữ riêng ``app`` và ``app_*``; KHÔNG chặn mọi tên bắt đầu
+    # bằng "app" (bản 1.0.3 phần B), vì như vậy "approver" (role của manifest test-flow) bị từ chối oan.
+    return isinstance(name, str) and (":" in name or name == "app" or name.startswith("app_"))
 
 
 def _check_namespace(doc: dict) -> None:
@@ -88,14 +101,69 @@ def _check_schema(doc: dict) -> None:
         raise ManifestError("SCHEMA_INVALID", _pointer(list(e.absolute_path)), e.message)
 
 
+def split_guard(guard: str) -> tuple[str, str | None]:
+    """``"role_in:a,b"`` -> ``("role_in", "a,b")``; guard không tham số -> ``(tên, None)``."""
+    name, sep, arg = guard.partition(":")
+    return name, (arg if sep else None)
+
+
+def parse_role_list(arg: str) -> list[str] | None:
+    """Tham số của ``role_in``: ``r1,r2`` hoặc ``[r1,r2]``. Rỗng, thiếu phần tử hay ngoặc lệch -> ``None``."""
+    if arg.startswith("[") and arg.endswith("]"):
+        arg = arg[1:-1]
+    parts = [p.strip() for p in arg.split(",")]
+    return parts if parts and all(parts) else None
+
+
+def _guard_arg_error(name: str, arg: str | None, m: Manifest) -> str | None:
+    """Trả lý do nếu tham số của guard sai (mục 9.3); ``None`` nếu hợp lệ."""
+    if name in _NO_ARG_GUARDS:
+        return None if arg is None else "guard này không có tham số"
+    if name == "not_same_actor":
+        if arg is None:
+            return "thiếu tham số: creator hoặc tên task"
+        if arg != "creator" and arg not in m.workflow.tasks:
+            return f"tham số phải là 'creator' hoặc một task của workflow, không phải {arg!r}"
+    elif name == "field_required":
+        if arg is None:
+            return "thiếu tham số: tên trường"
+        if not any(arg in col.fields for col in m.collections.values()):
+            return f"trường {arg!r} không thuộc collection nào"
+    elif name == "role_in":
+        roles = parse_role_list(arg) if arg is not None else None
+        if roles is None:
+            return "thiếu hoặc sai danh sách role: role_in:r1,r2"
+        for r in roles:
+            if r not in m.roles:
+                return f"role chưa khai báo: {r!r}"
+    return None
+
+
 def _check_guards(m: Manifest) -> None:
     if m.workflow is None:
         return
     for task, spec in m.workflow.tasks.items():
         for i, g in enumerate(spec.guards):
-            if g.split(":", 1)[0] not in GUARD_CATALOG:
-                raise ManifestError("UNKNOWN_GUARD", f"/workflow/tasks/{task}/guards/{i}",
-                                    f"guard {g!r} không thuộc danh mục chung")
+            path = f"/workflow/tasks/{task}/guards/{i}"
+            name, arg = split_guard(g)
+            if name not in GUARD_CATALOG:
+                raise ManifestError("UNKNOWN_GUARD", path, f"guard {g!r} không thuộc danh mục chung")
+            why = _guard_arg_error(name, arg, m)
+            if why:
+                raise ManifestError("UNKNOWN_GUARD", path, f"guard {g!r}: {why}")
+
+
+def _check_sequence(cname: str, fname: str, f) -> None:
+    base = f"/collections/{cname}/fields/{fname}"
+    if f.reset != "never" and f.type != "sequence":
+        raise ManifestError("SCHEMA_INVALID", f"{base}/reset", "reset chỉ dùng cho trường type: sequence")
+    if f.type != "sequence":
+        return
+    fmt = f.format or ""
+    rest = _SEQ_TOKEN.sub("", fmt)
+    if len(_SEQ_TOKEN.findall(fmt)) != 1 or "{" in rest or "}" in rest:
+        raise ManifestError("SCHEMA_INVALID", f"{base}/format",
+                            "format của sequence phải chứa đúng một token {n} hoặc {n:0W} (W từ 2 đến 9)")
 
 
 def _check_references(m: Manifest) -> None:
@@ -105,6 +173,10 @@ def _check_references(m: Manifest) -> None:
             if f.pii and f.type != "string":       # lõi chỉ che được chuỗi (masking.py)
                 raise ManifestError("SCHEMA_INVALID", f"/collections/{cname}/fields/{fname}/pii",
                                     "pii chỉ dùng cho trường type: string")
+            if f.pii and f.public:                 # trường công khai thì không thể vừa là PII
+                raise ManifestError("SCHEMA_INVALID", f"/collections/{cname}/fields/{fname}/public",
+                                    "trường pii không được đặt public: true")
+            _check_sequence(cname, fname, f)
         for action in ("read", "create", "update"):
             for i, entry in enumerate(getattr(col.access, action)):
                 if entry.startswith("role:") and entry[5:] not in roles:
@@ -114,12 +186,29 @@ def _check_references(m: Manifest) -> None:
         if r not in roles:
             raise ManifestError("SCHEMA_INVALID", f"/policies/pii/reveal_roles/{i}",
                                 f"role chưa khai báo: {r!r}")
+    for i, r in enumerate(m.policies.pii.erase_roles):
+        if r not in roles:
+            raise ManifestError("SCHEMA_INVALID", f"/policies/pii/erase_roles/{i}",
+                                f"role chưa khai báo: {r!r}")
     if m.workflow is not None:
         for task, spec in m.workflow.tasks.items():
+            if task == "creator":              # "creator" là tham số đặc biệt của not_same_actor
+                raise ManifestError("SCHEMA_INVALID", f"/workflow/tasks/{task}",
+                                    "tên task không được là 'creator' (trùng tham số của not_same_actor)")
             if spec.role not in roles:
                 raise ManifestError("SCHEMA_INVALID", f"/workflow/tasks/{task}/role",
                                     f"role chưa khai báo: {spec.role!r}")
     if m.policies.seal is not None:
+        if m.workflow is None:
+            raise ManifestError("SCHEMA_INVALID", "/policies/seal",
+                                "khai policies.seal thì bắt buộc khai workflow")
+        if not _ON_EVENT.fullmatch(m.policies.seal.on_event):
+            raise ManifestError("SCHEMA_INVALID", "/policies/seal/on_event",
+                                "on_event phải có dạng process.completed:<id end event>")
+        for i, r in enumerate(m.policies.seal.revoke_roles):
+            if r not in roles:
+                raise ManifestError("SCHEMA_INVALID", f"/policies/seal/revoke_roles/{i}",
+                                    f"role chưa khai báo: {r!r}")
         public = {f for col in m.collections.values() for f, spec in col.fields.items() if spec.public}
         for i, f in enumerate(m.policies.seal.public_fields):
             if f not in public:

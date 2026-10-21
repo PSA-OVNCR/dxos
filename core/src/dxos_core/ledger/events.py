@@ -21,4 +21,8 @@ EVENT_TYPES: frozenset[str] = frozenset({
     "record.revoked",
     "policy.denied",
     "sth.published",
+    "workflow.started",
+    "workflow.completed",
+    "pii.erased",
+    "key.published",
 })

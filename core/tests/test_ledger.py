@@ -18,14 +18,22 @@ def test_entry_bytes_is_canonical_of_seven_fields():
         "subject": "s", "actor_ref": None, "body_sha256": "0" * 64})
 
 
-def test_event_types_are_exactly_spec_12_4():
+def test_event_types_are_exactly_spec_12_4():              # gồm phần thêm của 1.0.3 (A và B)
     assert EVENT_TYPES == frozenset({
         "app.submitted", "app.installed", "app.disabled", "record.created", "record.updated", "upload.staged",
         "object.clean", "object.infected", "object.rejected", "object.read", "field.revealed", "pii.detected",
         "pii.reviewed", "task.completed", "record.sealed", "record.revoked", "policy.denied",
-        "sth.published"})
+        "sth.published", "workflow.started", "workflow.completed", "pii.erased", "key.published"})
 
 
 def test_actor_ref_function():
     assert actor_ref("u", b"k") == hmac.new(b"k", b"u", hashlib.sha256).hexdigest()
     assert actor_ref("u", b"k") != actor_ref("u", b"k2")
+
+
+def test_workflow_events_registered():
+    assert {"workflow.started", "workflow.completed"} <= EVENT_TYPES
+
+
+def test_erasure_and_key_events_registered():
+    assert {"pii.erased", "key.published"} <= EVENT_TYPES
