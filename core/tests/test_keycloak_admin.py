@@ -238,3 +238,22 @@ def test_factory_unreadable_or_empty_secret_is_unavailable(make_settings, tmp_pa
     with pytest.raises(IdpAdminUnavailable) as exc:
         keycloak_admin_from_settings(make_settings(installer_client_secret_file=f))
     assert str(f) not in str(exc.value)
+
+
+def test_source_keeps_one_client_until_secret_changes(make_settings, tmp_path):     # Plan 02 Task 12
+    from dxos_core.registry.keycloak_admin import KeycloakAdminSource
+
+    src = KeycloakAdminSource()
+    assert src.get(make_settings()) is None                          # chưa đặt secret → duyệt app 503
+    secret = tmp_path / "installer-secret"
+    secret.write_text("s1\n", encoding="utf-8")
+    settings = make_settings(installer_client_secret_file=secret)
+    first = src.get(settings)
+    assert isinstance(first, KeycloakAdmin) and src.get(settings) is first
+    secret.write_text("s2\n", encoding="utf-8")
+    assert src.get(settings) is not first
+    secret.unlink()
+    with pytest.raises(IdpAdminUnavailable):
+        src.get(settings)
+    fake = object()
+    assert KeycloakAdminSource.fixed(fake).get(settings) is fake

@@ -431,7 +431,8 @@ class FlowHarness:
                                    json={"fields": fields, "reason_code": reason_code}, headers=headers)
 
     async def admin_status(self) -> dict:
-        r = await self.api.get("/admin/v1/ledger/status", headers=self.admin())
+        """``GET /admin/v1/health`` (seal_pending, seal_key, org chuyển từ ledger/status về đây, Task 12)."""
+        r = await self.api.get("/admin/v1/health", headers=self.admin())
         assert r.status_code == 200, r.text
         return r.json()
 

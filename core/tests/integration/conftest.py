@@ -569,3 +569,93 @@ async def sealed_once(flow):
     ``seal_id``."""
     sid, _ = await flow.sealed_ids()
     return sid
+
+
+# ---------------------------------------------------------------- installer (Plan 02 Task 12)
+@pytest.fixture
+def kc_fake():
+    """``FakeKeycloakAdmin`` (helpers/keycloak.py): stub KeycloakAdmin với ``.roles`` (role đã tạo) và
+    ``.down`` (True thì mọi lời gọi ném ``IdpAdminUnavailable``)."""
+    from helpers.keycloak import FakeKeycloakAdmin
+
+    return FakeKeycloakAdmin()
+
+
+@asynccontextmanager
+async def _installer_api(make_settings, core_dsn, kc_fake, local_signer, fake_clamd, tmp_path, *,
+                         subs: tuple[str, ...], **overrides) -> AsyncIterator[list]:
+    """API thật (DB thật, Flowable thật, ``local_signer``, fake clamd, ``kc_fake``); một client cho mỗi
+    ``sub`` admin trong ``subs``, cùng một ứng dụng."""
+    import httpx
+    from dxos_core.registry.keycloak_admin import KeycloakAdminSource
+    from helpers.api import running_api
+    from helpers.tokens import bearer, make_token
+
+    password = tmp_path / f"flowable-password-{uuid.uuid4().hex[:8]}"
+    password.write_text(FLOWABLE_PASSWORD, encoding="utf-8")
+    host, port = fake_clamd
+    settings = make_settings(database_url=core_dsn, flowable_url=FLOWABLE_URL, flowable_user=FLOWABLE_USER,
+                             flowable_password_file=password, clamd_host=host, clamd_port=port, **overrides)
+    async with running_api(settings, signer=local_signer) as api:
+        api.app.state.kc_admin = KeycloakAdminSource.fixed(kc_fake)
+        clients = []
+        async with AsyncExitStack() as stack:
+            for sub in subs:
+                c = await stack.enter_async_context(httpx.AsyncClient(
+                    transport=httpx.ASGITransport(app=api.app), base_url="http://test",
+                    headers=bearer(make_token(sub, ["dxos-admin"]))))
+                c.app = api.app
+                clients.append(c)
+            yield clients
+
+
+@pytest.fixture
+async def admin(make_settings, core_dsn, kc_fake, local_signer, fake_clamd, test_jwks, tmp_path):
+    """Client admin (``admin1``) của API có ``allow_self_approval=True``, cho test không nhắm vào bốn mắt."""
+    async with _installer_api(make_settings, core_dsn, kc_fake, local_signer, fake_clamd, tmp_path,
+                              subs=("admin1",), allow_self_approval=True) as (client,):
+        yield client
+
+
+@pytest.fixture
+async def admin_strict(make_settings, core_dsn, kc_fake, local_signer, fake_clamd, test_jwks, tmp_path):
+    """Client admin (``admin1``) của API cấu hình mặc định (bốn mắt bật, P2-D21)."""
+    async with _installer_api(make_settings, core_dsn, kc_fake, local_signer, fake_clamd, tmp_path,
+                              subs=("admin1",)) as (client,):
+        yield client
+
+
+@dataclass
+class TwoAdmins:
+    submitter: object
+    approver: object
+
+
+@pytest.fixture
+async def admin2(make_settings, core_dsn, kc_fake, local_signer, fake_clamd, test_jwks, tmp_path):
+    """Hai admin khác nhau trên cùng một API cấu hình mặc định: ``.submitter`` (``admin-sub``) và
+    ``.approver`` (``admin-app``)."""
+    async with _installer_api(make_settings, core_dsn, kc_fake, local_signer, fake_clamd, tmp_path,
+                              subs=("admin-sub", "admin-app")) as (sub, app):
+        yield TwoAdmins(submitter=sub, approver=app)
+
+
+@pytest.fixture
+async def api_as_member(admin):
+    """Client cùng API với ``admin`` nhưng token chỉ có role ứng dụng (``app:test-flow:author``)."""
+    import httpx
+    from helpers.tokens import bearer, make_token
+
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=admin.app), base_url="http://test",
+                                 headers=bearer(make_token("member1", ["app:test-flow:author"]))) as c:
+        yield c
+
+
+@pytest.fixture
+async def infected_upload(core_conn) -> uuid.UUID:
+    """Một upload ``INFECTED`` (bản ghi test-app/item) trong DB của ``admin``; trả upload id."""
+    rid = await _insert_record(core_conn)
+    return await core_conn.fetchval(
+        "INSERT INTO uploads(record_id, staging_key, original_name_hash, size, status, sha256, reason)"
+        " VALUES ($1, 'k', $2, 68, 'INFECTED', $3, 'Eicar-Test-Signature') RETURNING id",
+        rid, "b" * 64, "e" * 64)

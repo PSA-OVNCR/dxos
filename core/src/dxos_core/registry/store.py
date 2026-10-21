@@ -2,10 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 """Kho manifest (bảng ``apps``). Mỗi app có tối đa một phiên bản ``ACTIVE``.
 
-Installer đầy đủ (duyệt, tạo role Keycloak, deploy BPMN) thuộc Plan 02; ở Plan 01 chỉ có lưu và đọc.
+Installer (nộp, duyệt, tạo role Keycloak, deploy BPMN) ở ``registry/installer.py`` (Plan 02 Task 12);
+mô-đun này chỉ lưu và đọc.
 """
 
+import hashlib
 import json
+from collections.abc import Mapping
 from typing import Literal
 
 import asyncpg
@@ -24,9 +27,19 @@ def _loads(v):
 
 
 async def save_manifest(conn: asyncpg.Connection, m: Manifest, raw: dict, status: Status, actor_sub: str,
-                        *, hmac_key: bytes | None = None) -> None:
-    """Lưu (hoặc đổi trạng thái) phiên bản ``m.app.version``; ghi ledger nếu có ``hmac_key``."""
+                        *, hmac_key: bytes | None = None, extra_body: Mapping | None = None) -> None:
+    """Lưu (hoặc đổi trạng thái) phiên bản ``m.app.version``; ghi ledger nếu có ``hmac_key``.
+
+    ``extra_body`` (Plan 02 Task 12) được gộp vào body của chính lá ``app.submitted``/``app.installed``/
+    ``app.disabled`` (không tạo lá thứ hai); khóa không được trùng ``manifest_sha256``/``status``.
+    """
     digest = sha256_hex(canonical_bytes(raw))
+    body = {"manifest_sha256": digest, "status": status}
+    if extra_body:
+        clash = body.keys() & extra_body.keys()
+        if clash:
+            raise ValueError(f"extra_body trùng khóa của body ledger: {sorted(clash)}")
+        body.update(extra_body)
     async with conn.transaction():
         existing = await conn.fetchrow(
             "SELECT manifest_sha256 FROM apps WHERE id=$1 AND version=$2 FOR UPDATE", m.app.id, m.app.version)
@@ -50,7 +63,7 @@ async def save_manifest(conn: asyncpg.Connection, m: Manifest, raw: dict, status
                 " WHERE id=$1 AND version=$2", m.app.id, m.app.version, status, approved)
         if hmac_key is not None:
             await append(conn, type=_EVENT[status], subject=f"{m.app.id}@{m.app.version}",
-                         body={"manifest_sha256": digest, "status": status}, hmac_key=hmac_key,
+                         body=body, hmac_key=hmac_key,
                          app_id=m.app.id, actor_sub=actor_sub)
 
 
@@ -74,3 +87,28 @@ async def get_deployment(conn: asyncpg.Connection, app_id: str, version: str) ->
     return await conn.fetchrow(
         "SELECT app_id, version, deployment_id, process_definition_id, rendered_sha256, deployed_at"
         " FROM app_deployments WHERE app_id=$1 AND version=$2", app_id, version)
+
+
+async def save_files(conn: asyncpg.Connection, app_id: str, version: str, files: Mapping[str, str]) -> None:
+    """Ghi các tệp đi kèm phiên bản (bảng chỉ-thêm ``app_files``). Tệp đã có với cùng nội dung thì bỏ qua;
+    khác nội dung → ``ValueError`` (phiên bản đã nộp không đổi được)."""
+    for path, content in files.items():
+        digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
+        row = await conn.fetchrow(
+            "INSERT INTO app_files(app_id, version, path, sha256, content) VALUES ($1, $2, $3, $4, $5)"
+            " ON CONFLICT (app_id, version, path) DO NOTHING RETURNING sha256", app_id, version, path, digest,
+            content)
+        if row is None:
+            old = await conn.fetchval(
+                "SELECT sha256 FROM app_files WHERE app_id=$1 AND version=$2 AND path=$3",
+                                      app_id, version, path)
+            if old != digest:
+                raise ValueError(f"{app_id} {version}: tệp {path} đã có với nội dung khác")
+
+
+async def get_files(conn: asyncpg.Connection, app_id: str, version: str) -> dict[str, str]:
+    """Các tệp đi kèm phiên bản: đường dẫn → nội dung đúng như đã nộp."""
+    rows = await conn.fetch(
+        "SELECT path, content FROM app_files WHERE app_id=$1 AND version=$2 ORDER BY path",
+                            app_id, version)
+    return {r["path"]: r["content"] for r in rows}

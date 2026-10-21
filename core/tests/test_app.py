@@ -114,7 +114,14 @@ def test_settings_has_exactly_planned_fields():
         "public_base_url", "sth_after_seal",                                                 # Task 7
         "keycloak_token_url", "keycloak_admin_url", "installer_client_id",                   # Task 11
         "installer_client_secret_file",
+        "allow_self_approval",                                                               # Task 12
     }
+
+
+def test_self_approval_is_off_by_default(make_settings, monkeypatch):                      # P2-D21
+    assert make_settings().allow_self_approval is False
+    monkeypatch.setenv("DXOS_ALLOW_SELF_APPROVAL", "true")
+    assert make_settings().allow_self_approval is True
 
 
 def test_seal_key_settings_defaults_and_bounds(make_settings):

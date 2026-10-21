@@ -19,6 +19,7 @@ không bao giờ chứa secret, token hay nội dung phản hồi của Keycloak
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import re
 import time
 from collections.abc import Sequence
@@ -185,3 +186,41 @@ def keycloak_admin_from_settings(settings: Settings) -> KeycloakAdmin | None:
         raise IdpAdminUnavailable("không đọc được secret của installer") from None
     return KeycloakAdmin(settings.keycloak_token_url, settings.keycloak_admin_url,
                          settings.installer_client_id, secret)
+
+
+class KeycloakAdminSource:
+    """Một ``KeycloakAdmin`` duy nhất cho tiến trình (đặt ở ``app.state.kc_admin``), để cache token có tác
+    dụng.
+
+    ``get(settings)`` đọc lại tệp secret mỗi lần (rẻ) và chỉ tạo client mới khi cấu hình hoặc nội dung secret
+    đổi (xoay secret không cần khởi động lại). Chưa đặt ``installer_client_secret_file`` → ``None`` (duyệt app
+    trả 503); không đọc được tệp → ``IdpAdminUnavailable``. ``fixed(client)``: luôn trả ``client`` (test).
+    """
+
+    def __init__(self) -> None:
+        self._fixed: object | None = None
+        self._client: KeycloakAdmin | None = None
+        self._key: tuple | None = None
+
+    @classmethod
+    def fixed(cls, client: object) -> KeycloakAdminSource:
+        src = cls()
+        src._fixed = client
+        return src
+
+    def get(self, settings: Settings) -> KeycloakAdmin | None:
+        if self._fixed is not None:
+            return self._fixed  # type: ignore[return-value]
+        if settings.installer_client_secret_file is None:
+            return None
+        try:
+            secret = read_secret(settings.installer_client_secret_file)
+        except (OSError, ValueError):
+            raise IdpAdminUnavailable("không đọc được secret của installer") from None
+        key = (settings.keycloak_token_url, settings.keycloak_admin_url, settings.installer_client_id,
+               hashlib.sha256(secret.encode("utf-8")).hexdigest())
+        if self._client is None or key != self._key:
+            self._client = KeycloakAdmin(settings.keycloak_token_url, settings.keycloak_admin_url,
+                                         settings.installer_client_id, secret)
+            self._key = key
+        return self._client

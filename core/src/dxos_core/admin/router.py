@@ -1,18 +1,18 @@
 # SPDX-FileCopyrightText: 2026 PSA_OVNCR
 # SPDX-License-Identifier: Apache-2.0
-"""Route quản trị ledger: neo thủ công và trạng thái (spec 12.3; Plan 01 Task 16).
+"""API quản trị ``/admin/v1`` (spec 12.3): neo thủ công, trạng thái ledger (Plan 01 Task 16), đối soát quy
+trình (Plan 02 Task 6); gắn router con vòng đời app (``admin/apps.py``) và vận hành (``admin/ops.py``:
+``health``, ``quarantine``) của Plan 02 Task 12.
 
-``/admin/v1/health`` chưa có (Plan 02 Task 12): trạng thái niêm phong (``seal_pending``, ``seal_key``,
-``org``; Plan 02 Task 7) tạm nằm ở ``GET /admin/v1/ledger/status``.
-
+Trạng thái niêm phong (``seal_pending``, ``seal_key``, ``org``) nằm ở ``GET /admin/v1/health``.
 Admin không có API nào sửa hay xóa ledger (F7).
 """
 
 import dataclasses
-from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, Request
 
+from dxos_core.admin import apps, ops
 from dxos_core.errors import ProblemError
 from dxos_core.identity.deps import require_admin
 from dxos_core.identity.jwt import Principal
@@ -21,11 +21,12 @@ from dxos_core.kms.base import KmsUnavailable
 from dxos_core.ledger.anchor_job import ANCHOR_JOB
 from dxos_core.ledger.log import verify_log
 from dxos_core.ledger.sth import latest_sth, make_sth
-from dxos_core.seal.keys import latest_statement, org_configured, statement_for, within_validity
 from dxos_core.workflow.flowable import WorkflowUnavailable
 from dxos_core.workflow.reconcile import deps_from_state, reconcile_all, workflow_unavailable
 
 router = APIRouter(prefix="/admin/v1", tags=["admin"])
+router.include_router(apps.router)
+router.include_router(ops.router)
 
 
 @router.post("/anchor:run")
@@ -51,19 +52,6 @@ async def ledger_status(request: Request, _: Principal = Depends(require_admin))
         pending = await conn.fetchval(
             "SELECT count(*) FROM jobs WHERE kind=$1 AND state IN ('QUEUED', 'RUNNING')", ANCHOR_JOB)
         v = await verify_log(conn)
-        seal_pending = await conn.fetchval("SELECT count(*) FROM records WHERE seal_state='SEAL_PENDING'")
-        # seal_key theo phiên bản seal-key lớn nhất KMS biết (phiên bản lần niêm phong sau sẽ dùng): chưa có
-        # tuyên bố → "none" (lần niêm phong đầu bằng nó sẽ tạo). KMS không trả lời → tuyên bố mới nhất đã có.
-        try:
-            versions = (await request.app.state.signer.public_keys())["seal-key"]
-            statement = await statement_for(conn, max(versions)) if versions else None
-        except KmsUnavailable:
-            statement = await latest_statement(conn)
-    if statement is None:
-        seal_key = "none"
-    else:
-        seal_key = "ok" if within_validity(statement, datetime.now(UTC)) else "expired"
-    org = "ok" if org_configured(request.app.state.settings) else "down: not configured"
     return {
         "tree_size": size,
         "latest_sth": dataclasses.asdict(th) if th else None,
@@ -72,10 +60,6 @@ async def ledger_status(request: Request, _: Principal = Depends(require_admin))
             "anchored_at": anchor["anchored_at"].isoformat()},
         "pending_anchor_jobs": pending,
         "verify": {"ok": v.ok, "first_bad_idx": v.first_bad_idx},
-        # Niêm phong (spec 25.3).
-        "seal_pending": seal_pending,
-        "seal_key": seal_key,
-        "org": org,
     }
 
 

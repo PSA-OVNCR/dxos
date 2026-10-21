@@ -40,6 +40,19 @@ class OpenBaoTransit:
             raise KmsUnavailable("chữ ký OpenBao sai định dạng")
         return SignResult(signature=base64.b64decode(m.group(2)), key_version=int(m.group(1)))
 
+    async def health(self) -> None:
+        """``GET /v1/sys/health`` (không cần token): 200 là đã khởi tạo, đã mở khóa, đang active.
+        Mã khác (503 sealed, 501 chưa khởi tạo, 429 standby…) hay lỗi mạng -> ``KmsUnavailable``."""
+        try:
+            async with httpx.AsyncClient(timeout=self._timeout) as client:
+                resp = await client.get(f"{self.addr}/v1/sys/health")
+        except httpx.HTTPError as exc:
+            raise KmsUnavailable(f"OpenBao {type(exc).__name__}") from exc
+        if resp.status_code != 200:
+            reason = {503: "sealed", 501: "not initialized", 429: "standby"}.get(resp.status_code,
+                                                                                 f"HTTP {resp.status_code}")
+            raise KmsUnavailable(f"OpenBao sys/health: {reason}")
+
     async def renew_self(self) -> int:
         """Gia hạn token của lõi (token period do init.sh cấp); trả TTL mới (giây)."""
         try:

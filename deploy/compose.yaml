@@ -152,6 +152,8 @@ services:
       DXOS_FLOWABLE_PASSWORD_FILE: /run/secrets/flowable-rest-password
       # Service account dxos-installer (Plan 02 Task 11): tạo realm role app:<id>:<role> khi admin duyệt app.
       DXOS_INSTALLER_CLIENT_SECRET_FILE: /run/secrets/installer-client-secret
+      # Bốn mắt khi duyệt app (P2-D21). Chỉ đặt true cho demo một người (lá app.installed ghi self_approved).
+      DXOS_ALLOW_SELF_APPROVAL: ${DXOS_ALLOW_SELF_APPROVAL:-false}
     # Chỉ trust-core-api gọi Flowable (net-wf) và Admin API Keycloak (net-idp) nên chỉ nó có
     # flowable-rest-password và installer-client-secret; worker thì không.
     # Danh sách chép tay: phải luôn bằng *core-secrets (x-core-secrets) cộng hai secret trên.

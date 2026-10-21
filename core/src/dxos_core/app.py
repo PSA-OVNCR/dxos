@@ -23,6 +23,7 @@ from dxos_core.ledger import router as verify
 from dxos_core.objects import router as objects
 from dxos_core.objects.storage import ObjectStore
 from dxos_core.records import router as records
+from dxos_core.registry.keycloak_admin import KeycloakAdminSource
 from dxos_core.seal import router as seal
 from dxos_core.seal import verify_router as seal_verify
 from dxos_core.seal.service import request_seal, seal_record
@@ -74,6 +75,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings
     # Khóa công khai bất biến theo phiên bản: một cache cho /verify/v1/keys và cổng đối soát (Task 8).
     app.state.public_keys = PublicKeyCache()
+    # Một KeycloakAdmin cho cả tiến trình (cache token của dxos-installer; Plan 02 Task 12), tạo khi cần.
+    app.state.kc_admin = KeycloakAdminSource()
     app.state.verifier = JwksVerifier(
         settings.keycloak_jwks_url, settings.keycloak_issuer, settings.jwt_audience)
     install_error_handlers(app)

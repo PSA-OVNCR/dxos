@@ -81,3 +81,12 @@ async def test_renew_self_failure(bao, respx_mock):
     respx_mock.post(f"{ADDR}/v1/auth/token/renew-self").respond(status_code=403)
     with pytest.raises(KmsUnavailable):
         await bao.renew_self()
+
+
+async def test_health_ok_and_sealed(bao, respx_mock):                              # Plan 02 Task 12
+    route = respx_mock.get(f"{ADDR}/v1/sys/health").respond(json={"sealed": False})
+    await bao.health()
+    assert "x-vault-token" not in route.calls.last.request.headers
+    respx_mock.get(f"{ADDR}/v1/sys/health").respond(status_code=503, json={"sealed": True})
+    with pytest.raises(KmsUnavailable, match="sealed"):
+        await bao.health()

@@ -200,6 +200,7 @@ async def test_admin_ledger_status(api, tok_admin, wctx, core_conn):
     s = (await api.get("/admin/v1/ledger/status", headers=tok_admin)).json()
     assert s["tree_size"] == s["latest_sth"]["tree_size"] == s["last_anchor"]["tree_size"]
     assert s["verify"] == {"ok": True, "first_bad_idx": None} and s["pending_anchor_jobs"] == 0
+    assert not {"seal_pending", "seal_key", "org"} & s.keys()          # đã chuyển sang /admin/v1/health
 
 
 async def test_admin_api_needs_token_and_admin(api, tok_cv):

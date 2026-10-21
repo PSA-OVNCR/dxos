@@ -41,6 +41,9 @@ class Settings(BaseSettings):
     keycloak_admin_url: str = "http://keycloak:8080/auth/admin/realms/dxos"
     installer_client_id: str = "dxos-installer"
     installer_client_secret_file: Path | None = None
+    # Bốn mắt khi duyệt app (P2-D21): người duyệt phải khác người nộp. Chỉ bật cho demo một người
+    # (DXOS_ALLOW_SELF_APPROVAL=true); khi đó lá app.installed ghi self_approved: true.
+    allow_self_approval: bool = False
     actor_hmac_key_file: Path
     anchor_repo_dir: Path
     max_upload_mb_default: int = 15
