@@ -50,9 +50,18 @@ def discover(migrations_dir: Path) -> list[tuple[str, str, str]]:
     return found
 
 
-async def apply_migrations(dsn: str, migrations_dir: Path) -> list[str]:
-    """Áp dụng các migration chưa chạy; trả về danh sách tên tệp vừa áp dụng."""
+async def apply_migrations(dsn: str, migrations_dir: Path, *, until: str | None = None) -> list[str]:
+    """Áp dụng các migration chưa chạy; trả về danh sách tên tệp vừa áp dụng.
+
+    ``until``: tiền tố số (ví dụ ``"002"``) của migration cuối cùng được áp; các tệp sau đó bỏ qua.
+    Dùng cho test thử migration mới trên DB dừng ở mốc cũ.
+    Không có tệp nào mang tiền tố này → ``MigrationError``.
+    """
     files = discover(migrations_dir)
+    if until is not None:
+        if not any(name.startswith(f"{until}_") for name, _, _ in files):
+            raise MigrationError(f"không có migration {until}_*.sql")
+        files = [f for f in files if f[0][:3] <= until]
     conn = await asyncpg.connect(dsn, timeout=10)
     try:
         await conn.execute("SELECT pg_advisory_lock($1)", LOCK_KEY)

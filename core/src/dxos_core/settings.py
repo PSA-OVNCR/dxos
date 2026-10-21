@@ -7,7 +7,9 @@ Bí mật (khóa S3, token OpenBao, khóa HMAC) không đặt trong biến môi 
 """
 
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -37,6 +39,17 @@ class Settings(BaseSettings):
         "ssh -i /run/secrets/anchor-deploy-key -o IdentitiesOnly=yes -o BatchMode=yes"
         " -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=4"
         " -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/var/lib/dxos/anchor-known-hosts")
+    # Múi giờ tính năm cho số văn bản đánh lại theo năm (spec 25.4). Biến môi trường DXOS_TIMEZONE.
+    timezone: str = "Asia/Ho_Chi_Minh"
+
+    @field_validator("timezone")
+    @classmethod
+    def _check_timezone(cls, v: str) -> str:
+        try:
+            ZoneInfo(v)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ValueError(f"múi giờ không hợp lệ: {v!r}") from exc
+        return v
 
 
 def read_secret(path: Path) -> str:

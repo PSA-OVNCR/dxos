@@ -445,14 +445,14 @@ sequenceDiagram
 | `seal_requests` | seal_id, record_id (duy nhất), app_id, app_version, record_digest, attachments, public_fields, requested_at | Ảnh chụp nội dung được duyệt, ghi cùng transaction với task cuối; job niêm phong ký đúng ảnh chụp này. **Không** chứa salt |
 | `seal_revocations` | seal_id, reason_code, revoked_by, revoked_at | Mã lý do cố định (mục 25.2); không chứa chữ tự do |
 | `seal_revocation_notes` | seal_id, note (1–500 ký tự) | **Xóa được**; ghi chú tự do của người thu hồi (mục 25.2) |
-| `record_salts` | record_id, salt, created_at | **Xóa được, không UPDATE được**; salt 128 bit của từng bản ghi (mục 25.2) |
+| `record_salts` | record_id, salt, created_at | **Xóa được, không UPDATE được**; salt 16 byte của từng bản ghi, base64 24 ký tự (mục 25.2). Trigger `record_salt_init` (AFTER INSERT trên `records`) tạo salt bằng `encode(uuid_send(gen_random_uuid()), 'base64')`: 16 byte, trong đó 122 bit ngẫu nhiên, không cần pgcrypto. Salt tạo lại sau khi xóa (`ensure_salt`) dùng `secrets.token_bytes(16)`, đủ 128 bit |
 | `pii_erasures` | id, record_id, fields, reason_code, erased_by, txid, erased_at | Bằng chứng cho phép trigger `record_seal_guard` cho xóa trường `pii` của bản ghi đã niêm phong (mục 25.2) |
 | `key_statements` | key, version, statement, statement_sha256, created_at | Tuyên bố khóa (mục 25.3); không tự ký |
 
 Các thay đổi trên bảng cũ:
-- `records` thêm `wf_app_version`, `wf_definition_id` (ghim phiên bản app và định nghĩa quy trình lúc bắt đầu quy trình). `wf_state` chỉ nhận `NULL`, `running` hoặc `ended:<id end event>`. Trigger `record_workflow_guard` chặn sửa `data` khi `running`.
+- `records` thêm `wf_app_version`, `wf_definition_id` (ghim phiên bản app và định nghĩa quy trình lúc bắt đầu quy trình). `wf_state` chỉ nhận `NULL`, `running` hoặc `ended:<id end event>` (CHECK `^ended:[A-Za-z_][A-Za-z0-9_-]{0,63}$`; migration đưa giá trị cũ không hợp lệ về `NULL`). Trigger `record_workflow_guard` chặn sửa `data` khi `running`, không có ngoại lệ.
 - `uploads`: trigger chặn INSERT khi bản ghi đang `running` hoặc `seal_state ≠ NONE` (đọc bản ghi bằng `FOR SHARE` để chờ `workflow:start` đang chạy).
-- `seals`: một niêm phong cho mỗi bản ghi; khóa ngoại `(seal_id, record_id)` tới `seal_requests`; chữ ký ed25519 64 byte dạng base64.
+- `seals`: một niêm phong cho mỗi bản ghi (index duy nhất `seals_one_per_record`); khóa ngoại `(seal_id, record_id)` tới `seal_requests`; chữ ký ed25519 64 byte dạng base64 (CHECK `^[A-Za-z0-9+/]{86}==$`); `leaf_index` NOT NULL.
 
 ### 10.2. Vòng đời tệp (khái niệm chung của lõi)
 ```mermaid
@@ -1070,6 +1070,7 @@ Giờ của AT-24..26 đã nằm trong giờ của H1, H6, H13 và **không** c�
 | | | **I1 làm rõ (sửa kỹ thuật quan trọng nhất):** phân vùng mạng theo chủ sở hữu dữ liệu; Flowable chỉ có quyền với `flowable-db` riêng; Viewer và app Tầng 2 chỉ gọi API (4.1, 5, 6.2, 9.4, T1, T3, AT-01, ADR-22, RAM) |
 | 1.0.3 (phần A) | 21/10/2026 | Trưởng nhóm duyệt phương án A của tài liệu đề xuất khác biệt (Đ3, Đ4, Đ5; Đ2 neo OpenTimestamps để Plan 03) và duyệt từng phần thiết kế. Thêm mục 25 (pháp lý, dữ liệu cá nhân, tuyên bố khóa, văn thư, nghiệm thu); bất biến I5; ngoại lệ F2; AT-27, AT-28; sửa 4.1, 9.1, 9.2, 11.5, 11.6, 12.1, 12.2, 12.4, 14, 15, 19. Phần B (các sửa ở Plan 02 Task 1) ghi ở dòng "1.0.3 (phần B)" bên dưới |
 | 1.0.3 (phần B) | 21/10/2026 | Các sửa kèm Plan 02 Task 1 (manifest cộng thêm, sự kiện ledger). 9.1: `seal.revoke_roles` và luật validator; 9.3: tham số và ngữ nghĩa từng guard; 9.5: role Keycloak là **realm role** `app:{id}:{role}`, không phải client role (đúng với mã `identity/jwt.py`); 10.1: bảng và cột mới của migration 003; 11.5: phản hồi công khai không chứa hash tệp, gói của niêm phong cần tệp lấy qua `POST …:bundle`; 12.1: `:pii-review`; 12.2: `POST …/seals/{id}:bundle`; 12.3: `…/versions/{v}/diff`, `workflow:reconcile`; 12.4: `workflow.started`, `workflow.completed`; 15: rủi ro còn lại của `manage-realm` (T5) và của việc Flowable đi trước DB (T6). Quy tắc namespace hẹp lại: chỉ chặn role/collection là `app` hoặc bắt đầu bằng `app_` (trước đó chặn mọi tên bắt đầu bằng `app`, làm role `approver` bị từ chối oan) |
+| | | Plan 02 Task 2 (migration 003): mục 10.1 ghi rõ CHECK của `wf_state` và `seals`, cách tạo salt ở mức DB (122 bit ngẫu nhiên) so với `ensure_salt` (128 bit) |
 | 1.0.2 | 20/10/2026 | Mục 9.1: thêm `public: true` cho `so_hieu`. Trường này nằm trong `seal.public_fields`, mà quy tắc validator (Plan 01 Task 11) đòi mọi `public_fields` phải có cờ `public` |
 | | | Mục 9.1: `access.update` không khai báo thì mặc định là `[owner]` (chủ bản ghi sửa và đính kèm tệp khi bản ghi chưa niêm phong) |
 

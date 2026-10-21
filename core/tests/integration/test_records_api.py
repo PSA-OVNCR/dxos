@@ -2,9 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 """Integration test Records API chung (Plan 01 Task 13; AT-06, AT-09, AT-10, RF1)."""
 
+import json
 import unicodedata
+import uuid
 
 import pytest
+from dxos_core.records.digest import data_digest
+from dxos_proof.canonical import canonical_bytes, sha256_hex
 from helpers.api import activate, last_event_type, running_api, tok
 
 pytestmark = pytest.mark.integration
@@ -298,3 +302,52 @@ async def test_create_response_always_masked(api):
 async def test_strict_dates(api, tok_cb, d):
     r = await api.post(URL_B, json={"ho_ten": "A", "su_kien": "S", "ngay_cap": d}, headers=tok_cb)
     assert r.status_code == 422
+
+
+# ---------- Plan 02 Task 2: cam kết có salt (P2-D22), đánh số theo năm (P2-D26) ----------
+
+async def test_record_events_commit_to_salted_digest(api, tok_owner_a, core_conn):
+    r = await api.post(URL_T, json={"title": "t", "secret_code": "001099012345"}, headers=tok_owner_a)
+    rid = r.json()["id"]
+    data = json.loads(await core_conn.fetchval("SELECT data::text FROM records WHERE id=$1", uuid.UUID(rid)))
+    salt = await core_conn.fetchval("SELECT salt FROM record_salts WHERE record_id=$1", uuid.UUID(rid))
+    got = await core_conn.fetchval(
+        "SELECT body_sha256 FROM ledger_entries WHERE type='record.created' AND subject=$1", rid)
+    expected = {"collection": "item", "version": 1, "data_digest": data_digest(data, salt)}
+    legacy = {"collection": "item", "version": 1, "data_sha256": sha256_hex(canonical_bytes(data))}
+    assert got == sha256_hex(canonical_bytes(expected)) and got != sha256_hex(canonical_bytes(legacy))
+
+
+async def test_record_updated_commits_to_salted_digest(api, tok_owner_a, rid_t, core_conn):
+    r = await api.patch(f"{URL_T}/{rid_t}", json={"secret_code": "001099012345"},
+                        headers={**tok_owner_a, "If-Match": '"1"'})
+    assert r.status_code == 200
+    data = json.loads(await core_conn.fetchval("SELECT data::text FROM records WHERE id=$1",
+                                               uuid.UUID(rid_t)))
+    salt = await core_conn.fetchval("SELECT salt FROM record_salts WHERE record_id=$1", uuid.UUID(rid_t))
+    got = await core_conn.fetchval(
+        "SELECT body_sha256 FROM ledger_entries WHERE type='record.updated' AND subject=$1", rid_t)
+    assert got == sha256_hex(canonical_bytes({"collection": "item", "version": 2,
+                                              "data_digest": data_digest(data, salt)}))
+
+
+async def test_patch_recreates_erased_salt(api, tok_owner_a, rid_t, owner_conn, core_conn):
+    """Sau khi salt bị xóa (P2-D23), lần sửa kế tiếp tạo salt mới bằng ``ensure_salt``."""
+    old = await core_conn.fetchval("SELECT salt FROM record_salts WHERE record_id=$1", uuid.UUID(rid_t))
+    await owner_conn.execute("DELETE FROM record_salts WHERE record_id=$1", uuid.UUID(rid_t))
+    r = await api.patch(f"{URL_T}/{rid_t}", json={"title": "y"}, headers={**tok_owner_a, "If-Match": '"1"'})
+    assert r.status_code == 200
+    new = await core_conn.fetchval("SELECT salt FROM record_salts WHERE record_id=$1", uuid.UUID(rid_t))
+    assert new and new != old
+
+
+async def test_yearly_sequence_field_uses_zero_padded_format(make_settings, core_dsn, core_conn, test_jwks):
+    await activate(core_conn, ("test-flow",))
+    url = "/api/v1/apps/test-flow/collections/doc/records"
+    author = tok("author1", "app:test-flow:author")
+    async with running_api(make_settings(database_url=core_dsn, timezone="Asia/Ho_Chi_Minh")) as client:
+        refs = [(await client.post(url, json={"title": f"d{i}"}, headers=author)).json()["data"]["ref"]
+                for i in range(2)]
+    assert refs == ["01/TF", "02/TF"]
+    names = [r["name"] for r in await core_conn.fetch("SELECT name FROM sequences WHERE app_id='test-flow'")]
+    assert len(names) == 1 and names[0].startswith("doc.ref@20")

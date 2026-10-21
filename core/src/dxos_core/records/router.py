@@ -19,7 +19,8 @@ router = APIRouter(prefix="/api/v1/apps/{app}/collections/{col}", tags=["records
 
 async def ctx_dep(request: Request, p: Principal = Depends(require_principal)) -> AsyncIterator[service.Ctx]:  # noqa: B008
     async with request.app.state.pool.acquire() as conn:
-        yield service.Ctx(conn=conn, principal=p, hmac_key=request.app.state.hmac_key)
+        yield service.Ctx(conn=conn, principal=p, hmac_key=request.app.state.hmac_key,
+                          timezone=request.app.state.settings.timezone)
 
 
 async def _json_body(request: Request) -> Any:

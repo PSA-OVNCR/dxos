@@ -16,16 +16,17 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import asyncpg
-from dxos_proof.canonical import canonical_bytes, sha256_hex
 
 from dxos_core.errors import ProblemError
 from dxos_core.identity.jwt import Principal
 from dxos_core.ledger.log import append
 from dxos_core.policy.masking import mask_record, pii_fields_present
 from dxos_core.policy.pdp import Action, Forbidden, NotFound, decide, enforce
-from dxos_core.records.sequences import next_sequence
+from dxos_core.records.digest import data_digest, ensure_salt
+from dxos_core.records.sequences import format_sequence, next_sequence
 from dxos_core.registry.model import CollectionSpec, Manifest
 from dxos_core.registry.store import get_active
 
@@ -40,6 +41,7 @@ class Ctx:
     conn: asyncpg.Connection
     principal: Principal
     hmac_key: bytes
+    timezone: str = "Asia/Ho_Chi_Minh"     # Settings.timezone: năm của số văn bản đánh lại theo năm
 
 
 # ---------------------------------------------------------------- lỗi chuẩn
@@ -180,16 +182,20 @@ async def fetch_record(ctx: Ctx, m: Manifest, col: str, rid: str) -> asyncpg.Rec
 # ---------------------------------------------------------------- thao tác
 async def _insert(ctx: Ctx, m: Manifest, col: str, spec: CollectionSpec, data: dict) -> asyncpg.Record:
     async with ctx.conn.transaction():
+        year = datetime.now(ZoneInfo(ctx.timezone)).year
         for name, f in spec.fields.items():
             if f.type == "sequence":
-                n = await next_sequence(ctx.conn, m.app.id, f"{col}.{name}")
-                data[name] = (f.format or "{n}").replace("{n}", str(n))
+                n = await next_sequence(ctx.conn, m.app.id, f"{col}.{name}",
+                                        year=year if f.reset == "yearly" else None)
+                data[name] = format_sequence(f.format, n)
         row = await ctx.conn.fetchrow(
             "INSERT INTO records(app_id, collection, data, owner_sub)"
             " VALUES ($1, $2, $3::jsonb, $4) RETURNING *",
             m.app.id, col, json.dumps(data, ensure_ascii=False), ctx.principal.sub)
+        # Salt do trigger record_salt_init tạo trong cùng transaction; hàng mới chưa commit nên không ai chen.
+        salt = await ensure_salt(ctx.conn, row["id"])
         await append(ctx.conn, type="record.created", subject=str(row["id"]),
-                     body={"collection": col, "version": 1, "data_sha256": sha256_hex(canonical_bytes(data))},
+                     body={"collection": col, "version": 1, "data_digest": data_digest(data, salt)},
                      hmac_key=ctx.hmac_key, app_id=m.app.id, actor_sub=ctx.principal.sub)
     return row
 
@@ -305,9 +311,10 @@ async def patch(ctx: Ctx, app_id: str, col: str, rid: str, body: Any, if_match: 
                 json.dumps(merged, ensure_ascii=False), row["id"], expected)
             if new is None:
                 raise ProblemError(409, "version-conflict", "Version conflict", "record changed concurrently")
+            salt = await ensure_salt(ctx.conn, row["id"])     # sau UPDATE: khóa hàng giữ tới hết transaction
             await append(ctx.conn, type="record.updated", subject=str(row["id"]),
                          body={"collection": col, "version": new["version"],
-                               "data_sha256": sha256_hex(canonical_bytes(merged))},
+                               "data_digest": data_digest(merged, salt)},
                          hmac_key=ctx.hmac_key, app_id=m.app.id, actor_sub=ctx.principal.sub)
     except asyncpg.RaiseError as exc:          # niêm phong xảy ra giữa lúc đọc và lúc ghi
         if "record_sealed" in str(exc):

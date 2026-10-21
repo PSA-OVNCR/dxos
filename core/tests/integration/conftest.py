@@ -11,6 +11,7 @@ trừ khi đặt DXOS_TEST_REQUIRE_DB=1 (CI) thì báo lỗi.
 import os
 import uuid
 from collections.abc import AsyncIterator
+from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
@@ -18,6 +19,7 @@ import asyncpg
 import pytest
 from dxos_core.db.migrate import apply_migrations, set_core_password
 from dxos_core.db.pool import SEARCH_PATH, create_pool
+from helpers.db import ensure_app
 
 OWNER_DSN = os.environ.get(
     "DXOS_TEST_OWNER_DSN", "postgresql://dxos_owner:changeme-test@127.0.0.1:55432/dxos_test"
@@ -138,6 +140,66 @@ async def sealed_record_id(owner_conn: asyncpg.Connection) -> uuid.UUID:
     rid = await _insert_record(owner_conn)
     await owner_conn.execute("UPDATE records SET seal_state='SEALED' WHERE id=$1", rid)
     return rid
+
+
+# ---------------------------------------------------------------- migration 003 (Plan 02 Task 2)
+@pytest.fixture
+async def other_record_id(core_conn: asyncpg.Connection) -> uuid.UUID:
+    """Bản ghi thứ hai (test-app/item), khác ``record_id``."""
+    return await _insert_record(core_conn)
+
+
+@pytest.fixture
+async def pending_app(core_conn: asyncpg.Connection) -> tuple[str, str]:
+    """App ``test-flow`` 0.1.0 ở trạng thái PENDING (đích khóa ngoại của app_files/app_deployments)."""
+    await ensure_app(core_conn, "test-flow", "0.1.0")
+    return "test-flow", "0.1.0"
+
+
+@pytest.fixture
+async def sealed_pii_record_id(owner_conn: asyncpg.Connection) -> uuid.UUID:
+    """Bản ghi test-app/item có hai trường PII (cccd, phone) và title, đã SEALED (đặt bằng owner)."""
+    rid = await owner_conn.fetchval(
+        "INSERT INTO records(app_id, collection, data, owner_sub)"
+        " VALUES ('test-app', 'item', $1::jsonb, 'u1') RETURNING id",
+        '{"title": "x", "cccd": "001099012345", "phone": "0912345678"}')
+    await owner_conn.execute("UPDATE records SET seal_state='SEALED' WHERE id=$1", rid)
+    return rid
+
+
+@dataclass
+class FreshDb:
+    """DB tạm đã áp migration tới một mốc; dùng để thử migration mới trên dữ liệu cũ."""
+
+    dsn: str
+
+    async def _conn(self) -> asyncpg.Connection:
+        return await _connect(self.dsn)
+
+    async def insert_record(self) -> uuid.UUID:
+        conn = await self._conn()
+        try:
+            return await _insert_record(conn)
+        finally:
+            await conn.close()
+
+    async def apply(self, until: str) -> list[str]:
+        return await apply_migrations(self.dsn, MIGRATIONS, until=until)
+
+    async def salt_of(self, rid: uuid.UUID) -> str | None:
+        conn = await self._conn()
+        try:
+            return await conn.fetchval("SELECT salt FROM record_salts WHERE record_id=$1", rid)
+        finally:
+            await conn.close()
+
+
+@pytest.fixture
+async def fresh_db_at_002(owner_dsn: str) -> FreshDb:
+    """DB trống đã áp 001 và 002 (chưa có 003)."""
+    db = FreshDb(owner_dsn)
+    assert await db.apply("002") == ["001_core.sql", "002_anchors.sql"]
+    return db
 
 
 # ---------------------------------------------------------------- kho S3 + worker (Task 14)

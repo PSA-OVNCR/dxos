@@ -15,8 +15,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     DXOS_MIGRATIONS_DIR=/opt/dxos/migrations
 
 # git + ssh: worker đẩy STH lên repo neo (Task 16). Chạy như chương trình độc lập, không nhúng mã (G2).
+# tzdata: dữ liệu múi giờ cho DXOS_TIMEZONE (zoneinfo; image slim mới không còn sẵn), Plan 02 Task 2.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends git openssh-client \
+ && apt-get install -y --no-install-recommends git openssh-client tzdata \
  && rm -rf /var/lib/apt/lists/*
 
 COPY libs/dxos-proof /tmp/src/dxos-proof

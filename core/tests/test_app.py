@@ -108,6 +108,7 @@ def test_settings_has_exactly_planned_fields():
         "keycloak_issuer", "keycloak_jwks_url", "jwt_audience",
         "actor_hmac_key_file", "anchor_repo_dir", "max_upload_mb_default",
         "anchor_remote", "anchor_git_ssh_command",          # thêm ở Task 16
+        "timezone",                                         # Plan 02 Task 2 (spec 25.4)
     }
 
 
@@ -127,3 +128,10 @@ def test_read_secret_rejects_empty(tmp_path):
     p.write_text("\n", encoding="utf-8")
     with pytest.raises(ValueError):
         read_secret(p)
+
+
+def test_settings_timezone_default_and_validated(make_settings):
+    assert make_settings().timezone == "Asia/Ho_Chi_Minh"
+    assert make_settings(timezone="UTC").timezone == "UTC"
+    with pytest.raises(ValueError):
+        make_settings(timezone="Mars/Olympus_Mons")

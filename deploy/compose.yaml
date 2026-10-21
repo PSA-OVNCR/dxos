@@ -32,6 +32,7 @@ x-core-env: &core-env
   DXOS_KEYCLOAK_JWKS_URL: http://keycloak:8080/auth/realms/dxos/protocol/openid-connect/certs
   DXOS_ACTOR_HMAC_KEY_FILE: /run/secrets/actor-hmac-key
   DXOS_ANCHOR_REPO_DIR: /var/lib/dxos/anchor-repo
+  DXOS_TIMEZONE: ${DXOS_TIMEZONE:-Asia/Ho_Chi_Minh}
 
 x-core-secrets: &core-secrets [s3-access-key, s3-secret-key, openbao-core-token, actor-hmac-key]
 
