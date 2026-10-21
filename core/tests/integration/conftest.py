@@ -8,6 +8,7 @@ Cần PostgreSQL với role `dxos_owner` có quyền tạo database, ví dụ:
 trừ khi đặt DXOS_TEST_REQUIRE_DB=1 (CI) thì báo lỗi.
 """
 
+import hashlib
 import os
 import uuid
 from collections.abc import AsyncIterator
@@ -297,3 +298,129 @@ async def flow_record_with_uploads(core_conn: asyncpg.Connection) -> dict:
     record = await core_conn.fetchrow("SELECT * FROM records WHERE id=$1", rid)
     return {"record": record, "spec": m.collections["doc"], "m": m,
             "p": P("rev-1", ["app:test-flow:reviewer"]), "task_assignee": None}
+
+
+# ---------------------------------------------------------------- ký số (dùng chung; chuyển từ test_sth.py)
+@pytest.fixture
+def local_signer():
+    """Signer ed25519 trong bộ nhớ (``helpers.local_signer.LocalSigner``): seal-key và sth-key phiên bản 1."""
+    from helpers.local_signer import LocalSigner
+
+    return LocalSigner()
+
+
+@pytest.fixture
+def failing_signer():
+    """Signer luôn ném ``KmsUnavailable`` (OpenBao bị khóa hoặc mất kết nối)."""
+    from helpers.local_signer import FailingSigner
+
+    return FailingSigner()
+
+
+# ---------------------------------------------------------------- cầu nối quy trình (Plan 02 Task 6)
+@pytest.fixture
+async def flow(s3_settings, core_conn, core_dsn, test_jwks, flowable_client, local_signer, tmp_path):
+    """``FlowHarness`` (helpers/flow.py): API thật (S3, fake clamd, Flowable thật, ``local_signer``) với
+    ``test-flow`` 0.1.0 đã cài và ACTIVE; khi xong hủy mọi instance Flowable của DB test này."""
+    from dxos_core.jobs.context import WorkerContext
+    from dxos_core.objects.storage import ObjectStore
+    from dxos_core.settings import read_secret
+    from helpers.api import running_api
+    from helpers.flow import FlowHarness
+
+    password = tmp_path / "flowable-password"
+    password.write_text(FLOWABLE_PASSWORD, encoding="utf-8")
+    settings = s3_settings.model_copy(update={
+        "flowable_url": FLOWABLE_URL, "flowable_user": FLOWABLE_USER, "flowable_password_file": password})
+    pool = await create_pool(core_dsn)
+    try:
+        async with running_api(settings, signer=local_signer) as api:
+            ctx = WorkerContext(pool=pool, store=ObjectStore(settings), settings=settings,
+                                hmac_key=read_secret(settings.actor_hmac_key_file).encode("utf-8"))
+            harness = FlowHarness(api, core_conn, flowable_client, ctx)
+            try:
+                await harness.install_version("0.1.0")
+                yield harness
+            finally:
+                await harness.close()
+    finally:
+        await pool.close()
+
+
+@pytest.fixture
+async def other_app_task(flow, flowable_client):
+    """Id một task đang mở của quy trình app khác (``other-flow``), có businessKey là một bản ghi test-app
+    đang ``running`` đúng instance đó; hủy instance khi xong."""
+    from dxos_core.registry.bpmn import parse_bpmn, render_bpmn
+    from helpers.flow import BPMN_FILE
+
+    xml = BPMN_FILE.read_bytes().replace(b"test-flow", b"other-flow")
+    rendered = render_bpmn(parse_bpmn(xml, app_id="other-flow", seal_end=None))
+    name = f"other-flow@it#{hashlib.sha256(rendered).hexdigest()[:16]}"
+    definition = await flowable_client.definition_id(
+        await flowable_client.deploy(name, "other-review.bpmn20.xml", rendered))
+    rid = await _insert_record(flow.conn)
+    iid = await flowable_client.start(definition, str(rid), {"dxos_record_id": str(rid)})
+    await flow.conn.execute("UPDATE records SET wf_instance_id=$2, wf_state='running' WHERE id=$1", rid, iid)
+    try:
+        [task] = [t for t in await flowable_client.list_tasks(["app:other-flow:reviewer"], "other-flow.")
+                  if t.process_instance_id == iid]
+        yield task.id
+    finally:
+        await flowable_client.cancel(iid, "dxos:test-teardown")
+
+
+@pytest.fixture
+def break_finalize_once(monkeypatch):
+    """Bước hoàn tất phía DB (``reconcile.finalize``) ném lỗi đúng một lần, sau khi Flowable đã chạy."""
+    from dxos_core.workflow import reconcile
+
+    real, left = reconcile.finalize, [1]
+
+    async def broken(*args, **kwargs):
+        if left[0]:
+            left[0] -= 1
+            raise RuntimeError("DB lỗi giả lập sau khi Flowable đã hoàn thành task")
+        return await real(*args, **kwargs)
+
+    monkeypatch.setattr(reconcile, "finalize", broken)
+
+
+@pytest.fixture
+def flowable_down_once(flow, monkeypatch):
+    """Lần gọi ``complete`` đầu tiên của API tới Flowable lỗi mạng (không tới được Flowable)."""
+    from dxos_core.workflow.flowable import WorkflowUnavailable
+
+    client = flow.api.app.state.flowable
+    real, left = client.complete, [1]
+
+    async def down(*args, **kwargs):
+        if left[0]:
+            left[0] -= 1
+            raise WorkflowUnavailable("Flowable ConnectError (giả lập)")
+        return await real(*args, **kwargs)
+
+    monkeypatch.setattr(client, "complete", down)
+
+
+@pytest.fixture
+def guard_flips_after_flowable(flow, monkeypatch):
+    """Guard đổi kết quả giữa lúc gọi Flowable và lúc hoàn tất: lần ``evaluate`` đầu tiên sau mỗi lần
+    ``complete`` thành công trả ``attachments_clean`` sai (409)."""
+    from dxos_core.workflow import guards
+
+    client = flow.api.app.state.flowable
+    real_complete, real_evaluate, flipped = client.complete, guards.evaluate, [False]
+
+    async def complete(*args, **kwargs):
+        await real_complete(*args, **kwargs)
+        flipped[0] = True
+
+    def evaluate(gs, gi):
+        if flipped[0]:
+            flipped[0] = False
+            return guards.GuardFailure("attachments_clean", "attachments_not_clean", 409)
+        return real_evaluate(gs, gi)
+
+    monkeypatch.setattr(client, "complete", complete)
+    monkeypatch.setattr(guards, "evaluate", evaluate)

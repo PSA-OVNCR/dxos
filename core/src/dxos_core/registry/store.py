@@ -57,3 +57,20 @@ async def save_manifest(conn: asyncpg.Connection, m: Manifest, raw: dict, status
 async def get_active(conn: asyncpg.Connection, app_id: str) -> Manifest | None:
     raw = await conn.fetchval("SELECT manifest FROM apps WHERE id=$1 AND status='ACTIVE'", app_id)
     return None if raw is None else validate_manifest(_loads(raw))
+
+
+async def get_version(conn: asyncpg.Connection, app_id: str, version: str) -> Manifest | None:
+    """Manifest của đúng ``version`` ở **mọi** trạng thái (PENDING, ACTIVE, DISABLED).
+
+    Dùng cho bản ghi đã ghim phiên bản lúc bắt đầu quy trình (P2-D19): guard, task và niêm phong theo bản
+    đã ghim kể cả khi app đã nâng cấp. Không dùng hàm này để quyết định app có đang hoạt động hay không.
+    """
+    raw = await conn.fetchval("SELECT manifest FROM apps WHERE id=$1 AND version=$2", app_id, version)
+    return None if raw is None else validate_manifest(_loads(raw))
+
+
+async def get_deployment(conn: asyncpg.Connection, app_id: str, version: str) -> asyncpg.Record | None:
+    """Hàng ``app_deployments`` (deployment_id, process_definition_id, rendered_sha256) của một phiên bản."""
+    return await conn.fetchrow(
+        "SELECT app_id, version, deployment_id, process_definition_id, rendered_sha256, deployed_at"
+        " FROM app_deployments WHERE app_id=$1 AND version=$2", app_id, version)

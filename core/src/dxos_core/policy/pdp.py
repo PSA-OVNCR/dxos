@@ -9,6 +9,8 @@ Thứ tự trong ``decide``:
 3. ``reveal_pii`` → ``policies.pii.reveal_roles``.
 4. ``list``/``read`` → ``access.read``; ``create`` → ``access.create``; ``update`` → ``access.update``.
    Vai trò được xét trước ``owner``: với ``list``, lý do ``owner`` nghĩa là chỉ được thấy bản ghi của mình.
+
+``deny`` ghi một lần từ chối không do ``decide`` quyết định (guard, role của task, KMS...), Plan 02 Task 6.
 """
 
 from dataclasses import dataclass
@@ -77,3 +79,18 @@ async def enforce(conn: asyncpg.Connection, p: Principal, action: Action, m: Man
     if action in ("list", "create"):
         raise Forbidden(d.reason)
     raise NotFound(d.reason)
+
+
+async def deny(conn: asyncpg.Connection, p: Principal, m: Manifest, *, action: str, reason: str, subject: str,
+               hmac_key: bytes) -> None:
+    """Ghi ledger ``policy.denied {action, reason}`` cho một lần từ chối ngoài ``decide`` (Plan 02 Task 6).
+
+    ``reason`` theo định dạng thống nhất: ``guard:<guard>:<lý do>``, ``not_task_role``, ``kms_unavailable``,
+    ``seal_key_expired``, ``org_not_configured``, ``not_pii_reviewer`` (Task 7/12 thêm ``not_revoker``,
+    ``not_eraser``, ``self_approval``). Bên gọi tự trả mã HTTP.
+    Như ``enforce``: phải gọi **ngoài** transaction, nếu không lá có thể bị rollback cùng transaction (F3).
+    """
+    if conn.is_in_transaction():
+        raise RuntimeError("deny() trong một transaction: lá policy.denied có thể bị rollback")
+    await append(conn, type="policy.denied", subject=subject, body={"action": action, "reason": reason},
+                 hmac_key=hmac_key, app_id=m.app.id, actor_sub=p.sub)

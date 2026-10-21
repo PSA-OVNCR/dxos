@@ -9,8 +9,12 @@ Bí mật (khóa S3, token OpenBao, khóa HMAC) không đặt trong biến môi 
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Tên tổ chức mặc định: còn giá trị này thì lõi từ chối niêm phong (spec 25.3), để tên giữ chỗ không bị ghi
+# vĩnh viễn vào tuyên bố khóa chỉ-thêm. dxos_core.seal.keys dùng lại hằng này.
+ORG_NAME_DEFAULT = "Tổ chức chưa cấu hình"
 
 
 class Settings(BaseSettings):
@@ -45,6 +49,15 @@ class Settings(BaseSettings):
     flowable_password_file: Path | None = None
     # Múi giờ tính năm cho số văn bản đánh lại theo năm (spec 25.4). Biến môi trường DXOS_TIMEZONE.
     timezone: str = "Asia/Ho_Chi_Minh"
+    # Tuyên bố khóa seal-key (spec 25.3; Plan 02 Task 6 tạo trường, Task 7 dùng để dựng tuyên bố).
+    # Biến môi trường DXOS_ORG_NAME, DXOS_ORG_ID, DXOS_SEAL_KEY_VALIDITY_DAYS, DXOS_SEAL_PURPOSE,
+    # DXOS_KEY_POLICY_URL. Tên tổ chức là cấu hình triển khai, không phải định danh app (không vi phạm I3).
+    org_name: str = ORG_NAME_DEFAULT
+    org_id: str | None = None
+    # Tối đa 10 năm (NĐ 23/2025 Điều 7 khoản 4).
+    seal_key_validity_days: int = Field(3650, ge=1, le=3650)
+    seal_purpose: str = "Niêm phong văn bản và bản ghi do tổ chức ban hành qua DX-OS Trust Core"
+    key_policy_url: str | None = None
 
     @field_validator("timezone")
     @classmethod

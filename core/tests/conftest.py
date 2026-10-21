@@ -38,6 +38,8 @@ def make_settings(tmp_path: Path, secret_file: Path):
             "keycloak_jwks_url": "http://keycloak.invalid/auth/realms/dxos/protocol/openid-connect/certs",
             "actor_hmac_key_file": secret_file,
             "anchor_repo_dir": tmp_path / "anchor-repo",
+            # Không để tên mặc định (ORG_NAME_DEFAULT) làm trượt test niêm phong (spec 25.3).
+            "org_name": "Tổ chức thử nghiệm",
         }
         values.update(overrides)
         return Settings(**values)

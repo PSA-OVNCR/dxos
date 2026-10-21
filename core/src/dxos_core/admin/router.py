@@ -17,6 +17,8 @@ from dxos_core.kms.base import KmsUnavailable
 from dxos_core.ledger.anchor_job import ANCHOR_JOB
 from dxos_core.ledger.log import verify_log
 from dxos_core.ledger.sth import latest_sth, make_sth
+from dxos_core.workflow.flowable import WorkflowUnavailable
+from dxos_core.workflow.reconcile import deps_from_state, reconcile_all, workflow_unavailable
 
 router = APIRouter(prefix="/admin/v1", tags=["admin"])
 
@@ -53,3 +55,13 @@ async def ledger_status(request: Request, _: Principal = Depends(require_admin))
         "pending_anchor_jobs": pending,
         "verify": {"ok": v.ok, "first_bad_idx": v.first_bad_idx},
     }
+
+
+@router.post("/workflow:reconcile")
+async def workflow_reconcile(request: Request, _: Principal = Depends(require_admin)) -> dict:  # noqa: B008
+    """Đối soát mọi ý định hoàn thành task chưa có kết quả với lịch sử Flowable (P2-D20, spec 15 T6)."""
+    deps = deps_from_state(request.app.state)
+    try:
+        return await reconcile_all(deps)
+    except WorkflowUnavailable as exc:
+        raise workflow_unavailable() from exc

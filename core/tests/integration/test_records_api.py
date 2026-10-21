@@ -125,7 +125,7 @@ async def test_record_shape_hides_owner(api, tok_owner_a):
     r = await api.post(URL_T, json={"title": "t"}, headers=tok_owner_a)
     body = r.json()
     assert set(body) == {"id", "app_id", "collection", "data", "is_owner", "version", "seal_state",
-                         "created_at", "updated_at"}
+                         "wf_state", "created_at", "updated_at"}            # wf_state: Plan 02 Task 6
     assert body["is_owner"] is True and body["version"] == 1 and body["seal_state"] == "NONE"
     assert "owner_a1" not in r.text
 

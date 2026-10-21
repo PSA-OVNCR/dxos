@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """``load_guard_input``: mọi truy vấn DB của guard (Plan 02 Task 5). Người gọi giữ khóa hàng FOR SHARE."""
 
+import asyncio
+
 import pytest
 from dxos_core.records.digest import data_digest
 from dxos_core.workflow.guards import evaluate, load_guard_input, review_digest
@@ -175,3 +177,77 @@ async def test_data_digest_recreates_erased_salt(core_conn, flow_record_with_upl
     g2 = await _load(core_conn, kw)
     salt = await core_conn.fetchval("SELECT salt FROM record_salts WHERE record_id=$1", rid)
     assert g1.data_digest == g2.data_digest == data_digest({"title": "Hồ sơ"}, salt) != before
+
+
+async def test_concurrent_ensure_salt_after_erase_returns_one_salt(core_conn, core_dsn,
+                                                                   flow_record_with_uploads):
+    """Hai bên cùng giữ FOR SHARE sau khi salt bị xóa: cùng thấy "chưa có salt", cùng INSERT; bên sau phải
+    nhận đúng salt bên trước đã lưu thay vì lỗi khóa chính (sửa từ rà soát Task 5)."""
+    import asyncpg
+    from dxos_core.records.digest import ensure_salt
+
+    rid = flow_record_with_uploads["record"]["id"]
+    await core_conn.execute("DELETE FROM record_salts WHERE record_id=$1", rid)
+    other = await asyncpg.connect(core_dsn, server_settings={"search_path": "core"})
+    try:
+        tx1, tx2 = core_conn.transaction(), other.transaction()
+        await tx1.start()
+        await tx2.start()
+        for c in (core_conn, other):
+            await c.execute("SELECT 1 FROM core.records WHERE id=$1 FOR SHARE", rid)
+        first = await ensure_salt(core_conn, rid)                         # INSERT, chưa commit
+        second_task = asyncio.create_task(ensure_salt(other, rid))        # thấy chưa có salt, INSERT bị chặn
+        pid = other.get_server_pid()
+        for _ in range(200):
+            if await core_conn.fetchval(
+                    "SELECT wait_event_type = 'Lock' FROM pg_stat_activity WHERE pid=$1", pid):
+                break
+            await asyncio.sleep(0.01)
+        else:
+            pytest.fail("kết nối thứ hai không chờ khóa của INSERT")
+        await tx1.commit()
+        second = await second_task
+        await tx2.commit()
+    finally:
+        await other.close()
+    assert first == second
+    assert await core_conn.fetchval("SELECT count(*) FROM record_salts WHERE record_id=$1", rid) == 1
+
+
+async def test_other_records_do_not_leak_into_guard_input(core_conn, flow_record_with_uploads):
+    """Upload STAGING, tệp CLEAN, rà PII và hoàn thành task của bản ghi khác (cùng instance id) không đổi
+    GuardInput của bản ghi này (rà soát Task 5, m3)."""
+    kw = flow_record_with_uploads
+    rid = kw["record"]["id"]
+    await core_conn.execute("UPDATE records SET wf_instance_id='i-shared' WHERE id=$1", rid)
+    kw = {**kw, "record": await core_conn.fetchrow("SELECT * FROM records WHERE id=$1", rid)}
+    before = await _load(core_conn, kw)
+    other = await core_conn.fetchval(
+        "INSERT INTO records(app_id, collection, data, owner_sub, wf_instance_id)"
+        " VALUES ('test-flow', 'doc', $1::jsonb, 'author-2', 'i-shared') RETURNING id", '{"title": "Khác"}')
+    sha = "d" * 64
+    await core_conn.execute(
+        "INSERT INTO objects(sha256, size, mime_sniffed, status, storage_key)"
+        " VALUES ($1, 1, 'application/pdf', 'CLEAN', 'k-other-rec')", sha)
+    await core_conn.execute("INSERT INTO object_refs(record_id, sha256, role) VALUES ($1, $2, 'original')",
+                            other, sha)
+    await core_conn.execute("INSERT INTO pii_findings(sha256, type, page) VALUES ($1, 'CCCD', 0)", sha)
+    await core_conn.execute(
+        "INSERT INTO uploads(record_id, staging_key, original_name_hash, size, status)"
+        " VALUES ($1, 'k', $2, 1, 'STAGING')", other, "b" * 64)
+    await core_conn.execute(
+        "INSERT INTO pii_reviews(record_id, review_digest, reviewed_by) VALUES ($1, $2, 'rev-9')",
+        other, "9" * 64)
+    intent = await core_conn.fetchval(
+        "INSERT INTO task_intents(task_id, record_id, wf_instance_id, task_key, actor_sub, actor_roles,"
+        " decision) VALUES ('t-other', $1, 'i-shared', 'review', 'rev-1', '{reviewer}', 'approve')"
+        " RETURNING id", other)
+    await core_conn.execute(
+        "INSERT INTO task_completions(task_id, intent_id, record_id, wf_instance_id, task_key, actor_sub,"
+        " decision) VALUES ('t-other', $1, $2, 'i-shared', 'review', 'rev-1', 'approve')", intent, other)
+    after = await _load(core_conn, kw)
+    def watched(g):
+        return g.uploads_pending, g.clean_attachments, g.last_review_digest, g.completions, g.finding_ids
+
+    assert watched(after) == watched(before)
+    assert after == before

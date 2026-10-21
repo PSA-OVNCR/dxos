@@ -7,9 +7,11 @@
 """
 
 import asyncio
+import logging
 import re
 import uuid
 
+import asyncpg
 from botocore.exceptions import BotoCoreError, ClientError
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, Response
@@ -26,6 +28,7 @@ from dxos_core.records import service
 from dxos_core.records.router import ctx_dep
 from dxos_core.registry.store import get_active
 
+log = logging.getLogger("dxos_core.objects.router")
 router = APIRouter(tags=["objects"])
 _SHA = re.compile(r"^[0-9a-f]{64}$")
 _FORM_OVERHEAD = 64 * 1024
@@ -33,6 +36,19 @@ _FORM_OVERHEAD = 64 * 1024
 
 def _too_large(limit: int) -> ProblemError:
     return ProblemError(413, "payload-too-large", "Payload Too Large", f"attachment limit is {limit} bytes")
+
+
+def _not_open() -> ProblemError:
+    return ProblemError(409, "record-not-open", "Record is not open for attachments",
+                        "record is in a running workflow or sealed")
+
+
+def _drop_staging_quietly(store, upload_id: uuid.UUID) -> None:
+    """Xóa bản staging của upload bị từ chối; lỗi ở đây chỉ để lại rác trong bucket staging."""
+    try:
+        store.delete_staging(upload_id)
+    except Exception:  # noqa: BLE001
+        log.warning("không xóa được staging %s của upload bị từ chối", upload_id)
 
 
 def _put_staging(store, upload_id: uuid.UUID, data: bytes) -> None:
@@ -60,6 +76,8 @@ async def upload_attachment(app: str, col: str, rid: str, request: Request,
         await service.enforce_or_problem(ctx, "update", m, col, row["owner_sub"], str(row["id"]))
         if row["seal_state"] != "NONE":
             raise ProblemError(409, "record-sealed", "Record is sealed")
+        if row["wf_state"] == "running":
+            raise _not_open()
     limit = (spec.attachments.max_mb if spec.attachments else settings.max_upload_mb_default) * 2**20
     declared = request.headers.get("content-length")
     if declared is None or not declared.isdigit():
@@ -83,10 +101,18 @@ async def upload_attachment(app: str, col: str, rid: str, request: Request,
         await asyncio.to_thread(_put_staging, request.app.state.store, upload_id, data)
     except (ClientError, BotoCoreError) as exc:
         raise ProblemError(503, "storage-unavailable", "Object storage unavailable") from exc
-    async with pool.acquire() as conn:
-        await register_upload(conn, upload_id=upload_id, record_id=row["id"], app_id=m.app.id,
-                              filename=filename, size=len(data), declared_type=content_type,
-                              actor_sub=p.sub, hmac_key=hmac_key)
+    try:
+        async with pool.acquire() as conn:
+            await register_upload(conn, upload_id=upload_id, record_id=row["id"], app_id=m.app.id,
+                                  filename=filename, size=len(data), declared_type=content_type,
+                                  actor_sub=p.sub, hmac_key=hmac_key)
+    except asyncpg.RaiseError as exc:
+        # Quy trình bắt đầu (hoặc niêm phong) trong lúc tệp đang tải lên: trigger upload_record_open chặn ở
+        # mức DB, để không tệp nào lọt vào sau khi đã duyệt (P2-D4).
+        if "record_not_open" not in str(exc):
+            raise
+        await asyncio.to_thread(_drop_staging_quietly, request.app.state.store, upload_id)
+        raise _not_open() from exc
     return JSONResponse({"upload_id": str(upload_id), "status": "STAGING"}, status_code=202)
 
 

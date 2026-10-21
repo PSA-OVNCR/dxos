@@ -49,6 +49,11 @@ def _not_found() -> ProblemError:
     return ProblemError(404, "not-found", "Not Found")
 
 
+def _in_workflow() -> ProblemError:
+    """Bản ghi đang chạy quy trình: ``data`` bị khóa (P2-D4; trigger record_workflow_guard ở mức DB)."""
+    return ProblemError(409, "record-in-workflow", "Record is in a running workflow")
+
+
 def _schema_error(errors: list[dict]) -> ProblemError:
     return ProblemError(422, "schema", "Record data does not match the collection schema", errors=errors)
 
@@ -125,7 +130,7 @@ def record_out(row: asyncpg.Record, p: Principal, spec: CollectionSpec, can_reve
     return {
         "id": str(row["id"]), "app_id": row["app_id"], "collection": row["collection"],
         "data": mask_record(data, spec, can_reveal), "is_owner": row["owner_sub"] == p.sub,
-        "version": row["version"], "seal_state": row["seal_state"],
+        "version": row["version"], "seal_state": row["seal_state"], "wf_state": row["wf_state"],
         "created_at": _ts(row["created_at"]), "updated_at": _ts(row["updated_at"]),
     }
 
@@ -290,6 +295,8 @@ async def patch(ctx: Ctx, app_id: str, col: str, rid: str, body: Any, if_match: 
     await enforce_or_problem(ctx, "update", m, col, row["owner_sub"], str(row["id"]))
     if row["seal_state"] != "NONE":
         raise ProblemError(409, "record-sealed", "Record is sealed", f"seal_state={row['seal_state']}")
+    if row["wf_state"] == "running":
+        raise _in_workflow()
     if row["version"] != expected:
         raise ProblemError(409, "version-conflict", "Version conflict",
                            f"If-Match {expected} but current version is {row['version']}")
@@ -316,9 +323,11 @@ async def patch(ctx: Ctx, app_id: str, col: str, rid: str, body: Any, if_match: 
                          body={"collection": col, "version": new["version"],
                                "data_digest": data_digest(merged, salt)},
                          hmac_key=ctx.hmac_key, app_id=m.app.id, actor_sub=ctx.principal.sub)
-    except asyncpg.RaiseError as exc:          # niêm phong xảy ra giữa lúc đọc và lúc ghi
+    except asyncpg.RaiseError as exc:          # niêm phong / quy trình bắt đầu giữa lúc đọc và lúc ghi
         if "record_sealed" in str(exc):
             raise ProblemError(409, "record-sealed", "Record is sealed") from exc
+        if "record_in_workflow" in str(exc):
+            raise _in_workflow() from exc
         raise
     can_reveal = await _reveal(ctx, m, col, spec, [merged], str(row["id"]))   # bản rõ → field.revealed (F4)
     return record_out(new, ctx.principal, spec, can_reveal)

@@ -110,7 +110,20 @@ def test_settings_has_exactly_planned_fields():
         "anchor_remote", "anchor_git_ssh_command",          # thêm ở Task 16
         "timezone",                                         # Plan 02 Task 2 (spec 25.4)
         "flowable_url", "flowable_user", "flowable_password_file",   # Plan 02 Task 4
+        "org_name", "org_id", "seal_key_validity_days", "seal_purpose", "key_policy_url",   # Task 6 (25.3)
     }
+
+
+def test_seal_key_settings_defaults_and_bounds(make_settings):
+    from dxos_core.settings import ORG_NAME_DEFAULT
+
+    s = make_settings(org_name=ORG_NAME_DEFAULT)
+    assert (s.org_id, s.seal_key_validity_days, s.key_policy_url) == (None, 3650, None)
+    assert s.seal_purpose
+    assert make_settings().org_name == "Tổ chức thử nghiệm" != ORG_NAME_DEFAULT   # mặc định của test
+    for bad in (0, 3651):
+        with pytest.raises(ValueError):
+            make_settings(seal_key_validity_days=bad)
 
 
 def test_settings_missing_required_fails(monkeypatch):

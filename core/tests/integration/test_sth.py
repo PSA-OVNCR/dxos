@@ -12,20 +12,10 @@ from dxos_core.ledger.sth import latest_sth, make_sth, sth_signing_bytes, verify
 from dxos_proof.canonical import canonical_bytes
 from dxos_proof.merkle import root, verify_consistency
 from helpers.api import running_api
-from helpers.local_signer import FailingSigner, LocalSigner
+from helpers.local_signer import LocalSigner
 
 pytestmark = pytest.mark.integration
 KEY = b"changeme-test-hmac-key"
-
-
-@pytest.fixture
-def local_signer():
-    return LocalSigner()
-
-
-@pytest.fixture
-def failing_signer():
-    return FailingSigner()
 
 
 async def add_entries(conn, n: int) -> None:
