@@ -394,3 +394,71 @@ def test_already_current_realm_needs_nothing(profile):
     fake = FakeKeycloak(_realm_file(name))
     rc, out = run(fake, "--profile", profile)
     assert rc == 0 and fake.writes == [] and "không thay đổi gì" in out
+
+
+def test_client_with_unresolved_placeholder_is_reported_not_created():
+    """Không biết DXOS_DOMAIN thì redirectUris của dxos-spa còn ``${DXOS_DOMAIN}``: không được tạo client với
+    giá trị chưa thay, chỉ báo lệch."""
+    fake = v010("realm-dxos.json")
+    fake.clients = [c for c in fake.clients if c["clientId"] != "dxos-spa"]
+    rc, out = run(fake, environ={"KEYCLOAK_ADMIN_PASSWORD": PASSWORD})   # không có DXOS_DOMAIN
+    assert rc == 2 and "dxos-spa" in out and "${" in out
+    assert "dxos-spa" not in {c["clientId"] for c in fake.clients}
+    created = [stdin for argv, stdin, _ in fake.calls if "create" in argv and "clients" in argv]
+    assert created and not [x for x in created if "${" in x]
+    assert any(c["clientId"] == "dxos-cli" for c in fake.clients)   # client không có placeholder vẫn được tạo
+
+
+def test_client_placeholder_resolved_with_domain_is_created():
+    fake = v010("realm-dxos.json")
+    fake.clients = [c for c in fake.clients if c["clientId"] != "dxos-spa"]
+    rc, out = run(fake)   # DXOS_DOMAIN=localhost
+    assert rc == 0, out
+    spa = next(c for c in fake.clients if c["clientId"] == "dxos-spa")
+    assert spa["redirectUris"] == ["https://localhost/apps/*"]
+
+
+def test_cleanup_failure_is_a_warning():
+    fake = v010("realm-dxos.json")
+    orig = fake.__call__
+
+    def runner(argv, stdin, env):
+        if argv[-3:-1] == ["rm", "-f"]:
+            return 1, "", "rm: cannot remove"
+        return orig(argv, stdin, env)
+
+    out = io.StringIO()
+    rc = ku.main(["--env-file", "/nonexistent/.env"], runner=runner, out=out,
+                 environ={"KEYCLOAK_ADMIN_PASSWORD": PASSWORD, "DXOS_DOMAIN": "localhost"})
+    assert rc == 0
+    assert "CẢNH BÁO" in out.getvalue() and ku.CONFIG_IN_CONTAINER in out.getvalue()
+
+
+def test_missing_docker_is_a_short_error_without_traceback():
+    def runner(argv, stdin, env):
+        raise FileNotFoundError(2, "No such file or directory", "docker")
+
+    out = io.StringIO()
+    rc = ku.main(["--env-file", "/nonexistent/.env"], runner=runner, out=out,
+                 environ={"KEYCLOAK_ADMIN_PASSWORD": PASSWORD})
+    text = out.getvalue()
+    assert rc == 1 and "LỖI" in text and "docker" in text and "Traceback" not in text
+    assert PASSWORD not in text
+
+
+def test_cleanup_error_does_not_mask_original_error():
+    fake = v010("realm-dxos.json")
+
+    def runner(argv, stdin, env):
+        if argv[-3:-1] == ["rm", "-f"]:
+            raise OSError("docker biến mất")
+        if "realms/dxos" in argv and "get" in argv:
+            return 1, "", "Resource not found"
+        return fake(argv, stdin, env)
+
+    out = io.StringIO()
+    rc = ku.main(["--env-file", "/nonexistent/.env"], runner=runner, out=out,
+                 environ={"KEYCLOAK_ADMIN_PASSWORD": PASSWORD})
+    text = out.getvalue()
+    assert rc == 1 and "UpgradeError" in text and "realms/dxos" in text   # lỗi gốc vẫn được báo
+    assert "CẢNH BÁO" in text and "docker biến mất" in text               # lỗi dọn dẹp chỉ là cảnh báo

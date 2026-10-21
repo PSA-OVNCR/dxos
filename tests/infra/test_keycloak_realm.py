@@ -83,13 +83,18 @@ def test_every_referenced_client_scope_is_defined():
 
 
 def test_production_realm_has_no_users_no_test_client_no_literal_secret():
-    """Realm production không có người dùng thật; ngoại lệ duy nhất là người dùng service account
-    (có ``serviceAccountClientId``), và người dùng đó không có mật khẩu hay realm role
-    (C10, Plan 02 Task 11)."""
+    """Realm production không có người dùng thật; ngoại lệ duy nhất là service account của dxos-installer
+    (có ``serviceAccountClientId``), không mật khẩu, không realm role, chỉ manage-realm
+    (C10, Plan 02 Task 11; fix 1 m1: service account khác cũng là lỗi)."""
     r = _load(PROD)
     for u in r.get("users", []):
         assert u.get("serviceAccountClientId"), u.get("username")
         assert not u.get("credentials") and not u.get("realmRoles"), u["username"]
+    # Ngoại lệ hẹp: đúng một service account, của dxos-installer, với đúng realm-management/manage-realm.
+    sas = r.get("users", [])
+    assert [(u["username"], u["serviceAccountClientId"]) for u in sas] == [
+        ("service-account-dxos-installer", "dxos-installer")]
+    assert sas[0]["clientRoles"] == {"realm-management": ["manage-realm"]}
     assert "dxos-test" not in {c["clientId"] for c in r["clients"]}
     for c in r["clients"]:
         if "secret" in c:
@@ -266,8 +271,7 @@ def test_installer_token_can_create_role_live(kc_live):    # Keycloak 26.3.0 th�
 def test_installer_token_carries_only_manage_realm_live():
     claims = jwt.decode(installer_token(), options={"verify_signature": False})
     assert claims["resource_access"] == {"realm-management": {"roles": ["manage-realm"]}}
-    realm_roles = set((claims.get("realm_access") or {}).get("roles", []))
-    assert "dxos-admin" not in realm_roles and not {r for r in realm_roles if r.startswith("app:")}
+    assert not claims.get("realm_access", {}).get("roles")   # không có realm role nào, kể cả role mặc định
 
 
 @pytest.mark.infra

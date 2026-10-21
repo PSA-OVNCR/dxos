@@ -107,9 +107,18 @@ class Kcadm:
         if rc != 0:
             raise UpgradeError(f"đăng nhập kcadm thất bại: {_last_line(err).replace(password, '***')}")
 
-    def cleanup(self) -> None:
-        if not self.kcadm:   # tệp cấu hình trong container chứa token admin: xóa sau khi chạy
-            self.runner(["docker", "exec", self.container, "rm", "-f", self.config], None, {})
+    def cleanup(self) -> str | None:
+        """Xóa tệp cấu hình kcadm trong container (chứa token admin). Trả lời cảnh báo nếu không xóa được;
+        không bao giờ ném lỗi, để không che lỗi gốc của lần chạy."""
+        if self.kcadm:
+            return None   # chế độ trực tiếp: thư mục tạm do Python tự xóa
+        try:
+            rc, _, err = self.runner(["docker", "exec", self.container, "rm", "-f", self.config], None, {})
+        except (OSError, subprocess.SubprocessError) as exc:
+            return f"không xóa được {self.config} trong {self.container}: {type(exc).__name__}: {exc}"
+        if rc != 0:
+            return f"không xóa được {self.config} trong {self.container} (mã {rc}): {_last_line(err)}"
+        return None
 
 
 def _last_line(text: str) -> str:
@@ -181,6 +190,8 @@ class Upgrade:
                 continue
             if c.get("secret") or not c.get("publicClient"):
                 continue   # client bảo mật cần secret thật: báo lệch ở bước so, không tự tạo
+            if _has_placeholder(c):
+                continue   # còn ${...} chưa thay (ví dụ thiếu DXOS_DOMAIN): báo lệch, không tạo giá trị sai
             self.kc.run(["create", "clients", "-r", REALM, "-f", "-"], stdin=_kv(c))
             self.actions.append(f"tạo client {c['clientId']}")
 
@@ -226,6 +237,8 @@ class Upgrade:
     def _fix_user(self, u: dict) -> None:
         uid = self._user_id(u["username"])
         if uid is None:
+            if _has_placeholder(u):
+                return   # còn ${...} chưa thay: báo lệch ở bước so, không tạo
             rep = {k: v for k, v in u.items() if k not in {"realmRoles", "clientRoles", "groups"}}
             self.kc.run(["create", "users", "-r", REALM, "-f", "-"], stdin=_kv(rep))
             self.actions.append(f"tạo người dùng {u['username']}")
@@ -291,7 +304,12 @@ class Upgrade:
         for c in self.target["clients"]:
             live = clients.get(c["clientId"])
             if live is None:
-                why = " (client bảo mật: tạo tay với secret từ .env)" if c.get("secret") else ""
+                if c.get("secret"):
+                    why = " (client bảo mật: tạo tay với secret từ .env)"
+                elif _has_placeholder(c):
+                    why = " (cấu hình còn ${...} chưa thay: đặt DXOS_DOMAIN trong .env rồi chạy lại)"
+                else:
+                    why = ""
                 self.drift.append(f"client {c['clientId']}: thiếu{why}")
                 continue
             self.drift += _client_drift(c, live)
@@ -417,14 +435,17 @@ def main(argv: list[str] | None = None, *, runner: Runner | None = None, out: Te
             kc.login(server, user, password)
             up.apply()
             up.compare()
-        except (UpgradeError, KeyError, TypeError, subprocess.TimeoutExpired) as exc:
+        except (UpgradeError, KeyError, TypeError, OSError, subprocess.SubprocessError) as exc:
+            # OSError: ví dụ không có lệnh docker/kcadm. Báo ngắn, không traceback.
             msg = str(exc).replace(password, "***")
             print(f"LỖI: {type(exc).__name__}: {msg}", file=out)
             if up.actions:
                 print("Đã sửa trước khi lỗi:", *(f"  - {a}" for a in up.actions), sep="\n", file=out)
             return 1
         finally:
-            kc.cleanup()
+            warning = kc.cleanup()
+            if warning:
+                print(f"CẢNH BÁO: {warning.replace(password, '***')}", file=out)
 
     print(f"Realm {REALM} so với {PROFILES[args.profile]}:", file=out)
     if up.actions:
