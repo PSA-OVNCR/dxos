@@ -340,7 +340,8 @@ async def list_apps(pool: asyncpg.Pool, *, hmac_key: bytes) -> list[dict[str, An
 
 
 async def version_diff(pool: asyncpg.Pool, app_id: str, version: str) -> dict[str, Any]:
-    """Diff quyền của một phiên bản (mọi trạng thái) so với bản ACTIVE hiện tại."""
+    """Diff quyền của một phiên bản (mọi trạng thái) so với mốc nâng cấp: bản ACTIVE, không có thì bản từng ACTIVE
+    (``upgrade_baseline``) — cùng mốc mà luật chỉ-thêm dùng, để người duyệt thấy đúng phần đổi sau ``:disable``."""
     if not APP_ID.fullmatch(app_id) or not VERSION.fullmatch(version):
         raise _not_found()
     async with pool.acquire() as conn:
@@ -350,7 +351,7 @@ async def version_diff(pool: asyncpg.Pool, app_id: str, version: str) -> dict[st
             raise _not_found()
         try:
             m = validate_manifest(_loads(raw))
-            active = await get_active(conn, app_id)
+            active = await upgrade_baseline(conn, app_id)
         except ManifestError as exc:
             raise manifest_problem(exc) from None
         files = await get_files(conn, app_id, version)

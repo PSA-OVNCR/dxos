@@ -146,7 +146,8 @@ dxos app disable test-flow                      # gỡ: chỉ vô hiệu hóa, g
 1. **Nộp** (`POST /admin/v1/apps`): kiểm JSON Schema, namespace, chính sách sàn, guard, BPMN, luật nâng phiên bản; lưu
    bản `PENDING`, ghi ledger `app.submitted`. Nộp lại y hệt bản đang `PENDING` trả cùng kết quả.
 2. **Xem diff quyền**: role, collection, trường mới; `access`, `reveal_roles`, `erase_roles`, `seal`, `verify`, task,
-   nhãn, định dạng số thay đổi so với bản ACTIVE.
+   nhãn, định dạng số thay đổi so với bản ACTIVE (app đang `DISABLED` thì so với bản từng ACTIVE có version cao
+   nhất — cùng mốc với luật nâng phiên bản).
 3. **Duyệt bốn mắt** (`POST /admin/v1/apps/{id}:approve`): người duyệt phải khác người nộp, nếu không → 403
    `self_approval` (P2-D21). Lõi kiểm lại toàn bộ so với bản ACTIVE **lúc duyệt** (app đang `DISABLED` thì so
    với bản từng ACTIVE có version cao nhất), rồi:
