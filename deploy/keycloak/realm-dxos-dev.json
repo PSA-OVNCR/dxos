@@ -15,6 +15,8 @@
   "ssoSessionMaxLifespan": 36000,
   "revokeRefreshToken": true,
   "refreshTokenMaxReuse": 0,
+  "adminEventsEnabled": true,
+  "adminEventsDetailsEnabled": true,
   "internationalizationEnabled": true,
   "supportedLocales": [
     "vi",
@@ -320,6 +322,28 @@
       "webOrigins": []
     },
     {
+      "clientId": "dxos-cli",
+      "name": "Công cụ dòng lệnh dxos (chỉ device flow)",
+      "enabled": true,
+      "publicClient": true,
+      "protocol": "openid-connect",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [],
+      "webOrigins": [],
+      "attributes": {
+        "oauth2.device.authorization.grant.enabled": "true"
+      },
+      "defaultClientScopes": [
+        "basic",
+        "roles",
+        "dxos-api-audience"
+      ],
+      "optionalClientScopes": []
+    },
+    {
       "clientId": "dxos-test",
       "name": "Client test (DEV-ONLY, cho phép direct grant)",
       "enabled": true,
@@ -343,6 +367,16 @@
     }
   ],
   "users": [
+    {
+      "username": "service-account-dxos-installer",
+      "enabled": true,
+      "serviceAccountClientId": "dxos-installer",
+      "clientRoles": {
+        "realm-management": [
+          "manage-realm"
+        ]
+      }
+    },
     {
       "username": "chuyen_vien1",
       "enabled": true,
@@ -511,6 +545,24 @@
       "email": "admin1@dev.dxos.invalid",
       "emailVerified": true,
       "firstName": "admin1",
+      "lastName": "Dev",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "dev-only-password",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "dxos-admin"
+      ]
+    },
+    {
+      "username": "admin2",
+      "enabled": true,
+      "email": "admin2@dev.dxos.invalid",
+      "emailVerified": true,
+      "firstName": "admin2",
       "lastName": "Dev",
       "credentials": [
         {

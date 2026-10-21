@@ -27,7 +27,8 @@ def build(prod: dict, overlay: dict) -> dict:
         {"name": r, "description": "Vai trò ứng dụng mẫu (DEV-ONLY; production do installer tạo)"}
         for r in overlay["roles"]
     ]
-    realm["users"] = [
+    # Giữ người dùng của production (service account dxos-installer) rồi thêm người dùng dev.
+    realm["users"] = realm.get("users", []) + [
         {
             "username": name,
             "enabled": True,

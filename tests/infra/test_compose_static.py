@@ -139,6 +139,27 @@ def test_flowable_rest_password_secret_only_for_trust_core_api(compose_cfg):
         assert svc == "flowable" or not any("changeme-flowable-rest" in v for v in values), svc
 
 
+def test_installer_client_secret_only_for_trust_core_api(compose_cfg):
+    """Secret installer-client-secret (service account manage-realm, Plan 02 Task 11) chỉ cấp cho
+    trust-core-api; worker không gọi Admin API Keycloak. Secret lấy từ .env, không có giá trị trong repo."""
+    def secret_names(d: dict) -> set[str]:
+        secrets = d.get("secrets") or []
+        return {x["source"] if isinstance(x, dict) else x for x in secrets}
+
+    holders = {s for s, d in compose_cfg["services"].items() if "installer-client-secret" in secret_names(d)}
+    assert holders == {"trust-core-api"}
+    api_env = compose_cfg["services"]["trust-core-api"]["environment"]
+    assert api_env["DXOS_INSTALLER_CLIENT_SECRET_FILE"] == "/run/secrets/installer-client-secret"
+    worker_env = compose_cfg["services"]["trust-core-worker"]["environment"]
+    assert "DXOS_INSTALLER_CLIENT_SECRET_FILE" not in worker_env
+    raw = yaml.safe_load((DEPLOY / "compose.yaml").read_text(encoding="utf-8"))
+    assert raw["secrets"]["installer-client-secret"] == {"environment": "DXOS_INSTALLER_CLIENT_SECRET"}
+    # Ngoài trust-core-api (qua tệp secret), chỉ Keycloak nhận giá trị (để thay vào realm lúc nạp).
+    for svc, d in compose_cfg["services"].items():
+        env = d.get("environment") or {}
+        assert svc == "keycloak" or "DXOS_INSTALLER_CLIENT_SECRET" not in env, svc
+
+
 def test_integration_flowable_is_h2_on_loopback_with_healthcheck():
     cfg = _compose_config("compose.test.yaml")["services"]["flowable"]
     assert cfg["image"].startswith("flowable/flowable-rest:7.1.0@sha256:")

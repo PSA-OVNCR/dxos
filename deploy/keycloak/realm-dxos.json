@@ -15,6 +15,8 @@
   "ssoSessionMaxLifespan": 36000,
   "revokeRefreshToken": true,
   "refreshTokenMaxReuse": 0,
+  "adminEventsEnabled": true,
+  "adminEventsDetailsEnabled": true,
   "internationalizationEnabled": true,
   "supportedLocales": [
     "vi",
@@ -286,6 +288,40 @@
       "serviceAccountsEnabled": true,
       "redirectUris": [],
       "webOrigins": []
+    },
+    {
+      "clientId": "dxos-cli",
+      "name": "Công cụ dòng lệnh dxos (chỉ device flow)",
+      "enabled": true,
+      "publicClient": true,
+      "protocol": "openid-connect",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [],
+      "webOrigins": [],
+      "attributes": {
+        "oauth2.device.authorization.grant.enabled": "true"
+      },
+      "defaultClientScopes": [
+        "basic",
+        "roles",
+        "dxos-api-audience"
+      ],
+      "optionalClientScopes": []
+    }
+  ],
+  "users": [
+    {
+      "username": "service-account-dxos-installer",
+      "enabled": true,
+      "serviceAccountClientId": "dxos-installer",
+      "clientRoles": {
+        "realm-management": [
+          "manage-realm"
+        ]
+      }
     }
   ]
 }

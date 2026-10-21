@@ -34,6 +34,13 @@ class Settings(BaseSettings):
     keycloak_issuer: str
     keycloak_jwks_url: str
     jwt_audience: str = "dxos-api"
+    # Installer (Plan 02 Task 11): service account dxos-installer tạo realm role app:<id>:<role> khi admin
+    # duyệt app.
+    # Không đặt installer_client_secret_file thì duyệt app trả 503 (keycloak_admin_from_settings trả None).
+    keycloak_token_url: str = "http://keycloak:8080/auth/realms/dxos/protocol/openid-connect/token"  # noqa: S105 (URL, không phải mật khẩu)
+    keycloak_admin_url: str = "http://keycloak:8080/auth/admin/realms/dxos"
+    installer_client_id: str = "dxos-installer"
+    installer_client_secret_file: Path | None = None
     actor_hmac_key_file: Path
     anchor_repo_dir: Path
     max_upload_mb_default: int = 15

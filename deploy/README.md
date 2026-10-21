@@ -9,8 +9,9 @@
 | `network-matrix.yaml` | **Nguồn sự thật** cho phân vùng mạng; test tĩnh và `ops/netcheck.py` đọc tệp này |
 | `caddy/Caddyfile` | TLS, `/auth` → Keycloak, `/api` `/admin` `/verify` `/view` → APISIX, `/apps` tệp tĩnh; host quản trị giới hạn IP |
 | `apisix/` | APISIX standalone (không Admin API, không etcd): route tĩnh, OIDC bearer, limit-req |
-| `keycloak/realm-dxos.json` | Realm `dxos` cho production: vai trò `dxos-admin`, client `dxos-spa` (PKCE S256), `apisix`, `dxos-installer`; scope `dxos-api-audience`. Secret dạng `${BIEN}` lấy từ `.env` khi nạp |
-| `keycloak/dev-overlay.json` → `realm-dxos-dev.json` | Người dùng dev và client `dxos-test` (direct grant). **Chỉ dev-lite/test.** Sinh lại bằng `python ops/build_dev_realm.py` |
+| `keycloak/realm-dxos.json` | Realm `dxos` cho production: vai trò `dxos-admin`, client `dxos-spa` (PKCE S256), `apisix`, `dxos-installer` (service account chỉ có `realm-management/manage-realm`), `dxos-cli` (công khai, chỉ device flow); scope `dxos-api-audience`; bật admin events. Secret dạng `${BIEN}` lấy từ `.env` khi nạp |
+| `../ops/keycloak_upgrade.py` | Đưa realm **đã có** (Keycloak bỏ qua `--import-realm` khi realm đã tồn tại) lên cấu hình hiện tại; idempotent, in phần lệch không tự sửa. `python ops/keycloak_upgrade.py [--profile dev-lite]` |
+| `keycloak/dev-overlay.json` → `realm-dxos-dev.json` | Người dùng dev (có `admin1`, `admin2` để duyệt bốn mắt) và client `dxos-test` (direct grant). **Chỉ dev-lite/test.** Sinh lại bằng `python ops/build_dev_realm.py` |
 | `openbao/openbao.hcl` | OpenBao lưu tệp; khởi tạo và transit ở Plan 01 Task 15 |
 | `clamav/clamd.p8.conf` | clamd cho hồ sơ p8 |
 | `fake-av/` | Stub giao thức clamd **chỉ nhận EICAR**, DEV-ONLY |

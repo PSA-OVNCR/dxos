@@ -150,9 +150,13 @@ services:
       DXOS_FLOWABLE_URL: http://flowable:8080/flowable-rest/service
       DXOS_FLOWABLE_USER: ${FLOWABLE_REST_USER:-rest-admin}
       DXOS_FLOWABLE_PASSWORD_FILE: /run/secrets/flowable-rest-password
-    # Chỉ trust-core-api gọi Flowable (net-wf) nên chỉ nó có flowable-rest-password; worker thì không.
-    # Danh sách chép tay: phải luôn bằng *core-secrets (x-core-secrets) cộng flowable-rest-password.
-    secrets: [s3-access-key, s3-secret-key, openbao-core-token, actor-hmac-key, flowable-rest-password]
+      # Service account dxos-installer (Plan 02 Task 11): tạo realm role app:<id>:<role> khi admin duyệt app.
+      DXOS_INSTALLER_CLIENT_SECRET_FILE: /run/secrets/installer-client-secret
+    # Chỉ trust-core-api gọi Flowable (net-wf) và Admin API Keycloak (net-idp) nên chỉ nó có
+    # flowable-rest-password và installer-client-secret; worker thì không.
+    # Danh sách chép tay: phải luôn bằng *core-secrets (x-core-secrets) cộng hai secret trên.
+    secrets: [s3-access-key, s3-secret-key, openbao-core-token, actor-hmac-key, flowable-rest-password,
+              installer-client-secret]
     depends_on:
       core-db: {condition: service_healthy}
     networks: [net-app, net-idp, net-wf, net-data]
@@ -298,6 +302,8 @@ secrets:
   actor-hmac-key:     {environment: DXOS_ACTOR_HMAC_KEY}
   # Cùng giá trị với mật khẩu admin của Flowable (image Flowable chỉ đọc biến môi trường, không đọc tệp).
   flowable-rest-password: {environment: FLOWABLE_REST_PASSWORD}
+  # Cùng giá trị với secret của client dxos-installer mà Keycloak đọc lúc nạp realm (${DXOS_INSTALLER_CLIENT_SECRET}).
+  installer-client-secret: {environment: DXOS_INSTALLER_CLIENT_SECRET}
 
 volumes:
   anchor-repo:

@@ -1,5 +1,5 @@
 {
-  "_comment": "CHỈ DÙNG KHI PHÁT TRIỂN/TEST. Nạp vào realm-dxos-dev.json bằng `python ops/build_dev_realm.py`. Mật khẩu chung của người dùng dev: dev-only-password.",
+  "_comment": "CHỈ DÙNG KHI PHÁT TRIỂN/TEST. Nạp vào realm-dxos-dev.json bằng `python ops/build_dev_realm.py`. Mật khẩu chung của người dùng dev: dev-only-password. admin2 là admin thứ hai để duyệt app theo bốn mắt (P2-D21).",
   "roles": [
     "app:phong-ho-so:chuyen_vien", "app:phong-ho-so:truong_phong", "app:phong-ho-so:giam_doc",
     "app:phong-ho-so:van_thu", "app:phong-ho-so:nhan_vien",
@@ -16,7 +16,8 @@
     "truong_clb1": ["app:chung-nhan:truong_clb"],
     "owner_a1": ["app:test-app:member"],
     "owner_b1": ["app:test-app:member"],
-    "admin1": ["dxos-admin"]
+    "admin1": ["dxos-admin"],
+    "admin2": ["dxos-admin"]
   },
   "password": "dev-only-password",
   "test_client": {
