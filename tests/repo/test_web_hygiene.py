@@ -90,3 +90,68 @@ def test_npm_versions_are_pinned_exactly():
                 if version.startswith(("^", "~")):
                     loose.append(f"{m.relative_to(ROOT)}: {name} {version}")
     assert loose == []
+
+
+# Slug chỉ quản trị (contract-tier2.md mục 8 "Admin only"): SDK Tầng 2 không cần câu tiếng Việt cho chúng.
+ADMIN_ONLY_SLUGS = {
+    "manifest-invalid", "app-version-not-found", "version-not-newer", "install-in-progress",
+    "app-version-conflict", "deployment-mismatch", "app-version-not-pending", "idp-admin-unavailable",
+}
+# Nơi lõi dựng problem+json: ProblemError(status, "slug"...), problem(status, "slug"...),
+# _conflict("slug"...) và refuse(reason, "slug"...) của R-1; ngoài ra HTTP_SLUGS mặc định và slug dự phòng
+# của errors.py.
+_SLUG_SOURCES = [
+    re.compile(r'ProblemError\(\s*[^,()]+,\s*"([a-z0-9-]+)"'),
+    re.compile(r'(?<![\w.])problem\(\s*\d+,\s*"([a-z0-9-]+)"'),
+    re.compile(r'(?<!\w)_conflict\(\s*"([a-z0-9-]+)"'),
+    re.compile(r'refuse\(\s*"[a-z_]+",\s*"([a-z0-9-]+)"'),
+    re.compile(r'HTTP_SLUGS\.get\([^)]*"([a-z0-9-]+)"\)'),
+]
+
+
+def _raised_slugs():
+    slugs = set()
+    for f in (ROOT / "core/src").rglob("*.py"):
+        text = f.read_text(encoding="utf-8")
+        for rx in _SLUG_SOURCES:
+            slugs |= set(rx.findall(text))
+    errors_py = (ROOT / "core/src/dxos_core/errors.py").read_text(encoding="utf-8")
+    table = re.search(r"HTTP_SLUGS[^=]*=\s*\{(.*?)\}", errors_py, re.S)
+    assert table, "không đọc được HTTP_SLUGS"
+    slugs |= set(re.findall(r':\s*"([a-z0-9-]+)"', table.group(1)))
+    return slugs
+
+
+def _core_slugs_in_sdk():
+    text = (ROOT / "sdk/js/src/vue/messages.ts").read_text(encoding="utf-8")
+    block = re.search(r"CORE_SLUGS\s*=\s*\[(.*?)\]\s*as const", text, re.S)
+    assert block, "không tìm thấy CORE_SLUGS trong messages.ts"
+    return re.findall(r"'([a-z0-9-]+)'", re.sub(r"//[^\n]*", "", block.group(1)))
+
+
+def test_sdk_core_slugs_match_the_problems_the_core_raises():
+    raised = _raised_slugs() - ADMIN_ONLY_SLUGS
+    assert len(raised) > 40, "regex không bắt đủ slug: kiểm tra lại _SLUG_SOURCES"
+    in_sdk = _core_slugs_in_sdk()
+    assert len(in_sdk) == len(set(in_sdk)), "CORE_SLUGS có slug trùng"
+    assert set(in_sdk) == raised, {
+        "thiếu trong SDK": sorted(raised - set(in_sdk)),
+        "thừa trong SDK": sorted(set(in_sdk) - raised),
+    }
+
+
+def test_admin_only_slugs_are_really_raised_by_the_core():
+    # Chống danh sách loại trừ chết: slug quản trị bị đổi tên thì phải sửa lại ở đây.
+    assert ADMIN_ONLY_SLUGS <= _raised_slugs()
+
+
+def test_only_the_testing_module_imports_vitest():
+    imports_vitest = re.compile(r"""['"]vitest['"]""")
+    bad = [
+        str(f.relative_to(ROOT)) for f in _src_files()
+        if f.suffix in CODE_SUFFIXES and f.name != "testing.ts"
+        and imports_vitest.search(f.read_text(encoding="utf-8"))
+    ]
+    assert bad == []
+    for entry in ("sdk/js/src/index.ts", "sdk/js/src/vue/index.ts"):
+        assert "testing" not in (ROOT / entry).read_text(encoding="utf-8"), entry

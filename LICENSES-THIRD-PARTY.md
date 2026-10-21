@@ -41,16 +41,20 @@ Bảng kê giấy phép và nguồn gốc mọi mô-đun bên ngoài. Cập nh�
 | git, openssh-client (gói Debian trong image trust-core) | theo Debian 12 | GPL-2.0-only; BSD | Chương trình độc lập, worker gọi để đẩy STH (G2) | Chưa |
 | tzdata (gói Debian trong image trust-core) | theo image nền | Public domain (IANA tz database) | Chỉ dữ liệu múi giờ, `zoneinfo` đọc cho `DXOS_TIMEZONE` | Chưa |
 
-## Gói npm (workspace `web`, Plan 03 Task 2–3)
-Phiên bản ghim chính xác trong `package-lock.json` (đếm từ lockfile ngày 22/10/2026 sau Task 3: 122 gói bên thứ ba, gồm cả các gói nhị phân tùy chọn theo nền tảng; chỉ gói của nền tảng đang chạy được cài). Cập nhật bảng **trong cùng commit** khi một Task sau thêm phụ thuộc (Vue, Vue Router, qrcode, @vue/test-utils, Playwright...).
+## Gói npm (workspace `web`, Plan 03 Task 2–5)
+Phiên bản ghim chính xác trong `package-lock.json` (đếm từ lockfile ngày 22/10/2026 sau Task 5: **186** gói bên thứ ba, gồm cả các gói nhị phân tùy chọn theo nền tảng; chỉ gói của nền tảng đang chạy được cài. Theo cờ `dev` của lockfile: **55** gói thuộc đồ thị phụ thuộc production (kể cả các gói `peer` mà npm cài kèm) và **131** gói chỉ dùng lúc phát triển). Cập nhật bảng **trong cùng commit** khi một Task sau thêm phụ thuộc (Vue Router, Playwright...).
 
 **Runtime (vào bundle trình duyệt):**
 | Thành phần | Phiên bản | Giấy phép | Cách dùng | Đã kiểm chứng |
 |---|---|---|---|---|
 | oidc-client-ts | 3.5.0 | Apache-2.0 | Thư viện (`sdk/js/src/auth.ts`: OIDC Authorization Code + PKCE; ứng dụng tự gói, SDK để ngoài bundle thư viện) | Có (22/10/2026, trường `license` trong `package-lock.json`) |
 | jwt-decode (phụ thuộc duy nhất của oidc-client-ts) | 4.0.0 | MIT | Thư viện (gián tiếp) | Có (22/10/2026, lockfile) |
+| vue | 3.5.43 | MIT | Thư viện (`sdk/js/src/vue/*.vue`; SDK để ngoài bundle thư viện, ứng dụng tự gói). Gói phụ `@vue/runtime-core`, `@vue/runtime-dom`, `@vue/reactivity`, `@vue/shared` cùng 3.5.43 (MIT) vào bundle; `@vue/compiler-*`, `@vue/server-renderer` (MIT) do `vue` kéo vào nhưng chỉ dùng lúc build/test. Một bản duy nhất nhờ `overrides` ở `package.json` gốc | Có (22/10/2026, lockfile) |
+| qrcode | 1.5.4 | MIT | Thư viện (`SealQr.vue`: vẽ mã QR đối soát thành SVG, trong trình duyệt; SDK để ngoài bundle thư viện) | Có (22/10/2026, lockfile) |
+| dijkstrajs (qrcode kéo vào, vào bundle trình duyệt) | 1.0.3 | MIT | Thư viện (gián tiếp) | Có (22/10/2026, lockfile) |
+| pngjs, yargs, yargs-parser, cliui, y18n, wrap-ansi, string-width, strip-ansi, ansi-regex, ansi-styles, color-convert, color-name, emoji-regex, is-fullwidth-code-point, find-up, locate-path, p-locate, p-limit, p-try, path-exists, camelcase, decamelize, get-caller-file, require-directory, require-main-filename, set-blocking, which-module (qrcode kéo vào cho CLI/xuất PNG) | pngjs 5.0.0; yargs 15.4.1; còn lại theo lockfile | MIT (pngjs, yargs, string-width, strip-ansi, ansi-*, color-*, emoji-regex, find-up, locate-path, p-*, path-exists, camelcase, decamelize, require-directory, is-fullwidth-code-point); ISC (yargs-parser, cliui, y18n, get-caller-file, require-main-filename, set-blocking, which-module) | Thư viện (gián tiếp; nằm trong đồ thị production của `qrcode` nhưng không được import ở bản dựng trình duyệt, chỉ `qrcode` + `dijkstrajs` được gói) | Có (22/10/2026, lockfile) |
 
-`dxos-sdk-js` (gói của dự án, Apache-2.0) chỉ phụ thuộc runtime vào hai gói trên. Task 5 sẽ thêm `qrcode`, `vue`, `vue-router` vào bảng này.
+`dxos-sdk-js` (gói của dự án, Apache-2.0) phụ thuộc runtime vào `oidc-client-ts`, `vue` và `qrcode` (cùng các gói gián tiếp ở trên). `vue-router` sẽ được thêm ở Task sau.
 
 **Công cụ build/test (chỉ dùng lúc build/test, không vào bundle):**
 | Thành phần | Phiên bản | Giấy phép | Cách dùng | Đã kiểm chứng |
@@ -60,23 +64,26 @@ Phiên bản ghim chính xác trong `package-lock.json` (đếm từ lockfile ng
 | Vite (kèm Rolldown 1.1.5, PostCSS 8.5.31, lightningcss 1.33.0) | 8.1.6 | MIT (Rolldown, PostCSS: MIT; lightningcss: **MPL-2.0**) | Công cụ (build thư viện/ứng dụng) | Có (22/10/2026, lockfile) |
 | Vitest | 5.0.3 | MIT | Công cụ (test đơn vị) | Có (22/10/2026, lockfile) |
 | jsdom (môi trường DOM giả cho test cần `sessionStorage`/`location`) | 29.1.1 | MIT | Công cụ (test đơn vị; ghim 29.1.1 vì 30.x đòi Node >=22.22.2; các gói gián tiếp kèm theo đều `dev` trong lockfile) | Có (22/10/2026, lockfile) |
+| @vitejs/plugin-vue | 6.0.9 | MIT | Công cụ (biên dịch `.vue` cho Vite/Vitest) | Có (22/10/2026, lockfile) |
+| @vue/test-utils (kéo js-beautify 2.0.3, config-chain, editorconfig, @one-ini/wasm, js-cookie, commander, glob 13, minimatch, minipass, path-scurry, brace-expansion, balanced-match, ini, proto-list, semver, abbrev, nopt, vue-component-type-helpers) | 2.5.1 | MIT (js-beautify, config-chain, editorconfig, @one-ini/wasm, js-cookie, commander, brace-expansion, balanced-match, vue-component-type-helpers: MIT; ini, proto-list, semver, abbrev, nopt: ISC; glob, minimatch, minipass, path-scurry: **BlueOak-1.0.0**) | Công cụ (test thành phần Vue; tất cả đều `dev` trong lockfile). `nopt` bị `overrides` ghim 9.0.0 vì `js-beautify` 2.0.3 đòi nopt 10.0.1, mà nopt 10.0.1 đòi Node >=22.22.2 (môi trường dùng 22.22.0, `engine-strict`); `js-beautify` chỉ dùng hàm định dạng HTML, không dùng phần dòng lệnh của nopt | Có (22/10/2026, lockfile) |
+| @types/qrcode (kèm @types/node, undici-types) | 1.5.5 | MIT | Công cụ (kiểu TypeScript cho `qrcode`) | Có (22/10/2026, lockfile) |
 
-**Gói gián tiếp (theo trường `license` trong lockfile, 22/10/2026; tổng 122 gói, gồm cả các gói trực tiếp ở trên):**
+**Gói gián tiếp (theo trường `license` trong lockfile, 22/10/2026; tổng 186 gói, gồm cả các gói trực tiếp ở trên):**
 | Giấy phép | Số gói | Ghi chú |
 |---|---|---|
-| MIT | 93 | `@babel/*`, `@rolldown/*`, `@vue/*`, `@volar/*`, `@asamuzakjp/*`, `jsdom` và phần lớn phụ thuộc của nó (`parse5`, `whatwg-url`, `undici`, `css-tree`, `decimal.js`...), `chai`, `postcss`, `rolldown`, `jwt-decode`... |
+| MIT | 141 | `@babel/*`, `@rolldown/*`, `@vue/*`, `@vitejs/plugin-vue`, `@volar/*`, `@asamuzakjp/*`, `qrcode` và phụ thuộc của nó, `vue`, `jsdom` và phần lớn phụ thuộc của nó (`parse5`, `whatwg-url`, `undici`, `css-tree`, `decimal.js`...), `@vue/test-utils` và `js-beautify`, `chai`, `postcss`, `rolldown`, `jwt-decode`... |
 | Apache-2.0 | 5 | `typescript`, `detect-libc`, `expect-type`, `oidc-client-ts`, `xml-name-validator` |
 | MPL-2.0 | 12 | `lightningcss` và 11 gói nhị phân theo nền tảng của nó (do Vite kéo vào) |
 | BSD-2-Clause | 3 | `entities` (hai phiên bản), `webidl-conversions` |
 | BSD-3-Clause | 2 | `source-map-js`, `tough-cookie` |
-| ISC | 2 | `picocolors`, `saxes` |
+| ISC | 14 | `picocolors`, `saxes`, `semver`, `ini`, `nopt`, `abbrev`, `proto-list` (test) và `yargs-parser`, `cliui`, `y18n`, `get-caller-file`, `require-main-filename`, `set-blocking`, `which-module` (qrcode) |
 | MIT-0 | 2 | `@csstools/color-helpers`, `@csstools/css-syntax-patches-for-csstree` (jsdom kéo vào; chỉ test) |
-| BlueOak-1.0.0 | 1 | `lru-cache` (jsdom kéo vào; chỉ test) |
+| BlueOak-1.0.0 | 5 | `lru-cache` (jsdom kéo vào), `glob`, `minimatch`, `minipass`, `path-scurry` (js-beautify của `@vue/test-utils` kéo vào); tất cả chỉ test |
 | CC0-1.0 | 1 | `mdn-data` (do `css-tree` của jsdom kéo vào; chỉ test) |
 | 0BSD | 1 | `tslib` (tùy chọn) |
 
 - **MPL-2.0 (lightningcss):** chỉ dùng lúc build/test, không vào bundle và không được phân phối kèm kho này; dự án không sửa mã của nó, nên không phát sinh nghĩa vụ chia sẻ mã nguồn. Cùng nhóm với OpenBao (MPL-2.0) ở bảng dịch vụ.
-- **BlueOak-1.0.0, MIT-0, CC0-1.0 (đã xuất hiện từ Task 3 do thêm jsdom):** cả bốn gói (`lru-cache`, hai gói `@csstools/*`, `mdn-data`) đều đánh dấu `dev` trong lockfile: chỉ dùng lúc test, không vào bundle và không phân phối. BlueOak-1.0.0 và MIT-0 là giấy phép cho phép (permissive). **CC0-1.0 (`mdn-data`) cần trưởng nhóm xác nhận (V30)**; nếu không chấp nhận, cách gỡ là bỏ jsdom và chạy test auth trong môi trường node với `sessionStorage` giả. Các gói `glob`, `minimatch`, `minipass`, `path-scurry` dự kiến ở bản trước chưa xuất hiện (sẽ kiểm lại khi thêm công cụ test ở Task sau).
+- **BlueOak-1.0.0, MIT-0, CC0-1.0 (BlueOak-1.0.0 và MIT-0 là giấy phép cho phép; xuất hiện từ Task 3 do thêm jsdom, nay thêm `glob`, `minimatch`, `minipass`, `path-scurry` do `@vue/test-utils` ở Task 5):** cả chín gói (`lru-cache`, `glob`, `minimatch`, `minipass`, `path-scurry`, hai gói `@csstools/*`, `mdn-data`) đều đánh dấu `dev` trong lockfile: chỉ dùng lúc test, không vào bundle và không phân phối. **CC0-1.0 (`mdn-data`) cần trưởng nhóm xác nhận (V30)**; nếu không chấp nhận, cách gỡ là bỏ jsdom và chạy test auth trong môi trường node với `sessionStorage` giả (khi đó test thành phần Vue cũng cần một môi trường DOM khác, nên V30 phải được chốt sớm).
 
 ## Dịch vụ (image Docker, chạy độc lập, không nhúng mã)
 Digest được ghim trong `deploy/` bằng `make pin-images`; cột "Digest" cập nhật cùng commit ghim.

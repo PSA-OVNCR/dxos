@@ -1,0 +1,95 @@
+<!--
+SPDX-FileCopyrightText: 2026 PSA_OVNCR
+SPDX-License-Identifier: Apache-2.0
+-->
+<script setup lang="ts">
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import type { DxosClient } from '../client'
+import { ApiError } from '../errors'
+import type { UploadStatus } from '../types'
+import ProblemMessage from './ProblemMessage.vue'
+
+const props = withDefaults(
+  defineProps<{ client: DxosClient; uploadId: string; intervalMs?: number; timeoutMs?: number }>(),
+  { intervalMs: 2000, timeoutMs: 180000 },
+)
+const emit = defineEmits<{ settled: [status: UploadStatus] }>()
+
+const REASONS: Record<string, string> = {
+  EMPTY: 'tệp rỗng',
+  TOO_LARGE: 'tệp quá lớn',
+  BAD_MAGIC: 'không phải PDF',
+  ENCRYPTED: 'PDF có mật khẩu',
+  PARSE_ERROR: 'PDF hỏng',
+  NO_TEXT_LAYER: 'PDF không có lớp chữ (bản scan)',
+}
+
+const status = ref<UploadStatus>({ status: 'STAGING' })
+const timedOut = ref(false)
+const failure = ref<ApiError | null>(null)
+
+let run = 0
+let pollTimer: ReturnType<typeof setTimeout> | undefined
+let deadline: ReturnType<typeof setTimeout> | undefined
+
+function stop(): void {
+  run += 1
+  clearTimeout(pollTimer)
+  clearTimeout(deadline)
+}
+
+function start(): void {
+  stop()
+  const mine = run
+  status.value = { status: 'STAGING' }
+  timedOut.value = false
+  failure.value = null
+  deadline = setTimeout(() => {
+    if (mine !== run) return
+    timedOut.value = true
+    stop()
+  }, props.timeoutMs)
+
+  const poll = async (): Promise<void> => {
+    try {
+      const s = await props.client.uploadStatus(props.uploadId)
+      if (mine !== run) return
+      status.value = s
+      if (s.status !== 'STAGING') {
+        stop()
+        emit('settled', s)
+        return
+      }
+    } catch (e) {
+      if (mine !== run) return
+      if (e instanceof ApiError) {
+        failure.value = e // lỗi do máy chủ trả (404, 403...) thì thử lại cũng không khác
+        stop()
+        return
+      }
+      // lỗi mạng tạm thời: thử lại cho tới khi hết hạn
+    }
+    pollTimer = setTimeout(() => { void poll() }, props.intervalMs)
+  }
+  void poll()
+}
+
+watch(() => [props.uploadId, props.client] as const, start, { immediate: true })
+onBeforeUnmount(stop)
+
+const label = computed(() => {
+  if (timedOut.value) return 'Kiểm dịch lâu bất thường — máy quét có thể đang dừng'
+  const s = status.value
+  switch (s.status) {
+    case 'CLEAN': return 'Sạch'
+    case 'INFECTED': return 'Nhiễm mã độc — đã cách ly'
+    case 'REJECTED': return `Bị từ chối: ${REASONS[s.reason] ?? s.reason}`
+    default: return 'Đang kiểm dịch…'
+  }
+})
+</script>
+
+<template>
+  <ProblemMessage v-if="failure" :error="failure" />
+  <p v-else class="dx-quarantine" role="status" :data-status="timedOut ? 'TIMEOUT' : status.status">{{ label }}</p>
+</template>

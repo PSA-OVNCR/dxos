@@ -9,5 +9,17 @@
   "workspaces": ["sdk/js"],
   "scripts": {
     "check": "npm run typecheck --workspaces --if-present && npm run test --workspaces --if-present && npm run build --workspaces --if-present"
+  },
+  "overrides": {
+    "@vue/compiler-core": "3.5.43",
+    "@vue/compiler-dom": "3.5.43",
+    "@vue/compiler-sfc": "3.5.43",
+    "@vue/compiler-ssr": "3.5.43",
+    "@vue/reactivity": "3.5.43",
+    "@vue/runtime-core": "3.5.43",
+    "@vue/runtime-dom": "3.5.43",
+    "@vue/server-renderer": "3.5.43",
+    "@vue/shared": "3.5.43",
+    "nopt": "9.0.0"
   }
 }

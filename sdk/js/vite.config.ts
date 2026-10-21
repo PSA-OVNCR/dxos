@@ -1,9 +1,11 @@
 // SPDX-FileCopyrightText: 2026 PSA_OVNCR
 // SPDX-License-Identifier: Apache-2.0
+import vue from '@vitejs/plugin-vue'
 import { defineConfig } from 'vitest/config'
 
 // Chế độ thư viện: hai điểm vào, thư viện ngoài để ứng dụng tự gói.
 export default defineConfig({
+  plugins: [vue()],
   build: {
     lib: {
       entry: {
