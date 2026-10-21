@@ -6,17 +6,23 @@ Dự án dự thi **Olympic Tin học Sinh viên Việt Nam – Phần mềm ngu
 
 > English version: [README_EN.md](README_EN.md)
 
-## Trạng thái
-Đang phát triển, hướng tới **M1 / v0.1.0** (Tier-0 phần 1). Xem `docs/superpowers/plans/` và `docs/progress/`.
+## Trạng thái v0.2.0
+**Đang hoàn thiện; chưa gắn tag.** Mã của mốc M2 (Tier-0: workflow, niêm phong, đối soát, installer) đã có, kèm unit và
+integration test. E2E của M2 và minh chứng AT-13, AT-18, AT-19, AT-20 chưa chạy trên stack thật (cần Docker và VPS);
+v0.1.0 cũng chưa gắn tag. Tiến độ: `docs/progress/`.
 
 | Thành phần | Trạng thái |
 |---|---|
 | `libs/dxos-proof`: JSON chuẩn hóa + cây Merkle RFC 6962 | Có, kèm test vector |
-| `deploy/`: Docker Compose 9 mạng phân vùng, Caddy, APISIX, Keycloak, Flowable, OpenBao, SeaweedFS, ClamAV | Có; đã chạy trên Docker Desktop |
-| `core/`: identity (JWT RS256), manifest + validator, PDP + che PII, Records API, upload → kiểm dịch → CAS, ledger Merkle chỉ-thêm, STH ký qua OpenBao, neo git, API xác minh và quản trị | Có, kèm unit + integration test |
-| `witness/`: CLI `dxos-witness` + mẫu repo neo | Có |
-| `apps/phong-ho-so`, `apps/chung-nhan` (Tầng 2) | Manifest; giao diện ở Plan 03 |
-| Workflow, niêm phong, installer, SDK, giao diện | Plan 02–03 |
+| `deploy/`: Docker Compose 9 mạng phân vùng, Caddy, APISIX, Keycloak, Flowable, OpenBao, SeaweedFS, ClamAV; overlay `compose.release.yaml` chạy image phát hành theo digest | Có; stack đã chạy trên Docker Desktop (M1) |
+| `core/`: identity, manifest + validator, PDP + che PII, Records API, kiểm dịch → CAS, ledger Merkle, STH, neo git, API xác minh và quản trị | Có, kèm unit + integration test |
+| `core/`: cầu nối Flowable (guard, bốn mắt, khóa lạc quan), niêm phong theo ảnh chụp, thu hồi, `:erase-pii`, tuyên bố khóa, cổng đối soát công khai và gói bằng chứng, installer bốn mắt | Có, kèm unit + integration test (Plan 02) |
+| `witness/`: CLI `dxos-witness` (`sync`, `verify-bundle`) + mẫu repo neo | Có |
+| `cli/`: CLI quản trị `dxos` | Có, kèm test |
+| `verify-portal/minimal`: trang đối soát tối giản (hash tính tại trình duyệt) | Có; đã kiểm trên Caddy + API thật, chưa qua Docker |
+| `apps/phong-ho-so`, `apps/chung-nhan` (Tầng 2) | Manifest 1.1.0 + BPMN; giao diện ở Plan 03 |
+| E2E mốc M2 (`tests/e2e`), `ops/at13_reuse.sh` | Đã viết; chưa chạy trên stack |
+| SDK, SPA của App A/B, cổng Vue | Plan 03 |
 
 ## Kiến trúc tóm tắt
 - **Tầng 1, DX-OS Trust Core:**
@@ -24,6 +30,14 @@ Dự án dự thi **Olympic Tin học Sinh viên Việt Nam – Phần mềm ngu
   - Phần đội tự viết: `trust-core` (Records API, kiểm dịch tệp, PDP, ledger Merkle, niêm phong) và thư viện `dxos-proof`.
 - **Tầng 2:** App A "Phòng hồ sơ số" và App B "Chứng nhận số". Cả hai được cài bằng manifest, **không sửa mã lõi**.
 - **Thiết kế chi tiết:** [`docs/superpowers/specs/2026-10-20-dxos-trust-core-design.md`](docs/superpowers/specs/2026-10-20-dxos-trust-core-design.md).
+
+## Bản chất pháp lý của niêm phong
+> Niêm phong số là chữ ký điện tử chuyên dùng do tổ chức vận hành tạo lập (Điều 22 khoản 1 điểm a Luật Giao dịch điện tử 2023). Trong nội bộ tổ chức, niêm phong dùng để xác nhận văn bản đã được duyệt và chưa bị sửa. Niêm phong **chưa** được chứng nhận "bảo đảm an toàn", nên **không** tương đương chữ ký tay (Điều 23 khoản 2) và **không phải** chữ ký số. Muốn dùng niêm phong để giao dịch với tổ chức, cá nhân bên ngoài với giá trị pháp lý, tổ chức phải đăng ký chứng nhận (Điều 25 khoản 3). Với người ngoài, cổng đối soát là công cụ **kiểm tra toàn vẹn về kỹ thuật**.
+
+Ánh xạ cơ chế ↔ điều khoản, những gì **không** đạt và giới hạn về dữ liệu cá nhân: [docs/legal-mapping.md](docs/legal-mapping.md)
+(diễn giải kỹ thuật của đội, không phải tư vấn pháp lý). Phạm vi của App B (spec mục 14):
+
+> Chứng nhận số là hệ thống **quản lý và xác minh giấy chứng nhận điện tử** (chứng nhận tham gia sự kiện). Đây **không phải** hệ thống cấp chứng thư số PKI, **không phải** chữ ký số hay dịch vụ chứng thực chữ ký số, và **không** cấp văn bằng, chứng chỉ thuộc hệ thống giáo dục quốc dân. "Niêm phong số" là chữ ký điện tử chuyên dùng của tổ chức vận hành, **chưa** được chứng nhận bảo đảm an toàn (mục 25.1); với người ngoài, đối soát là kiểm tra toàn vẹn về kỹ thuật.
 
 ## Bắt đầu nhanh (phát triển)
 ```bash

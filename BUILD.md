@@ -1,6 +1,6 @@
 # Hướng dẫn build từ mã nguồn
 
-> Tài liệu này được cập nhật theo từng mốc. Phần đánh dấu *(sắp có)* sẽ được bổ sung ở các task sau của Plan 01.
+> Tài liệu này được cập nhật theo từng mốc (bản này: M2, Plan 02). Phần đánh dấu *(sắp có)* sẽ được bổ sung ở Plan 03.
 
 ## Yêu cầu
 | Công cụ | Phiên bản | Ghi chú |
@@ -52,19 +52,74 @@ và `make netcheck` bằng `python ops/netcheck.py`.
 | `p8` | máy 8 GB, laptop demo dự phòng | heap 512 MB, ClamAV 1 luồng, không nạp chữ ký song song |
 | `dev-lite` | phát triển trên laptop | **ClamAV thay bằng `fake-av` (chỉ nhận EICAR)**; không dùng để nghiệm thu |
 
-Người dùng dev (chỉ hồ sơ dev-lite, mật khẩu `dev-only-password`): `chuyen_vien1`, `truong_phong1`, `giam_doc1`, `van_thu1`, `nhan_vien1`, `can_bo_clb1`, `truong_clb1`, `owner_a1`, `owner_b1`, `admin1`.
-Realm chỉ được nạp lần đầu; muốn nạp lại thì xóa volume `dxos_kc-db-data`.
+Người dùng dev (chỉ hồ sơ dev-lite, mật khẩu `dev-only-password`): `chuyen_vien1`, `chuyen_vien_tp1` (chuyên viên kiêm trưởng phòng, cho AT-07), `truong_phong1`, `giam_doc1`, `van_thu1`, `nhan_vien1`, `can_bo_clb1`, `truong_clb1`, `owner_a1`, `owner_b1`, `admin1`, `admin2` (admin thứ hai để duyệt app theo bốn mắt).
+Realm chỉ được nạp lần đầu (`--import-realm` bỏ qua realm đã có). Stack đã chạy từ trước thì sau mỗi lần kéo mã mới chạy
+`python ops/keycloak_upgrade.py` (p8/p16) hoặc `python ops/keycloak_upgrade.py --profile dev-lite`: script idempotent, thêm
+client `dxos-cli`, quyền `manage-realm` cho service account `dxos-installer`, người dùng dev còn thiếu; mã thoát 2 nghĩa là
+còn lệch phải xử lý tay (đã in ra). Muốn nạp lại từ đầu thì xóa volume `dxos_kc-db-data`.
 
 `trust-core-api` tự chạy migration khi khởi động (role `dxos_owner`) rồi mới phục vụ bằng role `dxos_core`. Đã có `.env` từ trước Task 8 thì thêm 2 dòng `DXOS_ACTOR_HMAC_KEY` và `OPENBAO_CORE_TOKEN` từ `.env.example`.
 
 Truy cập: `https://localhost/auth/` (Keycloak), `https://localhost/api/v1/...` (qua APISIX).
 Trình duyệt sẽ cảnh báo chứng chỉ vì Caddy dùng CA nội bộ cho `localhost`.
 
-## E2E mốc M1 (stack dev-lite đang chạy)
-1. `docker compose -p dxos --env-file .env -f deploy/compose.yaml -f deploy/compose.dev-lite.yaml -f deploy/compose.e2e.yaml up -d --build`
+## Cấu hình niêm phong, tổ chức và cài app (Plan 02)
+Đặt trong `.env` (mẫu và chú thích ở `.env.example`); `trust-core-api` và `trust-core-worker` đọc khi khởi động.
+
+| Biến | Ý nghĩa | Mặc định |
+|---|---|---|
+| `DXOS_ORG_NAME` | Tên tổ chức vận hành, ghi **vĩnh viễn** vào tuyên bố khóa `seal-key` ở lần niêm phong đầu (bảng chỉ-thêm, đã neo). Rỗng, giá trị mặc định của lõi hoặc bắt đầu bằng `changeme` thì lõi **không niêm phong**: task cuối trả 503 `org-not-configured`, bản ghi đã duyệt nằm ở `SEAL_PENDING`, và `dxos health` báo `org: down: not configured` | rỗng (= chưa đặt) |
+| `DXOS_ORG_ID` | Mã định danh tổ chức (ví dụ mã số doanh nghiệp), vào tuyên bố khóa; rỗng = `null` | rỗng |
+| `DXOS_SEAL_KEY_VALIDITY_DAYS` | Thời hạn tuyên bố khóa, 1..3650 ngày (khung tham khảo: NĐ 23/2025 Điều 7 khoản 4). Hết hạn thì niêm phong bị từ chối (503 `seal-key-expired`) cho tới khi xoay khóa | 3650 |
+| `DXOS_SEAL_PURPOSE` | Mục đích của khóa, vào tuyên bố khóa; rỗng = câu mặc định của lõi | rỗng |
+| `DXOS_KEY_POLICY_URL` | URL chính sách khóa công khai; rỗng = `null` | rỗng |
+| `DXOS_TIMEZONE` | Múi giờ IANA tính năm cho số văn bản đánh lại theo năm (`reset: yearly`) | `Asia/Ho_Chi_Minh` |
+| `DXOS_ALLOW_SELF_APPROVAL` | `true` cho phép một admin tự duyệt app mình nộp. **Chỉ** cho demo một người; không bật khi lấy minh chứng | `false` |
+| `DXOS_INSTALLER_CLIENT_SECRET` | Secret của client `dxos-installer` (service account tạo realm role `app:<id>:<role>` khi duyệt app). Phải trùng giá trị Keycloak đã nạp lúc tạo realm; đổi `.env` không xoay secret trong Keycloak | `changeme-installer` |
+| `DXOS_TRUST_CORE_DIGEST` | Digest image `trust-core` đã phát hành (64 hex), chỉ dùng với `deploy/compose.release.yaml` | không có |
+
+Đặt tên tổ chức **trước** lần niêm phong đầu: tên đã vào tuyên bố khóa thì không sửa được. Tổ chức hư cấu của demo
+theo spec là "Công ty TNHH Sao Mai"; tên dùng trên VPS do trưởng nhóm quyết định.
+
+Flowable phải giữ history level từ `audit` trở lên (mặc định của Flowable; compose không đổi): lõi đọc lịch sử task và
+biến của Flowable để đối soát lần hoàn thành task bị gián đoạn. Hạ xuống `activity` hoặc `none` làm đối soát báo
+`workflow-inconsistent`.
+
+## Chạy bằng image đã phát hành (máy chủ)
+Máy chủ không build `trust-core` từ mã nguồn: dùng image trên GHCR theo digest ghi ở trang GitHub Release của tag.
+```bash
+# .env: DXOS_TRUST_CORE_DIGEST=<64 hex từ trang Release>
+docker compose -p dxos --env-file .env -f deploy/compose.yaml -f deploy/compose.p16.yaml \
+  -f deploy/compose.anchor.yaml -f deploy/compose.release.yaml up -d
+docker inspect -f '{{.Config.Image}}' dxos-trust-core-api-1   # phải là ghcr.io/psa-ovncr/trust-core@sha256:<digest>
+```
+Không dùng `make up` ở chế độ này (`make up` build từ mã nguồn).
+
+## Cài ứng dụng bằng CLI
+Ứng dụng được cài qua installer bằng CLI `dxos`, một admin nộp, một admin **khác** duyệt (bốn mắt):
+```bash
+dxos login --server https://admin.<miền>                 # mỗi admin trên máy của mình
+DXOS_SERVER=https://admin.<miền> sh ops/e2e/install_apps.sh apps/phong-ho-so   # admin A: nộp, in lệnh duyệt
+dxos --server https://admin.<miền> app approve phong-ho-so 1.1.0              # admin B
+```
+Chi tiết manifest, guard, BPMN, luật nâng phiên bản: [docs/manifest-guide.md](docs/manifest-guide.md).
+`ops/seed_manifests.py` ghi thẳng manifest vào DB, bỏ qua installer: **chỉ dùng cho test lõi**.
+
+## E2E (stack dev-lite đang chạy)
+1. `.env`: đặt `DXOS_ORG_NAME` thật (ví dụ `Công ty TNHH Sao Mai`), rồi
+   `docker compose -p dxos --env-file .env -f deploy/compose.yaml -f deploy/compose.dev-lite.yaml -f deploy/compose.e2e.yaml up -d --build`
 2. Init và unseal OpenBao, chạy `init.sh`, ghi `OPENBAO_CORE_TOKEN` (`docs/runbook-openbao.md`).
-3. Nạp manifest: `ops/seed_manifests.py` (hướng dẫn trong tệp).
-4. Chạy `ops/e2e/run_e2e.sh` trong container `python:3.12-slim` (lệnh `docker run` ở đầu tệp).
+3. Stack có từ trước: `python ops/keycloak_upgrade.py --profile dev-lite` (thêm `admin2`, `chuyen_vien_tp1`, client `dxos-cli`).
+4. Lấy CA của Caddy: `docker compose -p dxos cp caddy:/data/caddy/pki/authorities/local/root.crt <thư mục kết quả>/caddy-root.crt`.
+5. Chạy `ops/e2e/run_e2e.sh` trong container `python:3.12-slim` (lệnh `docker run` ở đầu tệp, thêm
+   `-e DXOS_ORG_NAME="<như .env>"`). Script cài App A, App B bằng CLI (`ops/e2e/install_apps.sh`: admin1 nộp, admin2
+   duyệt) rồi chạy cả E2E M1 và M2; kết quả ở `<thư mục kết quả>/e2e-junit.xml`.
+6. AT-20 (khóa OpenBao) cần `docker` nên chạy trên máy chủ, ngoài container: xem đầu tệp `tests/e2e/test_m2_attacks.py`.
+
+## Tài liệu API (OpenAPI)
+`docs/api/openapi.json` sinh từ ứng dụng FastAPI, không cần dịch vụ nào: `make openapi`. Test
+`tests/ops/test_openapi.py` đỏ nếu tệp đã commit khác bản sinh lại, nên sau khi đổi route hay đổi phiên bản gói thì chạy
+`make openapi` rồi commit.
 
 ## CLI quản trị `dxos`
 `make dev-install` cài sẵn `dxos-cli` ở chế độ editable (lệnh `dxos`); wheel riêng, chỉ cần `httpx` và `PyYAML`, không import `dxos-core`.
@@ -72,5 +127,14 @@ Build wheel: `python -m pip install build && python -m build --wheel --outdir di
 Test (không cần dịch vụ, dùng respx): `python -m pytest cli -q`. Cách dùng: `cli/README.md`.
 
 ## Phát hành
-Đẩy tag `vX.Y.Z` (đã có mục `## [X.Y.Z]` trong `CHANGELOG.md`). Workflow `release` đính kèm `dxos-X.Y.Z.tar.gz`,
-`sbom-X.Y.Z.cdx.json` và wheel của `dxos-proof`, `dxos-core`, `dxos-witness`, `dxos-cli`.
+Chỉ trưởng nhóm gắn tag (hành động công khai). Trước khi gắn tag `vX.Y.Z`:
+1. Đổi phiên bản trong `libs/dxos-proof/pyproject.toml`, `core/pyproject.toml`, `witness/pyproject.toml`,
+   `cli/pyproject.toml` và `__version__` của `core/src/dxos_core/__init__.py`, `witness/src/dxos_witness/__init__.py`,
+   `cli/src/dxos_cli/__init__.py`; chạy `make openapi`.
+2. Đổi tiêu đề `## [X.Y.Z] - Chưa phát hành` trong `CHANGELOG.md` thành `## [X.Y.Z] - YYYY-MM-DD`.
+3. `make check`, commit, rồi `git tag -a vX.Y.Z -m "…"` và `git push origin vX.Y.Z`.
+
+Workflow `release` dừng ngay nếu phiên bản gói khác tag hoặc mục CHANGELOG chưa có ngày. Nếu đạt, nó build image
+`trust-core` từ commit của tag, đẩy lên `ghcr.io/psa-ovncr/trust-core:X.Y.Z` (bằng `GITHUB_TOKEN`), rồi tạo Release
+đính kèm `dxos-X.Y.Z.tar.gz`, `sbom-X.Y.Z.cdx.json`, `trust-core-image-X.Y.Z.txt` và wheel của `dxos-proof`,
+`dxos-core`, `dxos-witness`, `dxos-cli`; digest image ghi trong mô tả Release.

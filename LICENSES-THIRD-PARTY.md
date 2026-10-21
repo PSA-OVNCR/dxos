@@ -56,3 +56,13 @@ Digest được ghim trong `deploy/` bằng `make pin-images`; cột "Digest" c�
 | OpenBao | `openbao/openbao:2.2.0` | MPL-2.0 | Dịch vụ độc lập | `sha256:19612d67a4a95d05a7b77c6ebc6c2ac5dac67a8712d8df2e4c31ad28bee7edaa` | Chưa |
 | BusyBox | `busybox:1.37` | GPL-2.0-only | Công cụ (probe mạng, AT-01) | `sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e` | Chưa |
 | Python | `python:3.12-slim` | PSF-2.0 (+ Debian) | Image nền: `core/Dockerfile` (trust-core-api, trust-core-worker), `fake-av` | `sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1` | Chưa |
+
+## Image của dự án (phát hành trên GHCR)
+Image do workflow `release` build từ `core/Dockerfile` ở commit của tag và đẩy lên GHCR (Plan 02 Task 15). Image nền và
+gói bên trong đã liệt kê ở hai bảng trên (Python `python:3.12-slim`, git, openssh-client, tzdata, các thư viện của
+`dxos-core`, pypdfium2). Digest lấy từ trang GitHub Release của tag; cập nhật cột "Digest" trong cùng commit ghi nhận
+bản phát hành.
+
+| Thành phần | Image | Giấy phép | Cách dùng | Digest |
+|---|---|---|---|---|
+| trust-core (`trust-core-api`, `trust-core-worker`) | `ghcr.io/psa-ovncr/trust-core:0.2.0` | Apache-2.0 (mã của dự án) | Chạy trên máy chủ theo digest qua `deploy/compose.release.yaml` (AT-13) | Chưa phát hành: chưa có tag `v0.2.0` |

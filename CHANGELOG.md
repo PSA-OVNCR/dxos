@@ -3,6 +3,44 @@
 Mọi thay đổi đáng kể được ghi tại đây, theo định dạng [Keep a Changelog](https://keepachangelog.com/vi/1.1.0/) và [Semantic Versioning](https://semver.org/lang/vi/).
 
 ## [Unreleased]
+- Chưa có thay đổi nào sau 0.2.0.
+
+## [0.2.0] - Chưa phát hành
+Mốc M2 (Tier-0 hoàn tất: workflow, niêm phong, đối soát, installer). Spec bản 1.0.3. Trưởng nhóm thay "Chưa phát hành"
+bằng ngày khi gắn tag `v0.2.0`; workflow `release` từ chối mục chưa có ngày.
+
+### Added
+- Manifest 1.0.3: `policies.seal.revoke_roles`, `policies.pii.erase_roles`, `fields.<f>.label`, đánh số theo năm
+  (`reset: yearly`, `{n:0W}`, `DXOS_TIMEZONE`), tham số guard; sự kiện ledger `workflow.started`, `workflow.completed`.
+- Migration 003, 004: ý định và kết quả hoàn thành task, xác nhận rà PII, yêu cầu niêm phong theo ảnh chụp, tệp và
+  deployment của app, khóa sửa/tải lên khi đang chạy quy trình; salt riêng của từng bản ghi (xóa được), bằng chứng xóa
+  PII chỉ thêm, tuyên bố khóa.
+- Bộ kiểm BPMN theo danh sách cho phép (cấm biểu thức, DTD, entity), lõi tự dựng lại BPMN trước khi deploy.
+- Client REST Flowable; cầu nối quy trình: ghim phiên bản app, guard và khóa lạc quan trước Flowable, kiểm KMS trước
+  task cuối (R-1), đối soát lần hoàn thành bị gián đoạn; danh mục guard chung; xác nhận rà PII (`:pii-review`).
+- Niêm phong theo ảnh chụp (cam kết có salt, `SEAL_PENDING` và job thử lại, một niêm phong mỗi bản ghi), thu hồi theo
+  mã lý do, `:erase-pii` (niêm phong vẫn `VALID`), tuyên bố khóa `dxos-key-statement/1` neo ở `keys/seal-key/v<n>.json`.
+- API công khai `/verify/v1/seals/*`: xem niêm phong, `:check` chỉ nhận hash, gói bằng chứng ngoại tuyến;
+  `dxos-witness verify-bundle` (AT-17); trang đối soát tối giản `verify-portal/minimal` (hash tính tại trình duyệt).
+- Installer: nộp, diff quyền, duyệt bốn mắt (tạo realm role qua service account `dxos-installer`, deploy BPMN), vô
+  hiệu hóa; `/admin/v1/health`, `/admin/v1/quarantine`; client Keycloak `dxos-cli` (device flow); `ops/keycloak_upgrade.py`.
+- CLI quản trị `dxos` (wheel `dxos-cli`).
+- App A "Phòng hồ sơ số" và App B "Chứng nhận số" bản 1.1.0 kèm BPMN; AT-14 quét toàn bộ mã lõi được phát hành.
+- E2E mốc M2 (`tests/e2e/test_m2_*.py`), `ops/e2e/install_apps.sh` (cài app bằng CLI, bốn mắt), `ops/at13_reuse.sh`,
+  overlay `deploy/compose.release.yaml` (image theo digest), image `trust-core` trên GHCR trong workflow `release`,
+  `make openapi` và `docs/api/openapi.json`.
+- Tài liệu: `docs/manifest-guide.md`, `docs/legal-mapping.md`, `docs/runbook-pii-erasure.md`; mục "Bản chất pháp lý
+  của niêm phong" trong README.
+
+### Changed
+- `ops/e2e/run_e2e.sh` cài app bằng CLI thay cho `ops/seed_manifests.py`; `seed_manifests.py` chỉ còn dùng cho test lõi.
+- Caddy: host công khai trả 404 cho `/admin`; danh sách IP của host quản trị được thực thi.
+- `/admin/v1/ledger/status` chỉ còn trạng thái ledger; trạng thái thành phần chuyển sang `/admin/v1/health`.
+
+### Chưa làm trong bản này
+- E2E M2, AT-13, AT-18, AT-19, AT-20 trên stack thật và VPS: chờ chạy (danh sách việc ở `docs/evidence/README.md`).
+
+## [0.1.0] - Chưa phát hành
 ### Added
 - Khung kho mã: LICENSE (Apache-2.0), NOTICE, REUSE, CI (reuse, ruff, pytest, gitleaks), mẫu issue.
 - Thư viện `dxos-proof`: JSON chuẩn hóa (NFC, UTC, cấm số thực) và cây Merkle RFC 6962 (inclusion proof, consistency proof).
