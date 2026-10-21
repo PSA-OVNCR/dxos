@@ -12,7 +12,7 @@ from dxos_core.registry.store import save_manifest
 from helpers.manifests import manifest, raw
 from helpers.tokens import bearer, make_token
 
-APPS = ("test-app", "phong-ho-so", "chung-nhan")
+APPS = ("test-app", "test-flow")
 
 
 @asynccontextmanager

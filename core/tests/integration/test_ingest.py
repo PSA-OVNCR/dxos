@@ -17,7 +17,7 @@ from helpers.files import eicar, fixture
 
 pytestmark = pytest.mark.integration
 
-URL_A = "/api/v1/apps/phong-ho-so/collections/van_ban/records"
+URL_A = "/api/v1/apps/test-flow/collections/doc/records"
 URL_T = "/api/v1/apps/test-app/collections/item/records"
 
 
@@ -62,22 +62,22 @@ def run_worker_once_with_clamd_down(ctx):
 
 
 @pytest.fixture
-def tok_cv():
-    return tok("chuyen_vien1", "app:phong-ho-so:chuyen_vien")
+def tok_author():
+    return tok("author1", "app:test-flow:author")
 
 
 @pytest.fixture
-def tok_tp():
-    return tok("truong_phong1", "app:phong-ho-so:truong_phong")
+def tok_reviewer():
+    return tok("reviewer1", "app:test-flow:reviewer")
 
 
 @pytest.fixture
 def tok_admin_with_app_role():
-    return tok("admin1", "dxos-admin", "app:phong-ho-so:giam_doc")
+    return tok("admin1", "dxos-admin", "app:test-flow:approver")
 
 
 async def new_record(api, tok_, url=URL_A, body=None) -> str:
-    r = await api.post(url, json=body or {"trich_yeu": "Văn bản có tệp"}, headers=tok_)
+    r = await api.post(url, json=body or {"title": "Hồ sơ có tệp"}, headers=tok_)
     assert r.status_code == 201, r.text
     return r.json()["id"]
 
@@ -97,75 +97,75 @@ async def status(api, tok_, up) -> dict:
 
 # ---------- Các test do Plan 01 Task 14 quy định ----------
 
-async def test_eicar_quarantined(api, tok_cv, run_worker_once, core_conn):          # AT-03
-    up = await upload(api, tok_cv, eicar(), "a.pdf")
+async def test_eicar_quarantined(api, tok_author, run_worker_once, core_conn):          # AT-03
+    up = await upload(api, tok_author, eicar(), "a.pdf")
     await run_worker_once()
-    assert (await api.get(f"/api/v1/uploads/{up}", headers=tok_cv)).json()["status"] == "INFECTED"
+    assert (await api.get(f"/api/v1/uploads/{up}", headers=tok_author)).json()["status"] == "INFECTED"
     assert await last_event_type(core_conn) == "object.infected"
 
 
-async def test_staging_not_readable_even_by_admin(api, tok_cv, tok_admin_with_app_role):   # AT-04
-    await upload(api, tok_cv, fixture("clean-text.pdf"), "a.pdf")         # chưa chạy worker
+async def test_staging_not_readable_even_by_admin(api, tok_author, tok_admin_with_app_role):   # AT-04
+    await upload(api, tok_author, fixture("clean-text.pdf"), "a.pdf")         # chưa chạy worker
     sha = hashlib.sha256(fixture("clean-text.pdf")).hexdigest()
     assert (await api.get(f"/api/v1/objects/{sha}", headers=tok_admin_with_app_role)).status_code == 404
 
 
-async def test_cas_dedup_and_byte_change(api, tok_cv, run_worker_once, core_conn):  # AT-05 (phần CAS)
+async def test_cas_dedup_and_byte_change(api, tok_author, run_worker_once, core_conn):  # AT-05 (phần CAS)
     data = fixture("clean-text.pdf")
-    await upload(api, tok_cv, data, "1.pdf")
-    await upload(api, tok_cv, data, "2.pdf")
+    await upload(api, tok_author, data, "1.pdf")
+    await upload(api, tok_author, data, "2.pdf")
     await run_worker_once(2)
     assert await core_conn.fetchval("SELECT count(*) FROM objects") == 1
     changed = data[:-2] + bytes([data[-2] ^ 1]) + data[-1:]
-    await upload(api, tok_cv, changed, "3.pdf")
+    await upload(api, tok_author, changed, "3.pdf")
     await run_worker_once()
     # 2 nếu bản sửa vẫn là PDF hợp lệ, 1 nếu bị REJECTED
     assert await core_conn.fetchval("SELECT count(*) FROM objects") in (1, 2)
 
 
-async def test_clamd_down_stays_staging_and_retries(api, tok_cv, run_worker_once_with_clamd_down,
+async def test_clamd_down_stays_staging_and_retries(api, tok_author, run_worker_once_with_clamd_down,
                                                     core_conn):  # AT-20
-    up = await upload(api, tok_cv, fixture("clean-text.pdf"), "a.pdf")
+    up = await upload(api, tok_author, fixture("clean-text.pdf"), "a.pdf")
     await run_worker_once_with_clamd_down()
-    assert (await api.get(f"/api/v1/uploads/{up}", headers=tok_cv)).json()["status"] == "STAGING"
+    assert (await api.get(f"/api/v1/uploads/{up}", headers=tok_author)).json()["status"] == "STAGING"
     assert await core_conn.fetchval("SELECT attempts FROM jobs ORDER BY id DESC LIMIT 1") == 1
 
 
-async def test_bad_job_does_not_stop_worker(api, tok_cv, ctx, core_conn):
+async def test_bad_job_does_not_stop_worker(api, tok_author, ctx, core_conn):
     async with ctx.pool.acquire() as c:
         await c.execute("INSERT INTO jobs(kind, payload) VALUES ('scan', $1::jsonb)",
                         '{"upload_id": "khong-phai-uuid"}')
-    up = await upload(api, tok_cv, fixture("clean-text.pdf"), "a.pdf")
+    up = await upload(api, tok_author, fixture("clean-text.pdf"), "a.pdf")
     assert await worker.run_once(ctx)          # việc hỏng: ghi lỗi, không ném ra ngoài
     assert await worker.run_once(ctx)          # việc hợp lệ phía sau vẫn chạy
-    assert (await status(api, tok_cv, up))["status"] == "CLEAN"
+    assert (await status(api, tok_author, up))["status"] == "CLEAN"
     row = await core_conn.fetchrow("SELECT state, last_error FROM jobs ORDER BY id LIMIT 1")
     assert row["state"] in ("QUEUED", "FAILED") and row["last_error"]
 
 
 # ---------- Bổ sung ----------
 
-async def test_clean_pdf_flow_and_download(api, tok_cv, tok_tp, run_worker_once, core_conn):
+async def test_clean_pdf_flow_and_download(api, tok_author, tok_reviewer, run_worker_once, core_conn):
     data = fixture("clean-text.pdf")
-    rid = await new_record(api, tok_cv)
-    up = await upload(api, tok_cv, data, "Quyết định.pdf", rid)
+    rid = await new_record(api, tok_author)
+    up = await upload(api, tok_author, data, "Quyết định.pdf", rid)
     await run_worker_once()
-    st = await status(api, tok_cv, up)
+    st = await status(api, tok_author, up)
     sha = hashlib.sha256(data).hexdigest()
     assert st == {"status": "CLEAN", "sha256": sha}
     assert await last_event_type(core_conn) == "object.clean"
-    r = await api.get(f"/api/v1/objects/{sha}?variant=original", headers=tok_cv)
+    r = await api.get(f"/api/v1/objects/{sha}?variant=original", headers=tok_author)
     assert r.status_code == 200 and r.content == data and r.headers["content-type"] == "application/pdf"
     assert r.headers["x-content-type-options"] == "nosniff"
     assert await last_event_type(core_conn) == "object.read"
-    # trưởng phòng có quyền đọc theo manifest
-    assert (await api.get(f"/api/v1/objects/{sha}", headers=tok_tp)).status_code == 200
+    # reviewer có quyền đọc theo manifest
+    assert (await api.get(f"/api/v1/objects/{sha}", headers=tok_reviewer)).status_code == 200
     ref = await core_conn.fetchrow("SELECT record_id::text AS rid, role FROM object_refs")
     assert (ref["rid"], ref["role"]) == (rid, "original")
 
 
-async def test_original_name_only_hashed(api, tok_cv, core_conn):
-    up = await upload(api, tok_cv, fixture("clean-text.pdf"), "Hồ sơ mật của ông A.pdf")
+async def test_original_name_only_hashed(api, tok_author, core_conn):
+    up = await upload(api, tok_author, fixture("clean-text.pdf"), "Hồ sơ mật của ông A.pdf")
     row = await core_conn.fetchrow("SELECT * FROM uploads WHERE id=$1::uuid", up)
     assert "Hồ sơ" not in str(dict(row)) and len(row["original_name_hash"]) == 64
     assert await last_event_type(core_conn) == "upload.staged"
@@ -173,24 +173,24 @@ async def test_original_name_only_hashed(api, tok_cv, core_conn):
 
 @pytest.mark.parametrize("name,reason", [("image-only.pdf", "NO_TEXT_LAYER"), ("encrypted.pdf", "ENCRYPTED"),
                                          ("polyglot.bin", "PARSE_ERROR")])
-async def test_rejected_files(api, tok_cv, run_worker_once, core_conn, name, reason):  # RF2, D1
-    up = await upload(api, tok_cv, fixture(name), "x.pdf")
+async def test_rejected_files(api, tok_author, run_worker_once, core_conn, name, reason):  # RF2, D1
+    up = await upload(api, tok_author, fixture(name), "x.pdf")
     await run_worker_once()
-    assert await status(api, tok_cv, up) == {"status": "REJECTED", "reason": reason}
+    assert await status(api, tok_author, up) == {"status": "REJECTED", "reason": reason}
     assert await last_event_type(core_conn) == "object.rejected"
     assert await core_conn.fetchval("SELECT count(*) FROM objects") == 0
 
 
-async def test_av_runs_before_pdf_checks(api, tok_cv, run_worker_once):              # D1
+async def test_av_runs_before_pdf_checks(api, tok_author, run_worker_once):              # D1
     # EICAR không phải PDF: vẫn phải bị cách ly (INFECTED), không chỉ REJECTED
-    up = await upload(api, tok_cv, eicar(), "virus.exe")
+    up = await upload(api, tok_author, eicar(), "virus.exe")
     await run_worker_once()
-    assert (await status(api, tok_cv, up))["status"] == "INFECTED"
+    assert (await status(api, tok_author, up))["status"] == "INFECTED"
 
 
-async def test_staging_emptied_and_quarantine_used(api, tok_cv, ctx, run_worker_once):
-    up_bad = await upload(api, tok_cv, eicar(), "a.pdf")
-    up_ok = await upload(api, tok_cv, fixture("clean-text.pdf"), "b.pdf")
+async def test_staging_emptied_and_quarantine_used(api, tok_author, ctx, run_worker_once):
+    up_bad = await upload(api, tok_author, eicar(), "a.pdf")
+    up_ok = await upload(api, tok_author, fixture("clean-text.pdf"), "b.pdf")
     await run_worker_once(2)
     staging = ctx.store.list_keys(ctx.settings.s3_bucket_staging)
     assert up_bad not in staging and up_ok not in staging
@@ -207,56 +207,58 @@ async def test_too_large_413(api):
     assert r.status_code == 413 and r.json()["type"].endswith("/payload-too-large")
 
 
-async def test_upload_requires_update_permission(api, tok_cv, tok_tp, core_conn):
-    rid = await new_record(api, tok_cv)
-    r = await api.post(f"{URL_A}/{rid}/attachments", files={"file": ("a.pdf", b"%PDF-1.7")}, headers=tok_tp)
+async def test_upload_requires_update_permission(api, tok_author, tok_reviewer, core_conn):
+    rid = await new_record(api, tok_author)
+    r = await api.post(f"{URL_A}/{rid}/attachments", files={"file": ("a.pdf", b"%PDF-1.7")},
+                       headers=tok_reviewer)
     assert r.status_code == 404
     assert await last_event_type(core_conn) == "policy.denied"
 
 
-async def test_upload_to_sealed_record_409(api, tok_cv, owner_conn):
-    rid = await new_record(api, tok_cv)
+async def test_upload_to_sealed_record_409(api, tok_author, owner_conn):
+    rid = await new_record(api, tok_author)
     await owner_conn.execute("UPDATE records SET seal_state='SEALED' WHERE id=$1::uuid", rid)
-    r = await api.post(f"{URL_A}/{rid}/attachments", files={"file": ("a.pdf", b"%PDF-1.7")}, headers=tok_cv)
+    r = await api.post(f"{URL_A}/{rid}/attachments", files={"file": ("a.pdf", b"%PDF-1.7")},
+                       headers=tok_author)
     assert r.status_code == 409 and r.json()["type"].endswith("/record-sealed")
 
 
-async def test_upload_missing_file_field_400(api, tok_cv):
-    rid = await new_record(api, tok_cv)
-    r = await api.post(f"{URL_A}/{rid}/attachments", files={"other": ("a.pdf", b"x")}, headers=tok_cv)
+async def test_upload_missing_file_field_400(api, tok_author):
+    rid = await new_record(api, tok_author)
+    r = await api.post(f"{URL_A}/{rid}/attachments", files={"other": ("a.pdf", b"x")}, headers=tok_author)
     assert r.status_code == 400
 
 
-async def test_upload_status_hidden_from_other_users(api, tok_cv):
-    up = await upload(api, tok_cv, fixture("clean-text.pdf"), "a.pdf")
-    outsider = tok("x", "app:chung-nhan:truong_clb")
+async def test_upload_status_hidden_from_other_users(api, tok_author):
+    up = await upload(api, tok_author, fixture("clean-text.pdf"), "a.pdf")
+    outsider = tok("x", "app:test-app:reviewer")
     assert (await api.get(f"/api/v1/uploads/{up}", headers=outsider)).status_code == 404
-    assert (await api.get("/api/v1/uploads/khong-phai-uuid", headers=tok_cv)).status_code == 404
+    assert (await api.get("/api/v1/uploads/khong-phai-uuid", headers=tok_author)).status_code == 404
 
 
-async def test_object_not_readable_without_record_access(api, tok_cv, run_worker_once, core_conn):
+async def test_object_not_readable_without_record_access(api, tok_author, run_worker_once, core_conn):
     data = fixture("clean-text.pdf")
-    await upload(api, tok_cv, data, "a.pdf")
+    await upload(api, tok_author, data, "a.pdf")
     await run_worker_once()
     sha = hashlib.sha256(data).hexdigest()
     outsider = tok("x", "app:test-app:member")
     assert (await api.get(f"/api/v1/objects/{sha}", headers=outsider)).status_code == 404
     assert await last_event_type(core_conn) == "policy.denied"
-    assert (await api.get(f"/api/v1/objects/{'0' * 64}", headers=tok_cv)).status_code == 404
-    assert (await api.get("/api/v1/objects/khong-phai-hash", headers=tok_cv)).status_code == 404
-    assert (await api.get(f"/api/v1/objects/{sha}?variant=redacted", headers=tok_cv)).status_code == 404
+    assert (await api.get(f"/api/v1/objects/{'0' * 64}", headers=tok_author)).status_code == 404
+    assert (await api.get("/api/v1/objects/khong-phai-hash", headers=tok_author)).status_code == 404
+    assert (await api.get(f"/api/v1/objects/{sha}?variant=redacted", headers=tok_author)).status_code == 404
 
 
-async def test_read_object_detects_tampering(api, tok_cv, ctx, run_worker_once):
+async def test_read_object_detects_tampering(api, tok_author, ctx, run_worker_once):
     # PDF riêng cho test này (thêm chú thích sau %%EOF) để không làm hỏng object dùng chung của test khác
     data = fixture("clean-text.pdf") + f"%{uuid.uuid4().hex}\n".encode()
-    await upload(api, tok_cv, data, "a.pdf")
+    await upload(api, tok_author, data, "a.pdf")
     await run_worker_once()
     sha = hashlib.sha256(data).hexdigest()
     ctx.store.put_raw(ctx.settings.s3_bucket_objects, sha, b"%PDF-1.7 bi sua tren o dia")
     with pytest.raises(IntegrityError):
         ctx.store.read_object(sha)
-    r = await api.get(f"/api/v1/objects/{sha}", headers=tok_cv)
+    r = await api.get(f"/api/v1/objects/{sha}", headers=tok_author)
     assert r.status_code == 500 and r.json()["type"].endswith("/integrity-error")
 
 
@@ -278,12 +280,13 @@ async def test_no_job_returns_false(ctx):
 # ---------- Sửa sau rà soát độc lập ----------
 
 @pytest.mark.parametrize("name,final", [("clean-text.pdf", "CLEAN"), ("eicar", "INFECTED")])
-async def test_crash_before_commit_then_retry_finishes(api, tok_cv, ctx, core_conn, monkeypatch, name, final):
+async def test_crash_before_commit_then_retry_finishes(api, tok_author, ctx, core_conn, monkeypatch, name,
+                                                       final):
     """Rà soát #2: lỗi giữa lúc chép tệp và commit DB không được làm upload kẹt STAGING mãi mãi."""
     from dxos_core.objects import ingest
 
     data = eicar() if name == "eicar" else fixture(name)
-    up = await upload(api, tok_cv, data, "a.pdf")
+    up = await upload(api, tok_author, data, "a.pdf")
     real_append = ingest.append
     calls = {"n": 0}
 
@@ -294,29 +297,29 @@ async def test_crash_before_commit_then_retry_finishes(api, tok_cv, ctx, core_co
         return await real_append(conn, **kw)
     monkeypatch.setattr(ingest, "append", flaky)
     assert await worker.run_once(ctx)                                   # lần 1 lỗi trước commit
-    assert (await status(api, tok_cv, up))["status"] == "STAGING"
+    assert (await status(api, tok_author, up))["status"] == "STAGING"
     assert ctx.store.exists(ctx.settings.s3_bucket_staging, up)         # staging vẫn còn
     await core_conn.execute("UPDATE jobs SET run_after=now()")
     assert await worker.run_once(ctx)                                   # lần 2 thành công
-    assert (await status(api, tok_cv, up))["status"] == final
+    assert (await status(api, tok_author, up))["status"] == final
     assert not ctx.store.exists(ctx.settings.s3_bucket_staging, up)     # dọn staging sau commit
 
 
-async def test_upload_without_content_length_411(api, tok_cv):                    # rà soát #8
-    rid = await new_record(api, tok_cv)
+async def test_upload_without_content_length_411(api, tok_author):                    # rà soát #8
+    rid = await new_record(api, tok_author)
 
     async def body():
         yield b'--b\r\nContent-Disposition: form-data; name="file"; filename="a.pdf"\r\n\r\n'
         yield b"%PDF-1.7\r\n--b--\r\n"
     r = await api.post(f"{URL_A}/{rid}/attachments", content=body(),
-                       headers={**tok_cv, "Content-Type": "multipart/form-data; boundary=b"})
+                       headers={**tok_author, "Content-Type": "multipart/form-data; boundary=b"})
     assert r.status_code == 411
 
 
-async def test_upload_does_not_hold_db_connection_while_reading(api, tok_cv, monkeypatch):  # rà soát #8
+async def test_upload_does_not_hold_db_connection_while_reading(api, tok_author, monkeypatch):  # rà soát #8
     from starlette.requests import Request
 
-    rid = await new_record(api, tok_cv)
+    rid = await new_record(api, tok_author)
     pool = api.app.state.pool
     seen = {}
     real_form = Request.form
@@ -326,5 +329,5 @@ async def test_upload_does_not_hold_db_connection_while_reading(api, tok_cv, mon
         return real_form(self, *a, **k)
     monkeypatch.setattr(Request, "form", spy)
     r = await api.post(f"{URL_A}/{rid}/attachments", files={"file": ("a.pdf", fixture("clean-text.pdf"))},
-                       headers=tok_cv)
+                       headers=tok_author)
     assert r.status_code == 202 and seen["in_use"] == 0

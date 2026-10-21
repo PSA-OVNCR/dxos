@@ -1,21 +1,21 @@
 # SPDX-FileCopyrightText: 2026 PSA_OVNCR
 # SPDX-License-Identifier: Apache-2.0
-# Manifest App B "Chứng nhận số" (Plan 01 Task 11 Step 3; spec 14). Không phải PKI, không phải chữ ký số.
+# Manifest App B "Chứng nhận số" 1.1.0 (spec 14; Plan 02 Task 14). Không phải PKI, không phải chữ ký số.
 apiVersion: dxos/v1
-app: { id: chung-nhan, version: 1.0.0, name: "Chứng nhận số", spaces: [P, D] }
+app: { id: chung-nhan, version: 1.1.0, name: "Chứng nhận số", spaces: [P, D] }
 roles: [can_bo_clb, truong_clb]
 collections:
   chung_nhan:
     fields:
-      so_chung_nhan: { type: sequence, format: "{n}/CN-CLB", public: true }
-      ho_ten:        { type: string, required: true, public: true }
-      su_kien:       { type: string, required: true, public: true }
-      ngay_cap:      { type: date, required: true, public: true }
-      email:         { type: string, pii: EMAIL }
+      so_chung_nhan: { type: sequence, format: "{n}/CN-CLB", public: true, label: "Số chứng nhận" }
+      ho_ten:        { type: string, required: true, public: true, label: "Họ và tên" }
+      su_kien:       { type: string, required: true, public: true, label: "Sự kiện" }
+      ngay_cap:      { type: date, required: true, public: true, label: "Ngày cấp" }
+      email:         { type: string, pii: EMAIL, label: "Email" }
     access: { read: [role:can_bo_clb, role:truong_clb], create: [role:can_bo_clb] }
 policies:
-  pii:    { reveal_roles: [truong_clb] }
-  seal:   { on_event: "process.completed:approved", target: [record], public_fields: [so_chung_nhan, ho_ten, su_kien, ngay_cap] }
+  pii:    { reveal_roles: [truong_clb], erase_roles: [truong_clb] }
+  seal:   { on_event: "process.completed:approved", target: [record], public_fields: [so_chung_nhan, ho_ten, su_kien, ngay_cap], revoke_roles: [truong_clb] }
   verify: { public: true, require_file: false }
 workflow:
   bpmn: bpmn/cap-chung-nhan.bpmn

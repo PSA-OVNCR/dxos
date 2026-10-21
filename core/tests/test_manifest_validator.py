@@ -3,6 +3,7 @@
 """Test validator manifest: schema, namespace, chính sách sàn, guard (Plan 01 Task 11, AT-11, AT-12)."""
 
 import copy
+import re
 from pathlib import Path
 from typing import get_args
 
@@ -12,8 +13,6 @@ from dxos_core.registry.validator import GUARD_CATALOG, ErrorCode, ManifestError
 
 ROOT = Path(__file__).resolve().parents[2]
 PATHS = {
-    "phong-ho-so": ROOT / "apps/phong-ho-so/manifest.yaml",
-    "chung-nhan": ROOT / "apps/chung-nhan/manifest.yaml",
     "test-app": ROOT / "core/tests/fixtures/manifest-test-app.yaml",
     "test-flow": ROOT / "core/tests/fixtures/manifest-test-flow.yaml",
 }
@@ -35,37 +34,36 @@ def raises_code(doc: dict) -> str:
 
 # ---------- Các test do Plan 01 Task 11 quy định ----------
 
-@pytest.mark.parametrize("path", ["apps/phong-ho-so/manifest.yaml", "apps/chung-nhan/manifest.yaml",
-                                  "core/tests/fixtures/manifest-test-app.yaml",
+@pytest.mark.parametrize("path", ["core/tests/fixtures/manifest-test-app.yaml",
                                   "core/tests/fixtures/manifest-test-flow.yaml"])
-def test_shipped_manifests_valid(path):
+def test_fixture_manifests_valid(path):          # manifest App A/B: xem tests/apps/test_app_manifests.py
     assert validate_manifest(load_yaml(path)).app.id
 
 
 def test_floor_weakened():                                                       # AT-11
-    doc = load("phong-ho-so")
-    doc["collections"]["van_ban"]["attachments"]["quarantine"] = "optional"
+    doc = load("test-flow")
+    doc["collections"]["doc"]["attachments"]["quarantine"] = "optional"
     assert raises_code(doc) == "FLOOR_WEAKENED"
 
 
 def test_unknown_guard():                                                        # AT-11
-    doc = load("phong-ho-so")
-    doc["workflow"]["tasks"]["ban_hanh"]["guards"].append("skip_scan")
+    doc = load("test-flow")
+    doc["workflow"]["tasks"]["approve"]["guards"].append("skip_scan")
     assert raises_code(doc) == "UNKNOWN_GUARD"
 
 
 @pytest.mark.parametrize("mutate", [
-    lambda d: d["roles"].append("app:chung-nhan:truong_clb"),
+    lambda d: d["roles"].append("app:test-app:reviewer"),
     lambda d: d["collections"].__setitem__("x:y", {"fields": {}, "access": {"read": [], "create": []}}),
 ])
 def test_namespace_violation(mutate):                                            # AT-12
-    doc = load("phong-ho-so")
+    doc = load("test-flow")
     mutate(doc)
     assert raises_code(doc) == "NAMESPACE_VIOLATION"
 
 
 def test_reveal_role_must_be_declared():
-    doc = load("phong-ho-so")
+    doc = load("test-flow")
     doc["policies"]["pii"]["reveal_roles"] = ["ghost"]
     assert raises_code(doc) == "SCHEMA_INVALID"
 
@@ -73,22 +71,22 @@ def test_reveal_role_must_be_declared():
 # ---------- Bổ sung ----------
 
 def test_parsed_model_fields():
-    m = validate_manifest(load("phong-ho-so"))
-    vb = m.collections["van_ban"]
-    assert m.app.version == "1.0.0"
-    assert m.roles == ["chuyen_vien", "truong_phong", "giam_doc", "van_thu", "nhan_vien"]
-    assert vb.fields["so_hieu"].type == "sequence" and vb.fields["so_hieu"].format == "{n}/QĐ-SM"
-    assert vb.fields["nguoi_lien_he_cccd"].pii == "CCCD"
-    assert vb.attachments.max_mb == 15 and vb.attachments.min == 1 and vb.access.update == ["owner"]
-    assert m.policies.pii.reveal_roles == ["giam_doc", "van_thu"]
-    guards = m.workflow.tasks["ban_hanh"].guards
-    assert guards == ["attachments_clean", "pii_reviewed", "not_same_actor:creator"]
+    m = validate_manifest(load("test-flow"))
+    vb = m.collections["doc"]
+    assert m.app.version == "0.1.0"
+    assert m.roles == ["author", "reviewer", "approver"]
+    assert vb.fields["ref"].type == "sequence" and vb.fields["ref"].format == "{n:02}/TF"
+    assert vb.fields["cccd"].pii == "CCCD"
+    assert vb.attachments.max_mb == 1 and vb.attachments.min == 1 and vb.access.update == ["owner"]
+    assert m.policies.pii.reveal_roles == ["approver"]
+    guards = m.workflow.tasks["approve"].guards
+    assert guards == ["attachments_clean", "pii_reviewed", "not_same_actor:creator", "not_same_actor:review"]
     assert validate_manifest(load("test-app")).workflow is None
 
 
 def test_quarantine_required_is_allowed():
-    doc = load("phong-ho-so")
-    doc["collections"]["van_ban"]["attachments"]["quarantine"] = "required"
+    doc = load("test-flow")
+    doc["collections"]["doc"]["attachments"]["quarantine"] = "required"
     validate_manifest(doc)
 
 
@@ -132,22 +130,22 @@ def test_access_entries(entry):
 
 
 def test_task_role_must_be_declared():
-    doc = load("phong-ho-so")
-    doc["workflow"]["tasks"]["ban_hanh"]["role"] = "ghost"
+    doc = load("test-flow")
+    doc["workflow"]["tasks"]["approve"]["role"] = "ghost"
     assert raises_code(doc) == "SCHEMA_INVALID"
 
 
 def test_guard_with_argument_known_name_ok_and_catalog_is_exact():
     assert GUARD_CATALOG == frozenset({"attachments_clean", "pii_reviewed", "not_same_actor", "role_in",
                                        "field_required", "record_not_sealed", "assignee_is_caller"})
-    doc = load("phong-ho-so")
-    doc["workflow"]["tasks"]["ban_hanh"]["guards"].append("field_required:trich_yeu")
+    doc = load("test-flow")
+    doc["workflow"]["tasks"]["approve"]["guards"].append("field_required:title")
     validate_manifest(doc)
 
 
 def test_public_fields_must_be_public():
-    doc = load("phong-ho-so")
-    doc["policies"]["seal"]["public_fields"].append("nguoi_lien_he_cccd")
+    doc = load("test-flow")
+    doc["policies"]["seal"]["public_fields"].append("cccd")
     assert raises_code(doc) == "SCHEMA_INVALID"
 
 
@@ -174,9 +172,19 @@ def test_error_is_value_error_with_path():
 
 
 def test_core_never_names_tier2_apps():                                          # I3 (AT-14, phần tĩnh)
-    src = ROOT / "core/src"
-    offenders = [p for p in src.rglob("*.py") if any(n in p.read_text(encoding="utf-8")
-                                                     for n in ("phong-ho-so", "chung-nhan", "phong_ho_so"))]
+    """Mã phát hành của lõi không chứa định danh nào của mọi ``apps/*/manifest.yaml``: app id (gạch nối và
+    gạch dưới), tên collection, tên role. ``core/tests`` không nằm trong image nên không quét."""
+    idents: set[str] = set()
+    manifests = list((ROOT / "apps").glob("*/manifest.yaml"))
+    for f in manifests:
+        m = yaml.safe_load(f.read_text(encoding="utf-8"))
+        idents |= {m["app"]["id"], m["app"]["id"].replace("-", "_"), *m["collections"], *m["roles"]}
+    files = [p for d in ("src", "migrations", "docker") for p in (ROOT / "core" / d).rglob("*")
+             if p.is_file() and "__pycache__" not in p.parts]
+    files += [ROOT / "core/Dockerfile", ROOT / "core/pyproject.toml"]
+    assert len(manifests) >= 2 and len(files) > 20           # chống test rỗng
+    offenders = sorted({(p.relative_to(ROOT).as_posix(), i) for p in files for i in idents
+                        if re.search(rf"\b{re.escape(i)}\b", p.read_text(encoding="utf-8", errors="ignore"))})
     assert offenders == []
 
 

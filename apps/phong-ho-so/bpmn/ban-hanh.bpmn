@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+SPDX-FileCopyrightText: 2026 PSA_OVNCR
+SPDX-License-Identifier: Apache-2.0
+-->
+<!-- Quy trình ban hành văn bản của App A "Phòng hồ sơ số": viết tay, chỉ dùng tập con BPMN mà lõi cho phép (P2-D2). -->
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+             xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
+             xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
+             xmlns:flowable="http://flowable.org/bpmn"
+             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+             id="phong-ho-so-ban-hanh-definitions" targetNamespace="urn:dxos:phong-ho-so">
+  <process id="phong-ho-so.ban-hanh" name="Ban hành văn bản" isExecutable="true">
+    <startEvent id="start" name="Bắt đầu"/>
+    <sequenceFlow id="f_start" sourceRef="start" targetRef="duyet_noi_dung"/>
+    <userTask id="duyet_noi_dung" name="Duyệt nội dung" flowable:candidateGroups="app:phong-ho-so:truong_phong"/>
+    <sequenceFlow id="f_duyet" sourceRef="duyet_noi_dung" targetRef="gw_duyet"/>
+    <exclusiveGateway id="gw_duyet" name="Kết quả duyệt nội dung"/>
+    <sequenceFlow id="f_duyet_ok" sourceRef="gw_duyet" targetRef="ban_hanh">
+      <conditionExpression xsi:type="tFormalExpression">${decision == 'approve'}</conditionExpression>
+    </sequenceFlow>
+    <sequenceFlow id="f_duyet_no" sourceRef="gw_duyet" targetRef="rejected">
+      <conditionExpression xsi:type="tFormalExpression">${decision == 'reject'}</conditionExpression>
+    </sequenceFlow>
+    <userTask id="ban_hanh" name="Ban hành" flowable:candidateGroups="app:phong-ho-so:giam_doc"/>
+    <sequenceFlow id="f_ban_hanh" sourceRef="ban_hanh" targetRef="gw_ban_hanh"/>
+    <exclusiveGateway id="gw_ban_hanh" name="Kết quả ban hành"/>
+    <sequenceFlow id="f_ban_hanh_ok" sourceRef="gw_ban_hanh" targetRef="approved">
+      <conditionExpression xsi:type="tFormalExpression">${decision == 'approve'}</conditionExpression>
+    </sequenceFlow>
+    <sequenceFlow id="f_ban_hanh_no" sourceRef="gw_ban_hanh" targetRef="rejected">
+      <conditionExpression xsi:type="tFormalExpression">${decision == 'reject'}</conditionExpression>
+    </sequenceFlow>
+    <endEvent id="approved" name="Đã ban hành"/>
+    <endEvent id="rejected" name="Từ chối"/>
+  </process>
+  <bpmndi:BPMNDiagram id="diagram">
+    <bpmndi:BPMNPlane id="plane" bpmnElement="phong-ho-so.ban-hanh">
+      <bpmndi:BPMNShape id="s_start" bpmnElement="start"><dc:Bounds x="20" y="102" width="36" height="36"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="s_duyet_noi_dung" bpmnElement="duyet_noi_dung"><dc:Bounds x="100" y="80" width="100" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="s_gw_duyet" bpmnElement="gw_duyet" isMarkerVisible="true"><dc:Bounds x="245" y="95" width="50" height="50"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="s_ban_hanh" bpmnElement="ban_hanh"><dc:Bounds x="340" y="80" width="100" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="s_gw_ban_hanh" bpmnElement="gw_ban_hanh" isMarkerVisible="true"><dc:Bounds x="485" y="95" width="50" height="50"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="s_approved" bpmnElement="approved"><dc:Bounds x="580" y="102" width="36" height="36"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="s_rejected" bpmnElement="rejected"><dc:Bounds x="580" y="222" width="36" height="36"/>
+        <bpmndi:BPMNLabel id="l_rejected"><dc:Bounds x="570" y="262" width="56" height="14"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="e_start" bpmnElement="f_start"><di:waypoint x="56" y="120"/><di:waypoint x="100" y="120"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="e_duyet" bpmnElement="f_duyet"><di:waypoint x="200" y="120"/><di:waypoint x="245" y="120"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="e_duyet_ok" bpmnElement="f_duyet_ok"><di:waypoint x="295" y="120"/><di:waypoint x="340" y="120"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="e_duyet_no" bpmnElement="f_duyet_no"><di:waypoint x="270" y="145"/><di:waypoint x="270" y="240"/><di:waypoint x="580" y="240"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="e_ban_hanh" bpmnElement="f_ban_hanh"><di:waypoint x="440" y="120"/><di:waypoint x="485" y="120"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="e_ban_hanh_ok" bpmnElement="f_ban_hanh_ok"><di:waypoint x="535" y="120"/><di:waypoint x="580" y="120"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="e_ban_hanh_no" bpmnElement="f_ban_hanh_no"><di:waypoint x="510" y="145"/><di:waypoint x="510" y="240"/><di:waypoint x="580" y="240"/></bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</definitions>

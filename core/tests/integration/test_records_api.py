@@ -8,26 +8,38 @@ import uuid
 
 import pytest
 from dxos_core.records.digest import data_digest
+from dxos_core.registry.store import save_manifest
+from dxos_core.registry.validator import validate_manifest
 from dxos_proof.canonical import canonical_bytes, sha256_hex
 from helpers.api import activate, last_event_type, running_api, tok
+from helpers.manifests import raw
 
 pytestmark = pytest.mark.integration
 
-URL_A = "/api/v1/apps/phong-ho-so/collections/van_ban/records"
+URL_F = "/api/v1/apps/test-flow/collections/doc/records"
+URL_D = "/api/v1/apps/test-dated/collections/doc/records"       # biến thể của test-flow có trường kiểu date
 URL_T = "/api/v1/apps/test-app/collections/item/records"
-URL_B = "/api/v1/apps/chung-nhan/collections/chung_nhan/records"
 
 
 @pytest.fixture
 async def api(make_settings, core_dsn, core_conn, test_jwks):
     await activate(core_conn)
+    dated = raw("test-flow")                       # fixture chung không có trường date: tạo biến thể tại chỗ
+    dated["app"]["id"] = "test-dated"
+    dated["collections"]["doc"]["fields"]["held_on"] = {"type": "date"}
+    await save_manifest(core_conn, validate_manifest(dated), dated, "ACTIVE", "seed")
     async with running_api(make_settings(database_url=core_dsn)) as client:
         yield client
 
 
 @pytest.fixture
-def tok_cv():
-    return tok("chuyen_vien1", "app:phong-ho-so:chuyen_vien")
+def tok_author():
+    return tok("author1", "app:test-flow:author")
+
+
+@pytest.fixture
+def tok_dated():
+    return tok("author1", "app:test-dated:author")
 
 
 @pytest.fixture
@@ -46,26 +58,21 @@ def tok_reviewer():
 
 
 @pytest.fixture
-def tok_cb():
-    return tok("can_bo_clb1", "app:chung-nhan:can_bo_clb")
-
-
-@pytest.fixture
 async def rid_t(api, tok_owner_a):
     return (await api.post(URL_T, json={"title": "t"}, headers=tok_owner_a)).json()["id"]
 
 
 # ---------- Các test do Plan 01 Task 13 quy định ----------
 
-async def test_create_assigns_sequence(api, tok_cv):          # app phong-ho-so ở trạng thái ACTIVE
-    r1 = await api.post(URL_A, json={"trich_yeu": "QĐ 1"}, headers=tok_cv)
-    r2 = await api.post(URL_A, json={"trich_yeu": "QĐ 2"}, headers=tok_cv)
+async def test_create_assigns_sequence(api, tok_author):          # app test-flow ở trạng thái ACTIVE
+    r1 = await api.post(URL_F, json={"title": "QĐ 1"}, headers=tok_author)
+    r2 = await api.post(URL_F, json={"title": "QĐ 2"}, headers=tok_author)
     assert r1.status_code == 201 and r1.headers["etag"] == '"1"'
-    assert (r1.json()["data"]["so_hieu"], r2.json()["data"]["so_hieu"]) == ("1/QĐ-SM", "2/QĐ-SM")
+    assert (r1.json()["data"]["ref"], r2.json()["data"]["ref"]) == ("01/TF", "02/TF")
 
 
-async def test_schema_violation_422(api, tok_cv):
-    r = await api.post(URL_A, json={}, headers=tok_cv)        # thiếu trích yếu (bắt buộc)
+async def test_schema_violation_422(api, tok_author):
+    r = await api.post(URL_F, json={}, headers=tok_author)    # thiếu title (bắt buộc)
     assert r.status_code == 422 and r.json()["type"].endswith("/schema")
 
 
@@ -108,9 +115,9 @@ async def test_nfd_input_stored_as_nfc(api, tok_owner_a, core_conn):            
     assert stored == unicodedata.normalize("NFC", "Nguyễn")
 
 
-async def test_bulk_per_row_results(api, tok_cb):
-    rows = [{"ho_ten": "A", "su_kien": "S", "ngay_cap": "2026-11-20"}, {"ho_ten": "B"}]
-    r = await api.post(URL_B + ":bulk", json=rows, headers=tok_cb)
+async def test_bulk_per_row_results(api, tok_author):
+    rows = [{"title": "A"}, {"cccd": "079203001234"}]                                # dòng 2 thiếu title
+    r = await api.post(URL_F + ":bulk", json=rows, headers=tok_author)
     assert [x["ok"] for x in r.json()["results"]] == [True, False]
 
 
@@ -143,8 +150,8 @@ async def test_create_forbidden_for_wrong_role(api, tok_reviewer, core_conn):
     assert await last_event_type(core_conn) == "policy.denied"
 
 
-async def test_role_of_other_app_cannot_list(api, tok_cb, core_conn):                    # RF3
-    r = await api.get(URL_T, headers=tok_cb)
+async def test_role_of_other_app_cannot_list(api, tok_author, core_conn):                 # RF3
+    r = await api.get(URL_T, headers=tok_author)
     assert r.status_code == 403
     assert await last_event_type(core_conn) == "policy.denied"
 
@@ -166,8 +173,8 @@ async def test_missing_record_404_same_as_forbidden(api, tok_owner_a, rid):
     assert r.status_code == 404 and r.json()["type"].endswith("/not-found")
 
 
-async def test_record_of_other_collection_not_reachable(api, tok_cv, tok_owner_a):
-    rid = (await api.post(URL_A, json={"trich_yeu": "x"}, headers=tok_cv)).json()["id"]
+async def test_record_of_other_collection_not_reachable(api, tok_author, tok_owner_a):
+    rid = (await api.post(URL_F, json={"title": "x"}, headers=tok_author)).json()["id"]
     assert (await api.get(f"{URL_T}/{rid}", headers=tok_owner_a)).status_code == 404
 
 
@@ -186,14 +193,16 @@ async def test_schema_errors(api, tok_owner_a, body):
     assert r.status_code == 422 and r.json()["type"].endswith("/schema")
 
 
-async def test_client_cannot_set_sequence(api, tok_cv):
-    r = await api.post(URL_A, json={"trich_yeu": "x", "so_hieu": "99/QĐ-SM"}, headers=tok_cv)
+async def test_client_cannot_set_sequence(api, tok_author):
+    r = await api.post(URL_F, json={"title": "x", "ref": "99/TF"}, headers=tok_author)
     assert r.status_code == 422 and r.json()["type"].endswith("/schema")
 
 
-async def test_date_must_be_iso(api, tok_cb):
-    r = await api.post(URL_B, json={"ho_ten": "A", "su_kien": "S", "ngay_cap": "20/11/2026"}, headers=tok_cb)
+async def test_date_must_be_iso(api, tok_dated):
+    r = await api.post(URL_D, json={"title": "A", "held_on": "20/11/2026"}, headers=tok_dated)
     assert r.status_code == 422
+    ok = await api.post(URL_D, json={"title": "A", "held_on": "2026-11-20"}, headers=tok_dated)
+    assert ok.status_code == 201 and ok.json()["data"]["held_on"] == "2026-11-20"
 
 
 async def test_patch_ok_increments_version_and_logs(api, tok_owner_a, rid_t, core_conn):
@@ -263,19 +272,20 @@ async def test_list_masks_and_logs_reveal(api, tok_owner_a, tok_reviewer, core_c
     assert await last_event_type(core_conn) == "field.revealed"
 
 
-async def test_bulk_assigns_sequences_and_logs_per_row(api, tok_cb, core_conn):
-    rows = [{"ho_ten": f"N{i}", "su_kien": "S", "ngay_cap": "2026-11-20"} for i in range(3)]
-    res = (await api.post(URL_B + ":bulk", json=rows, headers=tok_cb)).json()["results"]
+async def test_bulk_assigns_sequences_and_logs_per_row(api, tok_author, core_conn):
+    rows = [{"title": f"N{i}"} for i in range(3)]
+    res = (await api.post(URL_F + ":bulk", json=rows, headers=tok_author)).json()["results"]
     assert all(x["ok"] for x in res)
-    nums = await core_conn.fetch("SELECT data->>'so_chung_nhan' AS n FROM records ORDER BY data->>'ho_ten'")
-    assert [r["n"] for r in nums] == ["1/CN-CLB", "2/CN-CLB", "3/CN-CLB"]
+    nums = await core_conn.fetch("SELECT data->>'ref' AS n FROM records ORDER BY data->>'title'")
+    assert [r["n"] for r in nums] == ["01/TF", "02/TF", "03/TF"]
     assert await core_conn.fetchval("SELECT count(*) FROM ledger_entries WHERE type='record.created'") == 3
 
 
-async def test_bulk_error_row_shape_and_forbidden(api, tok_cb, tok_owner_a):
-    res = (await api.post(URL_B + ":bulk", json=[{"ho_ten": "B"}], headers=tok_cb)).json()["results"]
+async def test_bulk_error_row_shape_and_forbidden(api, tok_author, tok_owner_a):
+    one_bad = [{"cccd": "079203001234"}]
+    res = (await api.post(URL_F + ":bulk", json=one_bad, headers=tok_author)).json()["results"]
     assert res[0]["ok"] is False and res[0]["row"] == 0 and res[0]["error"]["type"].endswith("/schema")
-    assert (await api.post(URL_B + ":bulk", json=[{}], headers=tok_owner_a)).status_code == 403
+    assert (await api.post(URL_F + ":bulk", json=[{}], headers=tok_owner_a)).status_code == 403
 
 
 # ---------- Sửa sau rà soát độc lập ----------
@@ -299,8 +309,8 @@ async def test_create_response_always_masked(api):
 
 
 @pytest.mark.parametrize("d", ["2026-W01-1", "20261120", "2026-13-01", "2026-02-30"])
-async def test_strict_dates(api, tok_cb, d):
-    r = await api.post(URL_B, json={"ho_ten": "A", "su_kien": "S", "ngay_cap": d}, headers=tok_cb)
+async def test_strict_dates(api, tok_dated, d):
+    r = await api.post(URL_D, json={"title": "A", "held_on": d}, headers=tok_dated)
     assert r.status_code == 422
 
 

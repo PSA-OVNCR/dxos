@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+SPDX-FileCopyrightText: 2026 PSA_OVNCR
+SPDX-License-Identifier: Apache-2.0
+-->
+<!-- Quy trình cấp chứng nhận của App B "Chứng nhận số": viết tay, chỉ dùng tập con BPMN mà lõi cho phép (P2-D2). -->
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+             xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
+             xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
+             xmlns:flowable="http://flowable.org/bpmn"
+             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+             id="chung-nhan-cap-chung-nhan-definitions" targetNamespace="urn:dxos:chung-nhan">
+  <process id="chung-nhan.cap-chung-nhan" name="Cấp chứng nhận" isExecutable="true">
+    <startEvent id="start" name="Bắt đầu"/>
+    <sequenceFlow id="f_start" sourceRef="start" targetRef="phe_duyet"/>
+    <userTask id="phe_duyet" name="Phê duyệt" flowable:candidateGroups="app:chung-nhan:truong_clb"/>
+    <sequenceFlow id="f_phe_duyet" sourceRef="phe_duyet" targetRef="gw_phe_duyet"/>
+    <exclusiveGateway id="gw_phe_duyet" name="Kết quả phê duyệt"/>
+    <sequenceFlow id="f_phe_duyet_ok" sourceRef="gw_phe_duyet" targetRef="approved">
+      <conditionExpression xsi:type="tFormalExpression">${decision == 'approve'}</conditionExpression>
+    </sequenceFlow>
+    <sequenceFlow id="f_phe_duyet_no" sourceRef="gw_phe_duyet" targetRef="rejected">
+      <conditionExpression xsi:type="tFormalExpression">${decision == 'reject'}</conditionExpression>
+    </sequenceFlow>
+    <endEvent id="approved" name="Đã cấp"/>
+    <endEvent id="rejected" name="Từ chối"/>
+  </process>
+  <bpmndi:BPMNDiagram id="diagram">
+    <bpmndi:BPMNPlane id="plane" bpmnElement="chung-nhan.cap-chung-nhan">
+      <bpmndi:BPMNShape id="s_start" bpmnElement="start"><dc:Bounds x="20" y="102" width="36" height="36"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="s_phe_duyet" bpmnElement="phe_duyet"><dc:Bounds x="100" y="80" width="100" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="s_gw_phe_duyet" bpmnElement="gw_phe_duyet" isMarkerVisible="true"><dc:Bounds x="245" y="95" width="50" height="50"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="s_approved" bpmnElement="approved"><dc:Bounds x="340" y="102" width="36" height="36"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="s_rejected" bpmnElement="rejected"><dc:Bounds x="340" y="222" width="36" height="36"/>
+        <bpmndi:BPMNLabel id="l_rejected"><dc:Bounds x="330" y="262" width="56" height="14"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="e_start" bpmnElement="f_start"><di:waypoint x="56" y="120"/><di:waypoint x="100" y="120"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="e_phe_duyet" bpmnElement="f_phe_duyet"><di:waypoint x="200" y="120"/><di:waypoint x="245" y="120"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="e_phe_duyet_ok" bpmnElement="f_phe_duyet_ok"><di:waypoint x="295" y="120"/><di:waypoint x="340" y="120"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="e_phe_duyet_no" bpmnElement="f_phe_duyet_no"><di:waypoint x="270" y="145"/><di:waypoint x="270" y="240"/><di:waypoint x="340" y="240"/></bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</definitions>

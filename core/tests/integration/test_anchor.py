@@ -63,8 +63,8 @@ async def test_publish_never_overwrites(tmp_bare_repo_clone, th):
     assert e.value.code == "ANCHOR_CONFLICT"
 
 
-async def test_anchor_run_requires_admin(api, tok_cv):
-    assert (await api.post("/admin/v1/anchor:run", headers=tok_cv)).status_code == 403
+async def test_anchor_run_requires_admin(api, tok_author):
+    assert (await api.post("/admin/v1/anchor:run", headers=tok_author)).status_code == 403
 
 
 # ---------- Bổ sung: publish_sth ----------
@@ -144,8 +144,8 @@ async def api(anchor_settings, signer, test_jwks):
 
 
 @pytest.fixture
-def tok_cv():
-    return tok("chuyen_vien1", "app:phong-ho-so:chuyen_vien")
+def tok_author():
+    return tok("author1", "app:test-flow:author")
 
 
 @pytest.fixture
@@ -203,9 +203,9 @@ async def test_admin_ledger_status(api, tok_admin, wctx, core_conn):
     assert not {"seal_pending", "seal_key", "org"} & s.keys()          # đã chuyển sang /admin/v1/health
 
 
-async def test_admin_api_needs_token_and_admin(api, tok_cv):
+async def test_admin_api_needs_token_and_admin(api, tok_author):
     assert (await api.get("/admin/v1/ledger/status")).status_code == 401
-    assert (await api.get("/admin/v1/ledger/status", headers=tok_cv)).status_code == 403
+    assert (await api.get("/admin/v1/ledger/status", headers=tok_author)).status_code == 403
 
 
 async def test_anchor_run_503_when_kms_down(anchor_settings, tok_admin, test_jwks):

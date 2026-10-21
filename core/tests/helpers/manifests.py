@@ -12,8 +12,6 @@ from dxos_core.registry.validator import validate_manifest
 
 ROOT = Path(__file__).resolve().parents[3]
 PATHS = {
-    "phong-ho-so": ROOT / "apps/phong-ho-so/manifest.yaml",
-    "chung-nhan": ROOT / "apps/chung-nhan/manifest.yaml",
     "test-app": ROOT / "core/tests/fixtures/manifest-test-app.yaml",
     "test-flow": ROOT / "core/tests/fixtures/manifest-test-flow.yaml",
 }

@@ -1,25 +1,34 @@
 # SPDX-FileCopyrightText: 2026 PSA_OVNCR
 # SPDX-License-Identifier: Apache-2.0
-# Manifest App A "Phòng hồ sơ số": chép nguyên văn Design Spec mục 9.1 (bản 1.0.2).
+# Manifest App A "Phòng hồ sơ số" 1.1.0: spec mục 9.1 và 14 (bản 1.0.3), Plan 02 Task 14.
+# Nâng từ 1.0.0 chỉ được khi app chưa từng niêm phong (P2-D14 ngoại lệ); các trường mới đều không bắt buộc.
 apiVersion: dxos/v1
-app: { id: phong-ho-so, version: 1.0.0, name: "Phòng hồ sơ số", spaces: [P, D] }
+app: { id: phong-ho-so, version: 1.1.0, name: "Phòng hồ sơ số", spaces: [P, D] }
 roles: [chuyen_vien, truong_phong, giam_doc, van_thu, nhan_vien]
 collections:
   van_ban:
     fields:
-      so_hieu:   { type: sequence, format: "{n}/QĐ-SM", public: true }
-      trich_yeu: { type: string, required: true, public: true }
-      nguoi_lien_he_cccd: { type: string, pii: CCCD }
+      so_hieu:            { type: sequence, format: "{n:02}/QĐ-SM", reset: yearly, public: true, label: "Số, ký hiệu" }
+      loai_van_ban:       { type: string, public: true, label: "Tên loại văn bản" }
+      trich_yeu:          { type: string, required: true, public: true, label: "Trích yếu nội dung" }
+      chuc_vu_nguoi_ky:   { type: string, public: true, label: "Chức vụ người ký" }
+      noi_nhan:           { type: string, label: "Nơi nhận" }
+      nguoi_lien_he_cccd: { type: string, pii: CCCD, label: "CCCD người liên hệ" }
     attachments: { kinds: [pdf], max_mb: 15, min: 1 }
     access:
       read:   [owner, role:truong_phong, role:giam_doc, role:van_thu, role:nhan_vien]
       create: [role:chuyen_vien]
 policies:
-  pii:  { reveal_roles: [giam_doc, van_thu], document_detect: [CCCD, PHONE, BANK_ACCOUNT] }
-  seal: { on_event: "process.completed:approved", target: [record, attachments], public_fields: [so_hieu, trich_yeu] }
+  pii:  { reveal_roles: [giam_doc, van_thu], document_detect: [CCCD, PHONE, BANK_ACCOUNT], erase_roles: [van_thu] }
+  seal:
+    on_event: "process.completed:approved"
+    target: [record, attachments]
+    public_fields: [so_hieu, loai_van_ban, trich_yeu, chuc_vu_nguoi_ky]
+    revoke_roles: [giam_doc]
   verify: { public: true, require_file: true }
 workflow:
   bpmn: bpmn/ban-hanh.bpmn
   tasks:
     duyet_noi_dung: { role: truong_phong, guards: [attachments_clean, not_same_actor:creator] }
-    ban_hanh:       { role: giam_doc,    guards: [attachments_clean, pii_reviewed, not_same_actor:creator] }
+    # Một người giữ cả hai vai trò không được tự làm cả hai bước: not_same_actor:duyet_noi_dung.
+    ban_hanh:       { role: giam_doc,    guards: [attachments_clean, pii_reviewed, not_same_actor:creator, not_same_actor:duyet_noi_dung] }

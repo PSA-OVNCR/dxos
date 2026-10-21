@@ -13,8 +13,8 @@ def m_test():
 
 
 @pytest.fixture(scope="module")
-def m_a():
-    return manifest("phong-ho-so")
+def m_flow():
+    return manifest("test-flow")
 
 
 # ---------- Các test do Plan 01 Task 12 quy định ----------
@@ -28,8 +28,8 @@ def test_non_owner_member_denied(m_test):
         Decision(False, "not_in_access_list")
 
 
-def test_role_from_other_app_denied(m_a):                                        # RF3
-    assert decide(P("u", ["app:chung-nhan:truong_clb"]), "read", m_a, "van_ban", "x") == \
+def test_role_from_other_app_denied(m_flow):                                        # RF3
+    assert decide(P("u", ["app:test-app:reviewer"]), "read", m_flow, "doc", "x") == \
         Decision(False, "no_app_role")
 
 
