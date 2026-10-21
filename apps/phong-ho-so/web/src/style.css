@@ -1,0 +1,109 @@
+/*
+SPDX-FileCopyrightText: 2026 PSA_OVNCR
+SPDX-License-Identifier: Apache-2.0
+*/
+/* Không dùng style nội tuyến: CSP style-src 'self'. */
+:root {
+  --bg: #f6f7f9;
+  --card: #ffffff;
+  --fg: #1c2230;
+  --muted: #55607a;
+  --line: #d5dae4;
+  --accent: #1f4fbf;
+  --accent-fg: #ffffff;
+  --bad: #a31524;
+  --bad-bg: #fbe3e6;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #12151c;
+    --card: #1a1f2b;
+    --fg: #e8ecf5;
+    --muted: #a3adc4;
+    --line: #2f384c;
+    --accent: #8fb0ff;
+    --accent-fg: #12151c;
+    --bad: #ff9aa5;
+    --bad-bg: #3a1419;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+a { color: var(--accent); }
+
+.dx-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1.5rem;
+  padding: 0.75rem 1.25rem;
+  background: var(--card);
+  border-bottom: 1px solid var(--line);
+}
+.dx-header p { margin: 0; }
+.dx-brand { font-weight: 700; }
+.dx-who { margin-left: auto; color: var(--muted); }
+.dx-who button { margin-left: 0.75rem; }
+
+.dx-main { max-width: 64rem; margin: 0 auto; padding: 1.25rem; }
+
+button, .dx-button {
+  display: inline-block;
+  padding: 0.4rem 0.9rem;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--accent);
+  color: var(--accent-fg);
+  font: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+button[disabled] { opacity: 0.55; cursor: not-allowed; }
+button.dx-secondary, .dx-secondary { background: transparent; color: var(--accent); }
+
+.dx-problem, .dx-fatal {
+  padding: 0.6rem 0.9rem;
+  border: 1px solid var(--bad);
+  border-radius: 6px;
+  background: var(--bad-bg);
+  color: var(--bad);
+}
+.dx-fatal { max-width: 40rem; margin: 3rem auto; }
+
+.dx-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+
+table.dx-table { width: 100%; border-collapse: collapse; background: var(--card); }
+.dx-table th, .dx-table td { padding: 0.5rem 0.7rem; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+.dx-table th { color: var(--muted); font-weight: 600; }
+
+.dx-record-form .dx-field { display: flex; flex-direction: column; gap: 0.25rem; margin-bottom: 0.9rem; max-width: 36rem; }
+.dx-record-form input[type="text"], .dx-record-form input[type="date"], .dx-record-form input[type="number"] {
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--fg);
+  font: inherit;
+}
+.dx-pii-note { color: var(--muted); }
+.dx-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; margin: 1rem 0; }
+
+dl.dx-fields { display: grid; grid-template-columns: max-content 1fr; gap: 0.4rem 1.25rem; margin: 1rem 0; }
+.dx-fields dt { color: var(--muted); }
+.dx-fields dd { margin: 0; overflow-wrap: anywhere; }
+
+.dx-status { display: inline-block; padding: 0.05rem 0.55rem; border: 1px solid var(--line); border-radius: 999px; }
+
+ul.dx-files { list-style: none; padding: 0; }
+.dx-files li { padding: 0.5rem 0; border-bottom: 1px solid var(--line); }
+.dx-files p { margin: 0.1rem 0; }
+.dx-meta { color: var(--muted); }
