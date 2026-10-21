@@ -245,6 +245,7 @@ Ghi bởi `pdp.deny` (từ chối ngoài bảng quyền, Plan 02):
 | `self_approval` | `approve` | người duyệt app là người nộp (bốn mắt) | 403 `forbidden`, kèm `reason: self_approval` |
 | `no_app_role` | `list_tasks` | người gọi không có role nào của app | 403 `forbidden` |
 | `admin_no_data_access` | `list_tasks` | người gọi là `dxos-admin` nhưng không có role của app (admin không mặc nhiên đọc dữ liệu app) | 403 `forbidden` |
+| `no_app_role` | `read_manifest` | `GET /api/v1/apps/{app}/manifest` từ người không có role nào của app (kể cả `dxos-admin`) | 404 `not-found` |
 
 Ghi bởi `pdp.enforce` (bảng quyền `access` của manifest, Plan 01); `read`/`update` trả 404 (không lộ bản ghi có tồn
 tại), `list`/`create` trả 403:

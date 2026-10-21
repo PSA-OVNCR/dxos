@@ -4,7 +4,8 @@ SPDX-License-Identifier: Apache-2.0
 -->
 # DX-OS Trust Core: HTTP contract AS IMPLEMENTED (code, not spec)
 
-Paths below are relative to the repository root. Snapshot of `main` at commit `4f25a34` (22/10/2026).
+Paths below are relative to the repository root. Snapshot of `main` at commit `4f25a34` (22/10/2026), plus the three generic Tier-2
+endpoints added by Plan 03 Task 1 (sections 2.9, 3.4 and 14; they are marked **[Plan 03 T1]**, line numbers for them are not given).
 Method: all claims read from code; cites are `file:line`. Nothing here was run against a live stack (no Docker). The only
 things executed were (a) Python `dxos_proof`/witness to generate sample bundles and (b) a Node 22 WebCrypto reference
 verifier (section 6.6) against them. "UNVERIFIED" marks anything inferred from config rather than code.
@@ -19,7 +20,7 @@ Short names: `S` = core/src/dxos_core. `rec`=S/records, `wf`=S/workflow, `sealpk
   (Caddyfile:8-12); `/auth/*` to Keycloak (Caddyfile:39-41); `/apps/*` is static files (Caddyfile:26-29). `/admin/*` is 404 on the public host (Caddyfile:45-48).
 - Same-origin SPA: there is NO CORS config anywhere (no CORSMiddleware in S/app.py; no cors plugin in deploy/apisix/apisix.yaml). SPAs must be served from
   the same origin as `/api` (they are: `/apps/<name>/`). Dev server on another origin (vite :5173) would be blocked by the browser unless proxied.
-- FastAPI app: S/app.py:74-91. Routers: health, identity, records, seal, objects, workflow, verify(ledger), seal_verify, admin.
+- FastAPI app: S/app.py:74-91. Routers: health, identity, records, seal, objects, app_view (`registry/app_router.py`, **[Plan 03 T1]**), workflow, verify(ledger), seal_verify, admin.
 
 ### 0.2 Auth
 - Every `/api/v1/*` route needs `Authorization: Bearer <access_token>`. Missing/blank -> 401 `unauthenticated` detail "missing bearer token" + `WWW-Authenticate: Bearer realm="dxos"`
@@ -33,7 +34,7 @@ Short names: `S` = core/src/dxos_core. `rec`=S/records, `wf`=S/workflow, `sealpk
 ### 0.3 Concurrency / ETag / If-Match (records, workflow, seal)
 - Version = integer column `records.version` (starts 1, +1 on every data change/state change). It is exposed as body field `version` AND as response header `ETag: "<version>"` (QUOTED, e.g. `ETag: "3"`),
   set by `_with_etag` (rec/router.py:38-39) on: POST create (201), GET one, PATCH, workflow:start, :pii-review, :erase-pii, :revoke; and on tasks/{id}:complete (wf/router.py:56, value = `record.version`).
-  NOT sent on: list, /seal, uploads, attachments POST, objects, whoami, /verify/*.
+  NOT sent on: list, /seal, uploads, attachments POST and GET, manifest view, objects, whoami, /verify/*.
 - `If-Match` is REQUIRED on: PATCH, :erase-pii, workflow:start, :pii-review, :revoke, tasks/{id}:complete. Parsed by `parse_if_match` (rec/service.py:279-288):
   - header absent -> 428 `precondition-required` detail "If-Match header is required".
   - accepted forms: `"<digits>"` and `W/"<digits>"` (weak prefix stripped). Anything else (bare `3`, `*`, `"abc"`, `""`) -> 400 `bad-request` detail `If-Match must look like "<version>"`.
@@ -104,7 +105,7 @@ Short names: `S` = core/src/dxos_core. `rec`=S/records, `wf`=S/workflow, `sealpk
   "created_at": "<iso>", "updated_at": "<iso>"
 }
 ```
-NOT present: attachments list, upload ids, sha256s, filenames, seal_id, creator identity, current task, process instance, app version. (Gaps listed in section 13.)
+NOT present: attachments list, upload ids, sha256s, filenames, seal_id, creator identity, current task, process instance, app version. (Gaps listed in section 13; the attachment list is now `GET .../attachments`, section 3.4.)
 
 ### 2.2 GET list  `GET .../records?cursor=&limit=`  (rec/router.py:42-45; service.py:255-276)
 - Role: manifest `read` list (or owner). Note: if the caller qualifies ONLY via `owner` then the list is filtered to own records (service.py:261-263; pdp.py:60). App A `chuyen_vien` is only "owner" -> sees own; truong_phong/giam_doc/van_thu/nhan_vien see all.
@@ -153,6 +154,35 @@ NOT present: attachments list, upload ids, sha256s, filenames, seal_id, creator 
 - 200 + ETag + Record (masked; erased fields simply absent from `data`). Works on SEALED records (seal stays VALID).
 - Errors: 422 `invalid-request` title "Invalid erase request" with detail text; 409 `record-in-workflow`; 409 `seal-pending` ("Record is waiting to be sealed"); 409 `version-conflict`; 404.
 
+### 2.9 GET manifest view  `GET /api/v1/apps/{app}/manifest`  **[Plan 03 T1]**  (`S/registry/app_router.py`, `S/registry/client_view.py`)
+- Role: caller must hold at least one `app:<app>:*` role. Any role of the app is enough (it does not need to be in an access list).
+  - `{app}` not a valid slug or not ACTIVE -> 404 `app-not-active` (same as 2.0).
+  - ACTIVE but caller has no `app:<app>:*` role -> ledger `policy.denied` (`action: read_manifest`, `reason: no_app_role`, subject = the app id) + **404 `not-found`**
+    (the same body as any other `not-found`; the caller learns nothing about the app's roles or content). `dxos-admin` without an app role is treated the same way (reason stays `no_app_role`).
+- 200 + `Cache-Control: private, max-age=60`. No ETag. Body is built key by key from the ACTIVE manifest (never the whole manifest):
+```
+{
+  "app": {"id": string, "version": string, "name": string},
+  "roles": string[],                                   // role names without the app:<app>: prefix, manifest order
+  "collections": { "<col>": {
+      "fields": { "<field>": {"type": "string"|"sequence"|"integer"|"boolean"|"date", "required": bool, "public": bool,
+                              "pii": null|"CCCD"|"PHONE"|"BANK_ACCOUNT"|"EMAIL"|"NAME", "format": string|null, "label": string|null} },
+      "attachments": null | {"kinds": ["pdf"], "max_mb": int, "min": int},
+      "access": {"read": string[], "create": string[], "update": string[]}   // entries are "owner" or "role:<name>"; update defaults to ["owner"]
+  } },
+  "workflow": null | {"tasks": {"<task_key>": {"role": string, "guards": string[]}},
+                      "decisions": {"<task_key>": string[]}},               // see below
+  "policies": {"pii": {"reveal_roles": string[], "erase_roles": string[]},
+               "seal": null | {"public_fields": string[], "revoke_roles": string[]},
+               "verify": null | {"public": bool, "require_file": bool}}
+}
+```
+- `workflow.decisions`: for each task, the values the core accepts for `decision` on `tasks/{id}:complete` (section 4.3), sorted, read from the BPMN deployed for THAT version
+  (`decisions_by_task`). An EMPTY list means the BPMN does not restrict the value (any string matching `[a-z][a-z0-9_]{0,31}` passes the core's check).
+- Deliberately NOT in the view: `apiVersion`, `app.spaces`, the BPMN path or content, `policies.pii.document_detect`, `policies.seal.on_event`/`target`, `attachments.quarantine`, `fields.<f>.reset`.
+- Errors: 401; 404 `app-not-active`; 404 `not-found`; for an app WITH a workflow also 409 `app-not-deployed` (no deployed BPMN for the active version) or 503 `workflow-unavailable` (workflow engine not configured); 500 `workflow-model-mismatch`.
+  It does not call Flowable, so a Flowable outage does not break it.
+
 ---------------------------------------------------------------------------------------------------
 ## 3. Attachments, uploads, objects  (S/objects/router.py)
 
@@ -174,7 +204,7 @@ NOT present: attachments list, upload ids, sha256s, filenames, seal_id, creator 
   - `{"status": "CLEAN", "sha256": "<64 hex>"}`
   - `{"status": "INFECTED", "reason": "<ClamAV signature name or null>"}` (e.g. EICAR signature)
   - `{"status": "REJECTED", "reason": "<code>"}` with code in `EMPTY | TOO_LARGE | BAD_MAGIC | ENCRYPTED | PARSE_ERROR | NO_TEXT_LAYER` (objects/pdfcheck.py:14; ingest.py:98-103). `OK` is never stored.
-- Does NOT return record_id, size, filename, timestamps. So the client must remember `upload_id`s (there is no way to list a record's uploads; see section 13).
+- Does NOT return record_id, size, filename, timestamps. To rediscover a record's `upload_id`s after a reload use the list in 3.4.
 - Flow: AV scan first (INFECTED), then PDF check (REJECTED), then promote to CAS (CLEAN) (ingest.py:69-128). ClamAV down -> stays STAGING and retried every 30 s (ingest.py:28,86-89).
 
 ### 3.3 GET object  `GET /api/v1/objects/{sha256}?variant=original`  (router.py:135-174)
@@ -184,6 +214,20 @@ NOT present: attachments list, upload ids, sha256s, filenames, seal_id, creator 
   `X-Content-Type-Options: nosniff`, `Cache-Control: private, no-store`, `Content-Disposition: attachment; filename="<sha256>.pdf"` (router.py:172-174). Each successful read appends ledger `object.read`.
 - Errors: 404, 500 `integrity-error`, 503 `storage-unavailable`.
 - Note: the attachment sha256s of a record are not exposed on the record; they appear only in (a) upload status of CLEAN uploads, (b) the public seal payload/bundle (`payload.attachments`), never in `GET /seal`.
+
+### 3.4 GET attachment list  `GET /api/v1/apps/{app}/collections/{col}/records/{rid}/attachments`  **[Plan 03 T1]**  (S/objects/router.py `list_attachments`, S/objects/ingest.py `list_uploads`)
+- Role: same permission path as GET record (2.5): owner or a role in the collection's `read` list. Anything else, an unknown record, a bad UUID, or another app's/collection's record -> the same 404 `not-found`;
+  a denial writes ledger `policy.denied` (`read`). Unknown/non-ACTIVE app -> 404 `app-not-active`; unknown collection -> 404 `not-found`.
+- Works at any `seal_state`/`wf_state`. Does NOT write `field.revealed` and does not return record data.
+- 200 `{"items": [AttachmentItem]}`, ordered `created_at` ascending (then `id`), `{"items": []}` when there are none (no ETag):
+```
+AttachmentItem = {"upload_id": "<uuid>", "status": "STAGING"|"CLEAN"|"INFECTED"|"REJECTED",
+                  "sha256": "<64 hex>"|null,      // non-null only when CLEAN
+                  "reason": string|null,           // non-null only when INFECTED (signature name, may still be null) or REJECTED (code of 3.2)
+                  "created_at": "<iso Z>"}         // same format as record created_at (2.0)
+```
+  `status`/`sha256`/`reason` follow exactly the rules of 3.2. The original filename is never stored, so it is not returned. `sha256` is what `GET /api/v1/objects/{sha256}` (3.3) takes.
+- Errors: 401, 404.
 
 ---------------------------------------------------------------------------------------------------
 ## 4. Workflow  (S/workflow/router.py, service.py)
@@ -362,7 +406,9 @@ Order/codes of failure (witness bundle.py:6-31): FORMAT, KEY_VERSION, KEY_MISSIN
 
 ---------------------------------------------------------------------------------------------------
 ## 7. Is there ANY endpoint for a SPA to fetch the app manifest / field labels / its own roles?
-- **No.** Complete route list of the process (grep of `@router.*` in S/): whoami; records/*; attachments; uploads; objects; tasks; workflow:start; :pii-review; :erase-pii; :revoke; seal; /verify/v1/*; /admin/v1/* (apps, apps/{id}/versions/{v}/diff, :approve, :disable, health, quarantine, anchor:run, ledger/status, workflow:reconcile); /healthz; /readyz.
+- **Yes since Plan 03 T1: `GET /api/v1/apps/{app}/manifest` (section 2.9)** serves the client-safe manifest view (types, `required`/`public`/`pii`/`format`/`label`, access lists, attachment limits, workflow tasks and `decisions`, PII/seal/verify roles).
+  The paragraph below is the state at `4f25a34` and is kept for history; where it says "no endpoint" or "SPAs must hard-code the schema", 2.9 now supersedes it. Own roles still come from `whoami` (section 1); the view does not say which roles the caller holds.
+- (At `4f25a34`:) **No.** Complete route list of the process (grep of `@router.*` in S/): whoami; records/*; attachments; uploads; objects; tasks; workflow:start; :pii-review; :erase-pii; :revoke; seal; /verify/v1/*; /admin/v1/* (apps, apps/{id}/versions/{v}/diff, :approve, :disable, health, quarantine, anchor:run, ledger/status, workflow:reconcile); /healthz; /readyz.
   No `GET /api/v1/apps`, no `GET /api/v1/apps/{app}` or `/manifest`. `/admin/v1/apps*` returns manifests/versions but requires `dxos-admin` AND the admin host (Caddyfile:45-48,56-72; apisix.yaml:35-38); a Tier-2 SPA cannot use it.
 - Field labels are only exposed (a) publicly, for public fields only, as `public_labels` on `GET /verify/v1/seals/{id}` (verify_router.py:196), and (b) nowhere else. Field types, `required`, `pii`, `public`, `sequence` format are not served: SPAs must hard-code the schema (apps/*/manifest.yaml is the source; also tests/apps/fixtures/*.yaml copies).
 - Own roles: `GET /api/v1/whoami` `roles` (raw `app:<app>:<role>` strings) is the only server-side source (also decodable from the access token's `realm_access.roles`). The server does not return per-collection permissions (can create? can reveal PII?); infer from roles + hard-coded manifest.
@@ -378,9 +424,9 @@ Objects: storage-unavailable(503), integrity-error(500).
 Workflow: guard-failed(403|409, ext `guard`,`reason`), already-running, no-workflow, attachments-pending, attachments-not-clean, app-not-deployed, task-gone, task-unknown, workflow-inconsistent (all 409), invalid-decision(422), invalid-comment(422), workflow-unavailable(503), workflow-pending(503 + Retry-After), workflow-finalize-failed(500), workflow-model-mismatch(500),
   kms-unavailable(503), key-statement-invalid(503), seal-key-expired(503), org-not-configured(503) (wf/service.py:217-241).
 Seal: not-sealed(409), invalid-reason-code(422), invalid-note(422). Verify: keys-unavailable(503), kms-unavailable(503, /keys).
-Admin only: manifest-invalid(422, ext `code`), app-version-not-found(404), version-not-newer, install-in-progress, app-version-conflict, deployment-mismatch, app-version-not-pending (409), idp-admin-unavailable(503).
+Admin only: ledger-entries 422 reuses `invalid-request` (section 14); manifest-invalid(422, ext `code`), app-version-not-found(404), version-not-newer, install-in-progress, app-version-conflict, deployment-mismatch, app-version-not-pending (409), idp-admin-unavailable(503).
 `guard` values = the literal guard string in the manifest (e.g. `attachments_clean`, `pii_reviewed`, `not_same_actor:creator`, `not_same_actor:duyet_noi_dung`); catalog: attachments_clean, pii_reviewed, not_same_actor, role_in, field_required, record_not_sealed, assignee_is_caller (registry/validator.py:26-29).
-Ledger-only denial reasons (not returned to the client): no_app_role, admin_no_data_access, not_in_access_list, unknown_collection, not_task_role, not_eraser, not_revoker, not_pii_reviewer, guard:<guard>:<reason>.
+Ledger-only denial reasons (not returned to the client; `read_manifest` is the `action` of the 2.9 denial): no_app_role, admin_no_data_access, not_in_access_list, unknown_collection, not_task_role, not_eraser, not_revoker, not_pii_reviewer, guard:<guard>:<reason>.
 
 ---------------------------------------------------------------------------------------------------
 ## 9. SPA deployment: Caddy / Keycloak / APISIX
@@ -452,12 +498,12 @@ e2e/install_apps.sh (installs apps A/B via CLI, four-eyes: DXOS_TOKEN submitter 
 
 ---------------------------------------------------------------------------------------------------
 ## 13. Gaps and gotchas that affect an SDK/SPA design (all verified in code)
-1. No way to list a record's attachments/uploads, nor get its CLEAN sha256s, from the record API: client must keep `upload_id` (and learn `sha256` from GET /uploads/{id} when CLEAN) in its own state; after reload it cannot rediscover them (server-side there is `uploads`/`object_refs` but no route). Original filename is never stored/returned.
+1. **[Resolved by Plan 03 T1: `GET .../records/{rid}/attachments`, section 3.4]** (at `4f25a34` there was no way to list a record's attachments/uploads or get their CLEAN sha256s; the client had to keep `upload_id`s). Original filename is never stored/returned.
 2. Record has no `seal_id`: get it from the `seal_id` field of the tasks:complete response or GET .../seal (404 until sealing requested).
 3. Task inbox item lacks record version/title/data: N+1 GETs needed; `created` format differs from `created_at`.
 4. Complete/start/revoke etc. need current record version in `If-Match: "<n>"` (quoted). Bare integer = 400. Re-GET after any state-changing call (list in 0.3); SEALED does not bump version, SEAL_PENDING does.
 5. Bulk response gives only ids; per-row errors are `{ok:false,row,error:{type,title,errors}}`; HTTP 200 even when all rows fail; partial commit.
-6. `comment` on complete is never stored. `decision` values are `approve`/`reject` (manifest-derived; not discoverable via API).
+6. `comment` on complete is never stored. `decision` values are `approve`/`reject` (BPMN-derived; since Plan 03 T1 discoverable in `workflow.decisions` of the manifest view, section 2.9).
 7. PATCH is a raw merge-patch of `data` (null deletes); GET data may be masked -> never write masked values back.
 8. Only `owner` can PATCH/attach/start (default update list). App A reviewers cannot edit.
 9. `GET /records` has no filters and is oldest-first: "my tasks" views must use the tasks inbox; "my records" for owner-only roles is automatic (owner filter), other roles see everything.
@@ -467,3 +513,14 @@ e2e/install_apps.sh (installs apps A/B via CLI, four-eyes: DXOS_TOKEN submitter 
 13. Rate limit on /verify is 5 req/s per client IP (X-Forwarded-For) burst 10; /api 50 req/s.
 14. 401/413/429 coming from APISIX/nginx may not be problem+json (UNVERIFIED): SDK error parsing should fall back to status-only.
 15. Sample bundles + a working WebCrypto verifier for regression tests: `sdk/js/test/reference/` (bundle-anchored_is_sth.json, bundle-newer_sth.json, bundle-anchor_before_leaf.json, verify-bundle.mjs). These were generated with the witness TEST builder (witness/tests/conftest.py:BundleEnv.build), not by a live server, but its output format is identical to `build_bundle` (same fields); issuer/test data only.
+
+---------------------------------------------------------------------------------------------------
+## 14. Admin: ledger entries  **[Plan 03 T1]**  (S/admin/router.py `ledger_entries`)
+`GET /admin/v1/ledger/entries?type=<event type>&limit=<1..100>`
+- Role: `dxos-admin` only (like every `/admin/v1/*` route: 401 without a token, 403 `forbidden` without the role), and only on the admin host (Caddy/APISIX, section 0.1/0.6). No `Cache-Control`.
+- `type` (optional): one of the ledger event types (`S/ledger/events.py`: `policy.denied`, `record.created`, `field.revealed`, `task.completed`, ...); omitted = all types. Unknown -> 422 `invalid-request`
+  (title "Request validation failed", `detail` lists the allowed types).
+- `limit` (optional, default 20): integer 1..100; outside the range or not an integer -> 422 `invalid-request` with `errors[]` (FastAPI validation, section 0.4).
+- 200 `{"items": [{"idx": int, "ts": "<RFC3339 UTC>", "type": string, "app_id": string|null, "subject": string, "actor_ref": string|null}]}`, newest first (`idx` descending).
+  Only these six leaf fields: no `body_sha256`, `leaf_hash`, and no ledger body (bodies are not stored). `actor_ref` is the HMAC of the caller's `sub`, not the `sub`.
+- Read-only; it adds no ledger entry. There is still no admin API that edits or deletes the ledger.

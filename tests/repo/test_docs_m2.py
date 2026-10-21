@@ -264,7 +264,8 @@ def test_enforce_reasons_and_guard_reasons_documented():
 def test_deny_actions_documented():
     sec = _section(_doc("docs/manifest-guide.md"), "## Mã lỗi và lý do từ chối")
     actions = _deny_actions()
-    assert actions == {"approve", "complete", "erase_pii", "list_tasks", "pii_review", "revoke"}
+    assert actions == {"approve", "complete", "erase_pii", "list_tasks", "pii_review", "read_manifest",
+                       "revoke"}
     for a in actions | {"list", "read", "create", "update"}:
         assert f"`{a}`" in sec, a
 

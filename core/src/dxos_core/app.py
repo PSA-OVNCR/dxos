@@ -23,6 +23,7 @@ from dxos_core.ledger import router as verify
 from dxos_core.objects import router as objects
 from dxos_core.objects.storage import ObjectStore
 from dxos_core.records import router as records
+from dxos_core.registry import app_router as app_view
 from dxos_core.registry.keycloak_admin import KeycloakAdminSource
 from dxos_core.seal import router as seal
 from dxos_core.seal import verify_router as seal_verify
@@ -85,6 +86,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(records.router)
     app.include_router(seal.router)
     app.include_router(objects.router)
+    app.include_router(app_view.router)
     app.include_router(workflow.router)
     app.include_router(verify.router)
     app.include_router(seal_verify.router)

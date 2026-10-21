@@ -3,7 +3,13 @@
 Mọi thay đổi đáng kể được ghi tại đây, theo định dạng [Keep a Changelog](https://keepachangelog.com/vi/1.1.0/) và [Semantic Versioning](https://semver.org/lang/vi/).
 
 ## [Unreleased]
-- Chưa có thay đổi nào ngoài các mục bên dưới.
+
+### Added
+- Ba endpoint chung cho client Tầng 2 (không chứa định danh app nào): `GET /api/v1/apps/{app}/manifest` (phần
+  manifest an toàn cho client, kèm giá trị `decision` của từng task đọc từ BPMN đã triển khai; người không có vai trò
+  của app nhận 404 và lá `policy.denied`), `GET .../records/{rid}/attachments` (liệt kê tệp đính kèm, quyền như đọc
+  bản ghi, không ghi `field.revealed`) và `GET /admin/v1/ledger/entries` (các lá ledger mới nhất, chỉ `dxos-admin`).
+- `docs/api/contract-tier2.md`: hợp đồng HTTP của lõi đối chiếu theo mã, cập nhật cho ba endpoint trên.
 
 ## [0.2.0] - Chưa phát hành
 Mốc M2 (Tier-0 hoàn tất: workflow, niêm phong, đối soát, installer). Spec bản 1.0.3. Trưởng nhóm thay "Chưa phát hành"

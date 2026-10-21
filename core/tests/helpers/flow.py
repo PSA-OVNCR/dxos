@@ -46,7 +46,7 @@ ROLES = {"a1": ("author",), "a2": ("author",), "r1": ("reviewer",), "r2": ("revi
 ROLE_NAMES = ("author", "reviewer", "approver")
 # Từ vựng lý do của policy.denied (Task 6 + lý do guard của Task 5), để đọc ngược lá ledger qua body_sha256.
 _DENY_ACTIONS = ("complete", "pii_review", "list_tasks", "read", "update", "list", "create", "reveal_pii",
-                 "revoke", "erase_pii")
+                 "revoke", "erase_pii", "read_manifest")
 _GUARD_REASONS = ("same_actor", "role_not_allowed", "field_missing", "attachments_not_clean",
                   "pii_not_reviewed", "record_sealed", "not_assignee")
 _PLAIN_REASONS = ("not_task_role", "kms_unavailable", "seal_key_expired", "key_statement_invalid",

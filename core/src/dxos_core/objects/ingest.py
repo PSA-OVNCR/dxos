@@ -21,6 +21,7 @@ from dxos_core.jobs.queue import Job, complete, enqueue, retry_later
 from dxos_core.ledger.log import append
 from dxos_core.objects.clamd import ScannerUnavailable, clamd_version, instream_scan
 from dxos_core.objects.pdfcheck import check_pdf
+from dxos_core.records.service import _ts
 from dxos_core.registry.store import get_active
 
 log = logging.getLogger("dxos_core.objects.ingest")
@@ -142,4 +143,18 @@ def upload_status(row: asyncpg.Record) -> dict:
         out["sha256"] = row["sha256"]
     elif row["status"] in ("INFECTED", "REJECTED"):
         out["reason"] = row["reason"]
+    return out
+
+
+async def list_uploads(conn: asyncpg.Connection, record_id: uuid.UUID) -> list[dict]:
+    """Mọi upload của một bản ghi, cũ trước. ``sha256`` chỉ có khi CLEAN, ``reason`` chỉ khi INFECTED/REJECTED
+    (đúng như ``upload_status``); không trả tên tệp (chỉ lưu hash), kích thước hay khóa lưu trữ."""
+    rows = await conn.fetch(
+        "SELECT id, status, sha256, reason, created_at FROM uploads WHERE record_id=$1"
+        " ORDER BY created_at, id", record_id)
+    out = []
+    for row in rows:
+        s = upload_status(row)
+        out.append({"upload_id": str(row["id"]), "status": s["status"], "sha256": s.get("sha256"),
+                    "reason": s.get("reason"), "created_at": _ts(row["created_at"])})
     return out

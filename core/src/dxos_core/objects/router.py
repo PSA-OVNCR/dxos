@@ -21,7 +21,7 @@ from dxos_core.errors import ProblemError
 from dxos_core.identity.deps import require_principal
 from dxos_core.identity.jwt import Principal
 from dxos_core.ledger.log import append
-from dxos_core.objects.ingest import register_upload, upload_status
+from dxos_core.objects.ingest import list_uploads, register_upload, upload_status
 from dxos_core.objects.storage import IntegrityError
 from dxos_core.policy.pdp import decide
 from dxos_core.records import service
@@ -114,6 +114,16 @@ async def upload_attachment(app: str, col: str, rid: str, request: Request,
         await asyncio.to_thread(_drop_staging_quietly, request.app.state.store, upload_id)
         raise _not_open() from exc
     return JSONResponse({"upload_id": str(upload_id), "status": "STAGING"}, status_code=202)
+
+
+@router.get("/api/v1/apps/{app}/collections/{col}/records/{rid}/attachments")
+async def list_attachments(app: str, col: str, rid: str, ctx: service.Ctx = Depends(ctx_dep)) -> dict:  # noqa: B008
+    """Tệp đính kèm của bản ghi, cũ trước. Quyền như ``GET`` bản ghi (chủ hoặc vai trò ``read``): không có
+    quyền thì cùng một 404 và ``policy.denied``. Chỉ liệt kê trạng thái: không ghi ``field.revealed``."""
+    m, _ = await service.load_target(ctx, app, col)
+    row = await service.fetch_record(ctx, m, col, rid)
+    await service.enforce_or_problem(ctx, "read", m, col, row["owner_sub"], str(row["id"]))
+    return {"items": await list_uploads(ctx.conn, row["id"])}
 
 
 @router.get("/api/v1/uploads/{upload_id}")

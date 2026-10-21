@@ -10,7 +10,7 @@ Admin không có API nào sửa hay xóa ledger (F7).
 
 import dataclasses
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 
 from dxos_core.admin import apps, ops
 from dxos_core.errors import ProblemError
@@ -19,6 +19,7 @@ from dxos_core.identity.jwt import Principal
 from dxos_core.jobs.queue import enqueue
 from dxos_core.kms.base import KmsUnavailable
 from dxos_core.ledger.anchor_job import ANCHOR_JOB
+from dxos_core.ledger.events import EVENT_TYPES
 from dxos_core.ledger.log import verify_log
 from dxos_core.ledger.sth import latest_sth, make_sth
 from dxos_core.workflow.flowable import WorkflowUnavailable
@@ -61,6 +62,22 @@ async def ledger_status(request: Request, _: Principal = Depends(require_admin))
         "pending_anchor_jobs": pending,
         "verify": {"ok": v.ok, "first_bad_idx": v.first_bad_idx},
     }
+
+
+@router.get("/ledger/entries")
+async def ledger_entries(request: Request, type: str | None = None,  # noqa: A002 (tên query là `type`)
+                         limit: int = Query(20, ge=1, le=100),  # noqa: B008
+                         _: Principal = Depends(require_admin)) -> dict:  # noqa: B008
+    """Các lá ledger gần nhất, mới trước, lọc theo loại sự kiện. Chỉ những trường công khai của lá (không có
+    ``body_sha256``, ``leaf_hash``); ``actor_ref`` là HMAC của ``sub``."""
+    if type is not None and type not in EVENT_TYPES:
+        raise ProblemError(422, "invalid-request", "Request validation failed",
+                           f"type must be one of {sorted(EVENT_TYPES)}")
+    async with request.app.state.pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT idx, ts, type, app_id, subject, actor_ref FROM ledger_entries"
+            " WHERE ($1::text IS NULL OR type = $1) ORDER BY idx DESC LIMIT $2", type, limit)
+    return {"items": [dict(r) for r in rows]}
 
 
 @router.post("/workflow:reconcile")
