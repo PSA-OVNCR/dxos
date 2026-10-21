@@ -19,6 +19,10 @@ export type MarkerStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
 export interface LoginGuard {
   /** true = máy chủ không chấp nhận phiên vừa đăng nhập: hiện màn hình lỗi, không chuyển hướng nữa. */
   rejected: Ref<boolean>
+  /** true = đã gọi auth.login và đang chờ trình duyệt rời trang: App hiện "Đang chuyển..." thay vì nội dung. */
+  redirecting: Ref<boolean>
+  /** Khởi động hỏng trước khi đăng nhập được (ví dụ auth.init() ném lỗi): hiện màn hình lỗi có nút "Đăng nhập lại". */
+  fail(): void
   /** Chuyển sang đăng nhập nếu chưa thử gần đây. false = không chuyển (đã thử rồi nên `rejected` thành true). */
   attempt(returnTo?: string): boolean
   /** Dành cho `DxosClient.onUnauthorized`. */
@@ -53,7 +57,7 @@ export function createLoginGuard(
   }
   const rejected = ref(false)
   // Nhiều yêu cầu song song cùng nhận 401: chỉ yêu cầu đầu tiên chuyển hướng, các yêu cầu sau không phải là "lần lặp".
-  let redirecting = false
+  const redirecting = ref(false)
 
   function marked(): boolean {
     const t = Number(store.getItem(LOGIN_MARKER))
@@ -61,17 +65,17 @@ export function createLoginGuard(
   }
 
   function attempt(returnTo?: string): boolean {
-    if (redirecting) return true
+    if (redirecting.value) return true
     if (marked()) {
       rejected.value = true
       return false
     }
-    redirecting = true
+    redirecting.value = true
     store.setItem(LOGIN_MARKER, String(now()))
     auth.login(returnTo ?? location.hash).catch(() => {
       // Không mở được trang đăng nhập (ví dụ không tới được máy chủ danh tính): để người dùng tự bấm lại.
       store.removeItem(LOGIN_MARKER)
-      redirecting = false
+      redirecting.value = false
       rejected.value = true
     })
     return true
@@ -79,13 +83,18 @@ export function createLoginGuard(
 
   return {
     rejected,
+    redirecting,
+    fail() {
+      redirecting.value = false
+      rejected.value = true
+    },
     attempt,
     onUnauthorized: () => { attempt() },
     succeeded: () => { store.removeItem(LOGIN_MARKER) },
     retry() {
       store.removeItem(LOGIN_MARKER)
       rejected.value = false
-      redirecting = false
+      redirecting.value = false
       attempt()
     },
   }

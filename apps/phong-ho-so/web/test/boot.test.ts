@@ -46,15 +46,48 @@ describe('boot', () => {
     expect(document.querySelector('#app')?.textContent).toContain('Danh sách văn bản')
   })
 
-  test('without a session it sends the user to log in and mounts nothing', async () => {
+  test('without a session it sends the user to log in and shows a redirecting message, not a blank page', async () => {
     const p = parts(false)
     location.hash = '#/van-ban/r1'
     const booted = boot({ auth: p.auth, mount: '#app', connect: p.connect, makeRouter: p.makeIt })
     p.finish()
-    expect(await booted).toBeNull()
+    expect(await booted).not.toBeNull()
+    await flushPromises()
     expect(p.auth.login).toHaveBeenCalledWith('#/van-ban/r1')
-    expect(p.makeIt).not.toHaveBeenCalled()
-    expect(document.querySelector('#app')?.innerHTML).toBe('')
+    expect(p.log).toEqual(['init-done', 'connect', 'router']) // router still only after init
+    expect(document.querySelector('#app')?.textContent).toContain('Đang chuyển sang trang đăng nhập…')
+    expect(document.querySelector('#app header')).toBeNull()
+  })
+
+  test('when the login page cannot be opened it shows the error screen with a re-login button', async () => {
+    const p = parts(false)
+    p.auth.login.mockRejectedValueOnce(new TypeError('Failed to fetch discovery document'))
+    const booted = boot({ auth: p.auth, mount: '#app', connect: p.connect, makeRouter: p.makeIt })
+    p.finish()
+    await booted
+    await flushPromises()
+    const text = document.querySelector('#app')?.textContent ?? ''
+    expect(text).toContain('Phiên đăng nhập không được máy chủ chấp nhận')
+    expect(text).not.toContain('Đang chuyển sang trang đăng nhập')
+    const button = document.querySelector('#app button') as HTMLButtonElement
+    expect(button.textContent).toBe('Đăng nhập lại')
+    button.click() // lần này đăng nhập mở được
+    await flushPromises()
+    expect(p.auth.login).toHaveBeenCalledTimes(2)
+    expect(document.querySelector('#app')?.textContent).toContain('Đang chuyển sang trang đăng nhập…')
+  })
+
+  test('when auth.init() throws it still mounts and shows the error screen', async () => {
+    const auth = fakeAuth({ init: vi.fn(async () => { throw new Error('storage corrupted') }) })
+    const client = fakeClient({ manifest: A_VIEW, listAll: [] })
+    const connect = () => createSession({ auth, client, guard: createLoginGuard(auth, { storage: new MemoryStorage() }) })
+    const app = await boot({ auth, mount: '#app', connect, makeRouter: () => makeRouter(createMemoryHistory()) })
+    expect(app).not.toBeNull()
+    await flushPromises()
+    expect(document.querySelector('#app')?.textContent).toContain('Phiên đăng nhập không được máy chủ chấp nhận')
+    expect(document.querySelector('#app button')?.textContent).toBe('Đăng nhập lại')
+    expect(auth.login).not.toHaveBeenCalled()
+    expect(client.manifest).not.toHaveBeenCalled()
   })
 
   test('back from login but still without a session: shows the error screen, no second redirect', async () => {

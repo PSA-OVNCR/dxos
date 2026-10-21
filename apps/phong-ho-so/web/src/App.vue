@@ -24,7 +24,7 @@ const ROLE_LABELS: Record<string, string> = {
 const who = computed(() => auth.profile()?.name ?? '')
 const roleText = computed(() => roles.value.map((r) => ROLE_LABELS[r] ?? r).join(', '))
 
-onMounted(() => { void session.load() })
+onMounted(() => { if (!guard.redirecting.value && !guard.rejected.value) void session.load() })
 
 async function logout(): Promise<void> {
   guard.succeeded() // đăng xuất chủ động không phải là vòng lặp đăng nhập
@@ -38,6 +38,8 @@ async function logout(): Promise<void> {
     <p>Bạn đã đăng nhập nhưng máy chủ vẫn từ chối phiên này. Hãy kiểm tra đồng hồ của máy rồi đăng nhập lại; nếu vẫn lỗi, hãy báo quản trị viên.</p>
     <button type="button" @click="guard.retry()">Đăng nhập lại</button>
   </section>
+
+  <p v-else-if="guard.redirecting.value" role="status" class="dx-fatal">Đang chuyển sang trang đăng nhập…</p>
 
   <template v-else>
     <header class="dx-header">
