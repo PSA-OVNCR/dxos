@@ -217,7 +217,7 @@ def _run_in(env, cwd: Path, out: str, **extra: str) -> subprocess.CompletedProce
                           capture_output=True, text=True, check=False, timeout=60, cwd=cwd)
 
 
-@pytest.mark.parametrize("arg", [".", "./", "ops/..", "$REPO"])
+@pytest.mark.parametrize("arg", [".", "./", "$REPO"])
 def test_refuses_the_repo_itself(env, arg):
     repo = env[0]
     before = sorted(p.name for p in repo.iterdir())
@@ -267,3 +267,46 @@ def test_empty_folder_and_previous_build_are_accepted(env, tmp_path):
     r = _run(env, empty)
     assert r.returncode == 0, r.stdout + r.stderr
     assert sorted(p.name for p in empty.iterdir()) == ALL_OUT
+
+
+# Thành phần "." hoặc ".." trong <out_dir> bị từ chối trên chính tham số, trước mọi chuẩn hóa
+# (re-review I4). Khi cả OUT lẫn thư mục cha chưa tồn tại thì không chuẩn hóa được: `mkdir -p OUT.tmp` tạo
+# thành phần thiếu, OUT trỏ về một tổ tiên có thật, và nhánh dự phòng `find OUT … rm -rf` xóa nó. Riêng "."
+# trần được nhận (luôn chuẩn hóa được) và các quy tắc phía trên quyết định. "./build-web" cũng bị từ chối:
+# cùng một quy tắc, không có ngoại lệ thứ hai; viết "build-web" là đủ.
+@pytest.mark.parametrize("arg", ["../nope/..", "x/../..", "./build-web", "ops/..", "a/./b", "build/.",
+                                 "/srv/../srv/out"])
+def test_refuses_dot_components_before_normalising(env, arg):
+    repo = env[0]
+    sentinel = repo / "SENTINEL"
+    sentinel.write_text("còn", encoding="utf-8")
+    r = _run_in(env, repo, arg)
+    _assert_refused(r, env[2])
+    assert "." in r.stderr
+    assert sentinel.read_text(encoding="utf-8") == "còn" and (repo / ".git").is_dir()
+    assert not (repo / "nope").exists() and not (repo / "x").exists()        # không tạo thư mục nào
+
+
+def test_plain_relative_and_absolute_names_still_build(env, tmp_path):
+    repo = env[0]
+    assert _run(env, tmp_path / "out").returncode == 0                       # như /out của container
+    r = subprocess.run(["sh", str(repo / "ops/build_web.sh"), "build-web"],  # noqa: S603, S607
+                       env={**os.environ, "PATH": f"{env[1]}{os.pathsep}{os.environ['PATH']}",
+                            "FAKE_LOG": str(env[2])},
+                       capture_output=True, text=True, check=False, timeout=60, cwd=repo)
+    assert r.returncode == 0, r.stdout + r.stderr                            # như release.yml
+    assert (repo / "build-web/BUILD-INFO.json").is_file()
+
+
+def test_refuses_an_unreadable_folder_instead_of_treating_it_as_empty(env, tmp_path):
+    if os.geteuid() == 0:
+        pytest.skip("root đọc được mọi thư mục")
+    out = tmp_path / "locked"
+    out.mkdir()
+    (out / "lạ.txt").write_text("x", encoding="utf-8")
+    out.chmod(0o300)                                                         # vào được, không liệt kê được
+    try:
+        _assert_refused(_run_in(env, tmp_path, str(out)), env[2])
+    finally:
+        out.chmod(0o700)
+    assert (out / "lạ.txt").is_file()

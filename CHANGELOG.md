@@ -79,8 +79,9 @@ Mã đã xong và đã qua test đơn vị, integration và Playwright với API
 - `vuot_rao.py` đòi cả mã trạng thái lẫn slug `problem` của lõi nên không xác nhận nhầm một lỗi định tuyến là "bị chặn".
 - Review cuối Plan 03: lõi từ chối thân JSON có U+0000 (khóa hoặc giá trị) bằng 422 `invalid-request` thay vì 500 khi ghi
   `jsonb`; App B coi ký tự điều khiển C0 (trừ TAB, CR, LF) và DEL là chữ vỡ, nên tệp UTF-16 không BOM bị từ chối theo dòng.
-  `ops/web_build_docker.sh` và `ops/web_live.sh` không chép `.env`, `.secrets/`, `deploy/release.env` vào container npm.
-  `ops/build_web.sh` từ chối `<out_dir>` nguy hiểm (`/`, repo, thư mục cha của repo, `$HOME`, thư mục lạ không rỗng).
+  `ops/web_build_docker.sh` và `ops/web_live.sh` không chép tệp `.env*`, `.secrets/`, `deploy/release.env` vào container npm.
+  `ops/build_web.sh` từ chối `<out_dir>` nguy hiểm (có thành phần `.`/`..`, `/`, repo, thư mục cha của repo, `$HOME`, thư mục
+  không đọc được hoặc thư mục lạ không rỗng).
   `ops/deploy.sh` chỉ bỏ xác minh TLS (`curl -k`) khi `DXOS_DOMAIN` là `localhost`/`*.localhost`.
 
 ### Known limitations

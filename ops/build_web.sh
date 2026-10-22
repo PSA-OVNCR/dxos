@@ -10,8 +10,8 @@
 # - `npm ci` rồi `npm run build --workspaces --if-present`. VITE_ANCHOR_RAW_BASE (nếu đặt trong môi trường) được npm
 #   truyền xuống Vite: cổng đối soát build vào đó.
 # - Chép đúng DIST_MAP (danh sách cố định) vào <out_dir>/<tên>, ghi <out_dir>/BUILD-INFO.json.
-# - Từ chối (mã 2) khi <out_dir> là /, repo, thư mục cha của repo, $HOME, một tệp, hay thư mục không rỗng không có
-#   BUILD-INFO.json: bước thay <out_dir> xóa nội dung cũ.
+# - Từ chối (mã 2) khi <out_dir> có thành phần "." hoặc ".." (trừ "." trần), là /, repo, thư mục cha của repo, $HOME,
+#   một tệp, thư mục không đọc được, hay thư mục không rỗng không có BUILD-INFO.json: bước thay <out_dir> xóa nội dung cũ.
 # - Dựng vào <out_dir>.tmp rồi mới thay <out_dir>: bước nào lỗi thì thoát khác 0 và <out_dir> cũ còn nguyên.
 #   Nếu <out_dir> là điểm gắn (volume Docker, không đổi tên được) thì sau khi build xong mới xóa nội dung cũ rồi
 #   chép bản mới vào (không nguyên tử, nhưng chỉ chạy khi mọi bước build đã thành công).
@@ -24,12 +24,20 @@ DIST_MAP="phong-ho-so:apps/phong-ho-so/web/dist chung-nhan:apps/chung-nhan/web/d
 
 [ $# -eq 1 ] && [ -n "$1" ] || { echo "dùng: sh ops/build_web.sh <out_dir>" >&2; exit 2; }
 OUT=$1
+refuse() { echo "build_web.sh: từ chối <out_dir> $OUT: $*" >&2; exit 2; }
+# Thành phần "." hoặc ".." bị từ chối ngay trên tham số, trước mọi chuẩn hóa: khi OUT và thư mục cha chưa tồn tại thì
+# không chuẩn hóa được, `mkdir -p OUT.tmp` tạo thành phần còn thiếu và OUT (ví dụ `../nope/..`) trỏ về một thư mục có
+# thật để bước thay xóa. Riêng "." trần (cả "./") được nhận: luôn chuẩn hóa được, các quy tắc bên dưới quyết định.
+bare=$OUT
+while [ "${bare%/}" != "$bare" ]; do bare=${bare%/}; done
+if [ "$bare" != . ]; then
+    case /$OUT/ in */./* | */../*) refuse 'có thành phần "." hoặc ".."; ghi đường dẫn không có "." / ".."' ;; esac
+fi
 while [ "${OUT%/}" != "$OUT" ] && [ "$OUT" != "/" ]; do OUT=${OUT%/}; done
 case $OUT in /*) ;; *) OUT=$PWD/$OUT ;; esac
 unset CDPATH
 canon_dir() { (cd "$1" 2>/dev/null && pwd -P); }
 REPO=$(canon_dir "$(dirname "$0")/..")
-refuse() { echo "build_web.sh: từ chối <out_dir> $OUT: $*" >&2; exit 2; }
 
 # Đưa OUT về đường dẫn thật (bỏ ".", "..", liên kết tượng trưng) để guard bên dưới so được với REPO và HOME.
 if [ -d "$OUT" ]; then
@@ -45,7 +53,8 @@ case $REPO/ in "$OUT"/*) refuse "là repo hoặc thư mục cha của repo ($REP
 if HOME_DIR=$(canon_dir "${HOME:-/nonexistent}") && [ "$OUT" = "$HOME_DIR" ]; then refuse "là \$HOME"; fi
 if [ -e "$OUT" ] || [ -L "$OUT" ]; then
     [ -d "$OUT" ] || refuse "đã tồn tại và không phải thư mục"
-    if [ -n "$(ls -A "$OUT")" ] && [ ! -f "$OUT/BUILD-INFO.json" ]; then
+    listing=$(ls -A "$OUT" 2>/dev/null) || refuse "không đọc được nội dung thư mục"
+    if [ -n "$listing" ] && [ ! -f "$OUT/BUILD-INFO.json" ]; then
         refuse "thư mục không rỗng và không có BUILD-INFO.json (không phải bản build trước của script này)"
     fi
 fi
