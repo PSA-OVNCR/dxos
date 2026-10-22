@@ -80,8 +80,18 @@ async def _git(repo: Path, git_ssh_command: str, *args: str, check: bool = True)
 
 
 async def ensure_clone(remote: str, repo_dir: Path, git_ssh_command: str) -> None:
-    """Clone ``remote`` vào ``repo_dir`` nếu chưa có; repo rỗng thì đặt nhánh ``main``."""
+    """Clone ``remote`` vào ``repo_dir`` nếu chưa có; repo rỗng thì đặt nhánh ``main``.
+
+    Clone đã có mà ``origin`` khác ``remote`` (người vận hành đổi DXOS_ANCHOR_REMOTE) → ``PUSH_FAILED``
+    thay vì lặng lẽ đẩy STH vào remote cũ; không sửa clone cũ.
+    """
     if (repo_dir / ".git").is_dir():
+        code, out = await _git(repo_dir, git_ssh_command, "remote", "get-url", "origin", check=False)
+        if code != 0 or out.strip() != remote:
+            raise AnchorError(
+                "PUSH_FAILED",
+                f"clone {repo_dir} trỏ remote {out.strip()!r}, khác DXOS_ANCHOR_REMOTE {remote!r}; "
+                "đặt DXOS_ANCHOR_REPO_DIR mới cho remote mới (giữ clone cũ làm lịch sử)")
         return
     repo_dir.parent.mkdir(parents=True, exist_ok=True)
     if remote.startswith("file://"):            # chỉ cho môi trường thử (compose.e2e.yaml): tự tạo bare repo

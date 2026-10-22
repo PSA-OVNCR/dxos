@@ -115,6 +115,19 @@ async def test_ensure_clone_is_idempotent(bare_remote, tmp_path):
     assert (clone / ".git").is_dir()
 
 
+async def test_ensure_clone_refuses_a_clone_of_another_remote(bare_remote, tmp_path):
+    """Đổi DXOS_ANCHOR_REMOTE mà giữ clone cũ thì worker không được lặng lẽ đẩy vào remote cũ."""
+    clone = tmp_path / "c"
+    await ensure_clone(f"file://{bare_remote}", clone, GIT_SSH)
+    other = tmp_path / "other.git"
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(other)], check=True)
+    with pytest.raises(AnchorError) as ei:
+        await ensure_clone(f"file://{other}", clone, GIT_SSH)
+    assert ei.value.code == "PUSH_FAILED"
+    assert "DXOS_ANCHOR_REPO_DIR" in str(ei.value)
+    assert git(clone, "remote", "get-url", "origin") == f"file://{bare_remote}"   # clone cũ không bị sửa
+
+
 # ---------- Bổ sung: job anchor_sth và API quản trị ----------
 
 @pytest.fixture

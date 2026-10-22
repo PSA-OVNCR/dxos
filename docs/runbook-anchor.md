@@ -44,6 +44,8 @@ và chạy kèm overlay `deploy/compose.anchor.yaml`:
 ```bash
 docker compose -p dxos --env-file .env -f deploy/compose.yaml -f deploy/compose.p16.yaml -f deploy/compose.anchor.yaml up -d
 ```
+**Đổi repo neo** (ví dụ từ repo thử sang repo chính): worker giữ bản clone trong `DXOS_ANCHOR_REPO_DIR`. Clone đó trỏ remote cũ thì việc neo báo `PUSH_FAILED` ("khác DXOS_ANCHOR_REMOTE") và không đẩy gì, nên khi đổi remote phải đặt thêm `DXOS_ANCHOR_REPO_DIR` mới (ví dụ `/var/lib/dxos/anchor-lab`) và giữ clone cũ làm lịch sử.
+
 Kiểm: `POST /admin/v1/anchor:run` (token `dxos-admin`) rồi xem `GET /admin/v1/ledger/status` → `last_anchor.commit_sha`
 trùng commit mới nhất trên repo neo.
 
