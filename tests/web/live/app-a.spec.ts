@@ -29,7 +29,8 @@ test.describe.serial('App A: từ nháp đến văn bản ban hành', () => {
     await page.getByLabel('Trích yếu nội dung').fill(TRICH_YEU)
     await page.getByLabel('Chức vụ người ký').fill('Giám đốc')
     await page.getByRole('button', { name: 'Tạo văn bản' }).click()
-    await expect(page).toHaveURL(/#\/van-ban\/[^/]+$/)
+    // Phải loại '#/van-ban/moi': biểu thức cũ khớp ngay trang tạo mới nên docHash trỏ nhầm (lần chạy V27 22/10/2026).
+    await expect(page).toHaveURL(/#\/van-ban\/(?!moi$)[^/]+$/)
     docHash = new URL(page.url()).hash
 
     await page.setInputFiles('#dx-file', PDF_PATH)
