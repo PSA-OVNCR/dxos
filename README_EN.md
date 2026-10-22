@@ -38,8 +38,8 @@ The tutorial's AT-26 test (an outside person follows the 30-minute guide) has no
 npm ci && make web-check     # needs Node 22 and npm 11.6.2 (see BUILD.md)
 make web-build               # builds in a one-shot Node container into the apps-static volume
 ```
-`make web-build` needs Docker and a digest-pinned Node image. The repository does not pin it yet, so the command exits
-with code 3 until `make pin-images` has been run (V35). The portal compares against the anchor repository only when the
+`make web-build` needs Docker and a digest-pinned Node image. The digest was pinned on 22 Oct 2026 with `make pin-images`
+on the team lead's machine (V35); the build itself has not been run yet (V27). The portal compares against the anchor repository only when the
 build has `VITE_ANCHOR_RAW_BASE` and `.env` has a matching `DXOS_ANCHOR_RAW_ORIGIN` (needs the real anchor repository,
 V34); otherwise it says plainly that no comparison was made. Tag-based VPS deployment:
 [docs/runbook-deploy.md](docs/runbook-deploy.md) (Vietnamese). The SDK for Layer-2 developers:

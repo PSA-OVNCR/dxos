@@ -58,7 +58,7 @@ Dựng và kiểm:
 npm ci && make web-check     # cần Node 22 và npm 11.6.2 (BUILD.md)
 make web-build               # dựng bằng container Node dùng một lần, ghi vào volume apps-static
 ```
-`make web-build` cần Docker và image Node ghim digest; repo chưa ghim nên lệnh thoát mã 3 cho tới khi chạy `make pin-images` (V35).
+`make web-build` cần Docker và image Node ghim digest; digest đã ghim ngày 22/10/2026 bằng `make pin-images` trên máy trưởng nhóm (V35), lệnh dựng chưa chạy (V27).
 Cổng đối soát chỉ đối chiếu repo neo khi build có `VITE_ANCHOR_RAW_BASE` và `.env` có `DXOS_ANCHOR_RAW_ORIGIN` khớp
 (cần repo neo thật, V34); không thì cổng nói rõ là chưa đối chiếu. Triển khai lên VPS theo tag: [docs/runbook-deploy.md](docs/runbook-deploy.md).
 SDK cho lập trình viên Tầng 2: [sdk/js/README.md](sdk/js/README.md). Ma trận nghiệm thu AT-01..AT-28: [docs/acceptance.md](docs/acceptance.md).

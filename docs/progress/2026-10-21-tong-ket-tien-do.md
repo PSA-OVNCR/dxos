@@ -231,7 +231,7 @@ Cột "Review" ghi kết quả vòng đầu và số vòng sửa. "Test" là s�
 | V32 | Bật `DXOS_OTS_CALENDARS` trên VPS; sau vài giờ `ots upgrade` rồi `ots verify` tệp `ots/<n>.ots`; tùy chọn chạy `DXOS_OTS_CLIENT=ots python -m pytest core/tests/test_ots.py -k official` | VPS | `docs/runbook-anchor.md` mục 6. Mặc định tắt; cắt được nếu thiếu thời gian |
 | V33 | Gắn tag `v0.3.0` sau `v0.2.0` (xem 13.4) | Trưởng nhóm | Hành động công khai |
 | V34 | Đặt `VITE_ANCHOR_RAW_BASE` (lúc build) và `DXOS_ANCHOR_RAW_ORIGIN` (`.env`, hai giá trị phải khớp) theo repo neo thật khi repo đó có trên GitHub | VPS | Chưa đặt thì cổng đối soát nói rõ là chưa đối chiếu repo neo |
-| V35 | Chạy `make pin-images` trên máy có Docker để ghim digest `NODE_IMAGE` (`ops/web_build_docker.sh`) và `PLAYWRIGHT_IMAGE` (`ops/web_live.sh`), rồi commit | Máy có Docker | Registry bị chặn (403) khi viết; tới lúc đó cả hai script thoát mã 3 và `deploy.sh` dừng ở bước dựng SPA. **Làm trước V27, V29, V33** |
+| V35 | ~~Chạy `make pin-images` trên máy có Docker để ghim digest `NODE_IMAGE` và `PLAYWRIGHT_IMAGE`~~ — đã chạy 22/10 trên máy trưởng nhóm (`ops/pin_images.py`, exit 0); digest commit từ cloud | — | Xong |
 | V36 | Chạy lại AT-20 trên máy trưởng nhóm sau bản sửa bước mở khóa OpenBao của test (`40d6d64`) | Máy trưởng nhóm | Thay phần "chưa chạy lại" của V17; AT-20 cần `docker` ngoài container |
 
 Các việc V1–V26 của mục 12 vẫn còn hiệu lực (ví dụ V18 tag `v0.2.0`, V21, V22, V24).

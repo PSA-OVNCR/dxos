@@ -59,6 +59,11 @@ def repo(tmp_path):
     (r / "ops").mkdir(parents=True)
     for name in ("web_build_docker.sh", "web_live.sh"):
         shutil.copy2(ROOT / "ops" / name, r / "ops" / name)
+        # Bản sao bắt đầu ở trạng thái chưa ghim (bỏ digest thật nếu repo đã ghim);
+        # test tự ghim digest giả khi cần.
+        script = r / "ops" / name
+        script.write_text(re.sub(r"^((?:NODE|PLAYWRIGHT)_IMAGE=\S+?)@sha256:[0-9a-f]{64}$", r"\1",
+                                 script.read_text(encoding="utf-8"), flags=re.M), encoding="utf-8")
     git = ["git", "-C", str(r), "-c", "user.name=t", "-c", "user.email=t@t"]
     subprocess.run(["git", "init", "-q", str(r)], check=True)  # noqa: S603, S607
     (r / "x").write_text("x", encoding="utf-8")
@@ -194,3 +199,10 @@ def test_live_stops_when_the_caddy_ca_cannot_be_read(repo):
     r = _run(repo, "web_live.sh", FAKE_CP_FAIL="1", DXOS_WEB_LIVE_DIR=str(repo[0].parent / "res"))
     assert r.returncode == 3 and "CA của Caddy" in r.stderr
     assert not any(c[0] == "run" for c in _calls(repo[2]))
+
+
+def test_repo_scripts_have_pinned_images():
+    """V35 đã chạy (22/10/2026): image của hai script trong repo phải ghim digest (nếu không: thoát mã 3)."""
+    for name, var in (("web_build_docker.sh", "NODE_IMAGE"), ("web_live.sh", "PLAYWRIGHT_IMAGE")):
+        text = (ROOT / "ops" / name).read_text(encoding="utf-8")
+        assert re.search(rf"^{var}=\S+@sha256:[0-9a-f]{{64}}$", text, re.M), name

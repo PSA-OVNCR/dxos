@@ -18,7 +18,7 @@ set -euo pipefail
 export MSYS_NO_PATHCONV=1   # Git Bash trên Windows không được đổi đường dẫn kiểu /src, /out trong lệnh docker
 
 # Ghim digest bằng `make pin-images` (cần Docker có buildx): dòng dưới đổi thành node:22-bookworm-slim@sha256:<64 hex>.
-NODE_IMAGE=node:22-bookworm-slim
+NODE_IMAGE=node:22-bookworm-slim@sha256:de170b39439eb0e5a3444ad7d60b015614a381e10fecae2e30ec9e735122f38d
 APPS_VOLUME=dxos_apps-static
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)

@@ -18,7 +18,7 @@ export MSYS_NO_PATHCONV=1   # Git Bash trên Windows không được đổi đư
 
 # Ghim digest bằng `make pin-images` (cần Docker có buildx): dòng dưới đổi thành
 # mcr.microsoft.com/playwright:v1.63.0-noble@sha256:<64 hex>.
-PLAYWRIGHT_IMAGE=mcr.microsoft.com/playwright:v1.63.0-noble
+PLAYWRIGHT_IMAGE=mcr.microsoft.com/playwright:v1.63.0-noble@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 OUT=${DXOS_WEB_LIVE_DIR:-$REPO/test-results/web-live}

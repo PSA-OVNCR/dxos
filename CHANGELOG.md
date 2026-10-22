@@ -88,8 +88,7 @@ Mã đã xong và đã qua test đơn vị, integration và Playwright với API
 Mọi mục dưới đây **chưa chạy** vì môi trường dựng mã (cloud) không có Docker, trình duyệt thật cho stack, VPS hay mạng ra
 calendar OpenTimestamps; việc cần làm ghi ở `docs/progress/2026-10-21-tong-ket-tien-do.md` mục 13.
 - Bộ Playwright live trên App A, App B và cổng đối soát, và `make web-build` với image Node thật: chưa chạy (V27). Digest
-  `NODE_IMAGE` và `PLAYWRIGHT_IMAGE` chưa ghim (registry bị chặn 403 khi viết); cả hai script thoát mã 3 cho tới khi chạy
-  `make pin-images` (V35).
+  `NODE_IMAGE` và `PLAYWRIGHT_IMAGE` đã ghim ngày 22/10/2026 bằng `make pin-images` trên máy trưởng nhóm (V35).
 - `ops/vuot_rao.py` chưa chạy trên stack thật (V28); `ops/deploy.sh` mới được kiểm bằng `git`, `docker`, `curl` giả, chưa chạy
   trên VPS (V29); `release.yml` bước dựng SPA chưa chạy trên Actions (V33).
 - Biên nhận OpenTimestamps: client calendar mới kiểm với calendar giả; chưa gọi calendar thật, chưa `ots verify` (V32). Test
