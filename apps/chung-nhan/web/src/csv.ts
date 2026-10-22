@@ -132,7 +132,9 @@ export interface MappedRows {
   lines: number[]
 }
 
-const BROKEN = /[�\u0080-\u009F]/ // ký tự thay thế và ký tự điều khiển C1: dấu hiệu đọc sai bảng mã
+// Dấu hiệu đọc sai bảng mã: ký tự thay thế U+FFFD, ký tự điều khiển C0 (trừ TAB, LF, CR; gồm NUL của UTF-16 không BOM,
+// mà PostgreSQL jsonb không biểu diễn được), DEL và C1 (review cuối Plan 03, I3).
+const BROKEN = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F�]/
 const DMY = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/
 const ISO = /^(\d{4})-(\d{2})-(\d{2})$/
 
@@ -181,6 +183,10 @@ export function mapRows(rows: string[][], view: CollectionView, lines?: number[]
   }
 
   const headerLine = lineOf(h)
+  if ((rows[h] ?? []).some((cell) => BROKEN.test(cell))) {
+    const message = 'Dòng tiêu đề có ký tự không đọc được (tệp có thể lưu sai bảng mã, ví dụ UTF-16 không BOM; hãy lưu lại bằng "CSV UTF-8")'
+    return { ok: [], errors: [{ line: headerLine, message }], lines: [] }
+  }
   const errors: MappedRows['errors'] = []
   const columns: (string | null)[] = [] // tên trường theo vị trí cột; null = cột không dùng
   const seen = new Set<string>()

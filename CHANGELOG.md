@@ -77,6 +77,11 @@ Mã đã xong và đã qua test đơn vị, integration và Playwright với API
   không bao giờ hạ một gói giả xuống "chưa đối chiếu" (kiểm khóa cố định trước khi rơi về không ghim); mã trạng thái lạ hoặc thân phản hồi không đọc được hiện
   "chưa kiểm được", không phải "không hợp lệ".
 - `vuot_rao.py` đòi cả mã trạng thái lẫn slug `problem` của lõi nên không xác nhận nhầm một lỗi định tuyến là "bị chặn".
+- Review cuối Plan 03: lõi từ chối thân JSON có U+0000 (khóa hoặc giá trị) bằng 422 `invalid-request` thay vì 500 khi ghi
+  `jsonb`; App B coi ký tự điều khiển C0 (trừ TAB, CR, LF) và DEL là chữ vỡ, nên tệp UTF-16 không BOM bị từ chối theo dòng.
+  `ops/web_build_docker.sh` và `ops/web_live.sh` không chép `.env`, `.secrets/`, `deploy/release.env` vào container npm.
+  `ops/build_web.sh` từ chối `<out_dir>` nguy hiểm (`/`, repo, thư mục cha của repo, `$HOME`, thư mục lạ không rỗng).
+  `ops/deploy.sh` chỉ bỏ xác minh TLS (`curl -k`) khi `DXOS_DOMAIN` là `localhost`/`*.localhost`.
 
 ### Known limitations
 Mọi mục dưới đây **chưa chạy** vì môi trường dựng mã (cloud) không có Docker, trình duyệt thật cho stack, VPS hay mạng ra
@@ -92,8 +97,6 @@ calendar OpenTimestamps; việc cần làm ghi ở `docs/progress/2026-10-21-ton
   thật chưa có (V34). AT-26 (người ngoài đội làm theo hướng dẫn) chưa tổ chức (V31).
 - Chưa kiểm AT-20 sau bản sửa bước mở khóa OpenBao của test (`40d6d64`; V36). Phần mềm build có giấy phép MPL-2.0, BlueOak-1.0.0,
   MIT-0, CC0-1.0 (`mdn-data`) chỉ nằm trong công cụ build, không vào bundle; chờ trưởng nhóm xác nhận (V30).
-- Nhập CSV của App B chưa lọc ký tự điều khiển C0 và NUL phía trình duyệt; lõi chưa chặn riêng ký tự này nên một dòng như vậy
-  có thể làm lô nhập bị lỗi máy chủ giữa chừng (đã ghi để rà soát cuối).
 - `verifyBundle` (JS) và `dxos-witness verify-bundle` (Python) dùng chung bộ vector nhưng còn hai khác biệt đã biết: JS chỉ nhận tối đa 2 dấu `=` đệm
   trong base64 (Python nhận nhiều hơn sau một nhóm đủ), và số nguyên dài hơn 4300 chữ số cho `MALFORMED` ở Python nhưng JS vẫn chấp nhận.
   Hai khác biệt này không làm gói thật đổi kết quả.

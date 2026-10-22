@@ -56,7 +56,7 @@ Short names: `S` = core/src/dxos_core. `rec`=S/records, `wf`=S/workflow, `sealpk
 - No `code` field exists on record/workflow/seal errors: the machine key is the `type` slug (and `guard`/`reason` for guards).
 
 ### 0.5 Body parsing for JSON endpoints (records/workflow/seal)
-- `_json_body` (rec/router.py:27-35): does NOT check Content-Type. Invalid JSON -> 400 `bad-request` detail "body must be JSON"; lone surrogate or nesting >64 -> 422 `invalid-request` (jsonbody.py:211-248). Empty body is invalid JSON (400) for POST create/PATCH/erase/revoke/complete.
+- `_json_body` (rec/router.py:27-35): does NOT check Content-Type. Invalid JSON -> 400 `bad-request` detail "body must be JSON"; lone surrogate or nesting >64 -> 422 `invalid-request` (jsonbody.py:211-248). A string or key containing U+0000 (`\u0000`, not representable in PostgreSQL jsonb) -> 422 `invalid-request` detail "body contains U+0000 (not representable in PostgreSQL jsonb)"; the same check applies to `POST /admin/v1/apps` (Plan 03 final review, I3). Empty body is invalid JSON (400) for POST create/PATCH/erase/revoke/complete.
   workflow:start and :pii-review do NOT read a body at all.
 - The `/verify/v1/seals/{id}:check|:bundle` bodies are different: Content-Type must be exactly application/json (else 415), max 256 bytes (413), shape exactly `{"sha256": "<64 lowercase hex>"}` (else 422 `invalid-request`), duplicate keys rejected
   (seal/verify_router.py:57,70-98; http_body.py:16-37).

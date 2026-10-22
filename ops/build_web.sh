@@ -10,6 +10,8 @@
 # - `npm ci` rồi `npm run build --workspaces --if-present`. VITE_ANCHOR_RAW_BASE (nếu đặt trong môi trường) được npm
 #   truyền xuống Vite: cổng đối soát build vào đó.
 # - Chép đúng DIST_MAP (danh sách cố định) vào <out_dir>/<tên>, ghi <out_dir>/BUILD-INFO.json.
+# - Từ chối (mã 2) khi <out_dir> là /, repo, thư mục cha của repo, $HOME, một tệp, hay thư mục không rỗng không có
+#   BUILD-INFO.json: bước thay <out_dir> xóa nội dung cũ.
 # - Dựng vào <out_dir>.tmp rồi mới thay <out_dir>: bước nào lỗi thì thoát khác 0 và <out_dir> cũ còn nguyên.
 #   Nếu <out_dir> là điểm gắn (volume Docker, không đổi tên được) thì sau khi build xong mới xóa nội dung cũ rồi
 #   chép bản mới vào (không nguyên tử, nhưng chỉ chạy khi mọi bước build đã thành công).
@@ -24,7 +26,29 @@ DIST_MAP="phong-ho-so:apps/phong-ho-so/web/dist chung-nhan:apps/chung-nhan/web/d
 OUT=$1
 while [ "${OUT%/}" != "$OUT" ] && [ "$OUT" != "/" ]; do OUT=${OUT%/}; done
 case $OUT in /*) ;; *) OUT=$PWD/$OUT ;; esac
-REPO=$(cd "$(dirname "$0")/.." && pwd)
+unset CDPATH
+canon_dir() { (cd "$1" 2>/dev/null && pwd -P); }
+REPO=$(canon_dir "$(dirname "$0")/..")
+refuse() { echo "build_web.sh: từ chối <out_dir> $OUT: $*" >&2; exit 2; }
+
+# Đưa OUT về đường dẫn thật (bỏ ".", "..", liên kết tượng trưng) để guard bên dưới so được với REPO và HOME.
+if [ -d "$OUT" ]; then
+    OUT=$(canon_dir "$OUT") || refuse "không vào được thư mục"
+elif parent=$(canon_dir "$(dirname "$OUT")"); then
+    OUT=${parent%/}/$(basename "$OUT")
+fi
+# Guard: bước thay <out_dir> ở cuối xóa nội dung cũ, nên không bao giờ nhận /, repo, thư mục cha của repo, $HOME,
+# tệp thường, hay thư mục không rỗng mà không phải bản build trước (không có BUILD-INFO.json). Volume apps-static
+# (điểm gắn /out trong container) rỗng ở lần đầu và có BUILD-INFO.json từ lần sau, nên vẫn qua.
+[ "$OUT" != / ] || refuse "là thư mục gốc /"
+case $REPO/ in "$OUT"/*) refuse "là repo hoặc thư mục cha của repo ($REPO)" ;; esac
+if HOME_DIR=$(canon_dir "${HOME:-/nonexistent}") && [ "$OUT" = "$HOME_DIR" ]; then refuse "là \$HOME"; fi
+if [ -e "$OUT" ] || [ -L "$OUT" ]; then
+    [ -d "$OUT" ] || refuse "đã tồn tại và không phải thư mục"
+    if [ -n "$(ls -A "$OUT")" ] && [ ! -f "$OUT/BUILD-INFO.json" ]; then
+        refuse "thư mục không rỗng và không có BUILD-INFO.json (không phải bản build trước của script này)"
+    fi
+fi
 TMP=$OUT.tmp
 
 COMMIT=${DXOS_BUILD_COMMIT:-}

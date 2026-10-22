@@ -184,6 +184,11 @@ def test_evidence_readme_lists_m2_items_without_results():
         assert item in doc, item
     rows = {key: next(line for line in doc.splitlines() if line.startswith("| " + key))
             for key in ("E2E mốc M2", "AT-13", "AT-19", "AT-20", "Cổng năng suất M2")}
+    e2e = rows.pop("E2E mốc M2").rstrip(" |").split("|")[-1].strip()
+    # E2E đã chạy trên Docker Desktop 22/10 (review cuối Plan 03, m2): ghi kết quả kèm nguồn, nói rõ chưa chạy
+    # trên VPS
+    assert e2e.startswith("Có") and "chưa chạy trên VPS" in e2e
+    assert "2026-10-22-e2e-m2-docker-desktop.md" in e2e
     for key, row in rows.items():
         # chưa chạy: cột trạng thái không được ghi kết quả
         assert row.rstrip(" |").split("|")[-1].strip().startswith("Chưa có"), key

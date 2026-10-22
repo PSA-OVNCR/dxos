@@ -193,6 +193,26 @@ describe('mapRows', () => {
     expect(r.errors[0]?.message).toMatch(/Họ và tên.*không đọc được/)
   })
 
+  test('C0 control characters and DEL in a cell are line errors; TAB inside a cell is kept', () => {
+    const r = mapRows([
+      ['Họ và tên', 'Sự kiện', 'Ngày cấp'],
+      ['A\u0000B', 'HT', '1/1/2027'],
+      ['C', 'H\u001fT', '1/1/2027'],
+      ['D', 'H\u007fT', '1/1/2027'],
+      ['E\u000bF', 'HT', '1/1/2027'],
+      ['G', 'Hội\tthảo', '1/1/2027'],
+    ], VIEW)
+    expect(r.errors.map((e) => e.line)).toEqual([2, 3, 4, 5])
+    for (const e of r.errors) expect(e.message).toMatch(/không đọc được/)
+    expect(r.ok).toEqual([{ ho_ten: 'G', su_kien: 'Hội\tthảo', ngay_cap: '2027-01-01' }])
+  })
+
+  test('a header with broken characters is one clear error on the header line', () => {
+    const r = mapRows([['H\u0000ọ và tên', 'Sự kiện', 'Ngày cấp'], ['A', 'HT', '1/1/2027']], VIEW)
+    expect(r).toEqual({ ok: [], errors: [{ line: 1, message: expect.stringMatching(/tiêu đề.*không đọc được/) }], lines: [] })
+    expect(r.errors[0]?.message).not.toContain('\u0000')
+  })
+
   test('cells beyond the header are an error when they are not empty', () => {
     const r = mapRows([['Họ và tên', 'Sự kiện', 'Ngày cấp'], ['A', 'HT', '1/1/2027', 'thừa'], ['B', 'HT', '1/1/2027', '']], VIEW)
     expect(r.errors).toEqual([{ line: 2, message: expect.stringMatching(/không có tiêu đề/) }])
@@ -207,6 +227,38 @@ describe('mapRows', () => {
   test('an empty file and a header-only file', () => {
     expect(mapRows([], VIEW).errors).toEqual([{ line: 1, message: expect.stringMatching(/trống/) }])
     expect(mapRows([['Họ và tên', 'Sự kiện', 'Ngày cấp']], VIEW)).toEqual({ ok: [], errors: [], lines: [] })
+  })
+})
+
+describe('UTF-16LE without BOM (review cuối Plan 03, I3): never reaches the server', () => {
+  const run = (bytes: Uint8Array) => {
+    const { text } = decodeCsv(bytes)
+    const { rows, lines } = parseCsvWithLines(text)
+    return mapRows(rows, VIEW, lines)
+  }
+
+  test('utf16le-no-bom.csv (Vietnamese text: not valid UTF-8) is refused with a line error', () => {
+    const r = run(fixture('utf16le-no-bom.csv'))
+    expect(r.ok).toEqual([])
+    expect(r.errors).toEqual([{ line: 1, message: expect.stringMatching(/không đọc được/) }])
+    expect(JSON.stringify(r)).not.toContain('\\u0000')
+  })
+
+  test('ASCII-only UTF-16LE without BOM is valid UTF-8 byte-wise: the NUL bytes are caught', () => {
+    const ascii = 'ho_ten,su_kien,ngay_cap\r\nAn,HT,1/1/2027\r\n'
+    const bytes = new Uint8Array([...ascii].flatMap((c) => [c.charCodeAt(0), 0]))
+    expect(decodeCsv(bytes)).toEqual({ text: expect.stringContaining('\u0000'), encoding: 'utf-8' })
+    const r = run(bytes)
+    expect(r.ok).toEqual([])
+    expect(r.errors.length).toBeGreaterThan(0)
+    for (const e of r.errors) expect(e.line).toBeGreaterThanOrEqual(1)
+  })
+
+  test('rows whose cells carry NUL are refused row by row', () => {
+    const r = mapRows([['ho_ten', 'su_kien', 'ngay_cap'], ['A\u0000', 'HT', '1/1/2027'], ['B', 'HT', '1/1/2027'],
+      ['C', '\u0000', '1/1/2027']], VIEW)
+    expect(r.errors.map((e) => e.line)).toEqual([2, 4])
+    expect(r.ok).toEqual([{ ho_ten: 'B', su_kien: 'HT', ngay_cap: '2027-01-01' }])
   })
 })
 

@@ -8,6 +8,8 @@ test. Hợp đồng HTTP mà SDK bám theo: [docs/api/contract-tier2.md](../../d
 - Gói `private: true`, **chưa công bố lên npm**. Ứng dụng trong repo dùng nó qua npm workspace
   (`"dxos-sdk-js": "0.3.0"` trong `package.json` của ứng dụng); `exports` trỏ thẳng vào mã nguồn `src/`. `npm run build -w dxos-sdk-js`
   tạo thêm bản thư viện `dist/` (`index`, `vue`) nhưng bản đó chưa được ai dùng.
+- Hiện gói chỉ dùng được trong workspace này và chưa phát hành; `exports` trỏ vào `src/` (TypeScript, cần bundler như
+  Vite), không trỏ vào `dist/`. Ai dùng `dist/` ngoài repo phải tự trỏ đường dẫn tới đó.
 - Đã kiểm bằng test đơn vị (Vitest + jsdom) và Playwright với API giả. **Chưa kiểm với Keycloak và lõi thật trên trình
   duyệt thật** (V27, xem `docs/progress/2026-10-21-tong-ket-tien-do.md` mục 13).
 - `verifyBundle` bám `dxos-witness verify-bundle` và chạy chung bộ vector, nhưng **không** hứa trùng tuyệt đối với Python. Hai khác biệt đã

@@ -595,6 +595,21 @@ async def test_unencodable_manifest_is_422_not_500(admin):  # m2
     assert "surrogate" in r.json()["detail"]
 
 
+async def test_nul_in_manifest_is_422_not_500(admin):  # review cuối Plan 03, I3
+    body = json.dumps(
+        {
+            "manifest": {**load("test-flow"), "app": {**load("test-flow")["app"], "name": "x\x00y"}},
+            "files": FLOW_FILES,
+        },
+    )
+    assert "\\u0000" in body
+    r = await admin.post(
+        "/admin/v1/apps", content=body.encode(), headers={"content-type": "application/json"}
+    )
+    assert r.status_code == 422 and r.json()["type"].endswith("/invalid-request"), r.text
+    assert r.json()["detail"] == "body contains U+0000 (not representable in PostgreSQL jsonb)"
+
+
 async def test_deeply_nested_submit_is_422_not_500(admin):  # rà soát cuối Plan 02, m2
     body = b'{"manifest": ' + b"[" * 200_000 + b"]" * 200_000 + b', "files": {}}'
     r = await admin.post("/admin/v1/apps", content=body, headers={"content-type": "application/json"})

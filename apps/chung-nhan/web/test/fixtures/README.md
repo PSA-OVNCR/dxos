@@ -1,7 +1,7 @@
 # Tệp CSV mẫu (Review Focus 1)
 
 Tệp nhị phân, tạo một lần bằng script bên dưới (chạy trong thư mục này: `python3 -I - <<'PY' ... PY`) rồi commit.
-Cả năm tệp chứa CÙNG ba dòng dữ liệu (có ô chứa dấu phẩy, dấu nháy kép, và hai dòng trống ở cuối); chỉ khác bảng mã,
+Cả sáu tệp chứa CÙNG ba dòng dữ liệu (có ô chứa dấu phẩy, dấu nháy kép, và hai dòng trống ở cuối); chỉ khác bảng mã,
 dấu phân cách và dạng Unicode.
 
 | Tệp | Mô phỏng | Bảng mã | Phân cách |
@@ -9,6 +9,7 @@ dấu phân cách và dạng Unicode.
 | `utf8-bom.csv` | Excel "CSV UTF-8", locale vi-VN | UTF-8 có BOM | `;` |
 | `cp1258.csv` | Excel tiếng Việt cũ, "CSV (Comma delimited)" | Windows-1258 (chữ cái gốc + dấu kết hợp) | `;` |
 | `utf16le-bom.csv` | Excel "Unicode Text" | UTF-16LE có BOM | TAB |
+| `utf16le-no-bom.csv` | công cụ ghi UTF-16 không BOM (phải bị từ chối, không được nhập: review cuối Plan 03, I3) | UTF-16LE không BOM | TAB |
 | `utf8.csv` | công cụ khác | UTF-8 không BOM | `,` |
 | `utf8-nfd.csv` | macOS | UTF-8, họ tên ở dạng NFD | `,` |
 
@@ -63,6 +64,7 @@ def write(name, data):
 write("utf8-bom.csv", b"\xef\xbb\xbf" + text(";").encode("utf-8"))          # Excel "CSV UTF-8", locale vi-VN
 write("cp1258.csv", to_cp1258(text(";")))                                    # Excel tiếng Việt cũ ("CSV (Comma delimited)")
 write("utf16le-bom.csv", b"\xff\xfe" + text("\t").encode("utf-16-le"))       # Excel "Unicode Text" (phân cách TAB)
+write("utf16le-no-bom.csv", text("\t").encode("utf-16-le"))                 # UTF-16LE không BOM: phải bị từ chối
 write("utf8.csv", text(",").encode("utf-8"))                                 # UTF-8 không BOM
 write("utf8-nfd.csv", unicodedata.normalize("NFD", text(",")).encode("utf-8"))  # họ tên NFD như macOS
 PY

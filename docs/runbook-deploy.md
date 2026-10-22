@@ -21,6 +21,7 @@ giả, xem `tests/ops/test_deploy_sh.py`).
 | `.env` đủ | Sao từ `.env.example`; bắt buộc có `DXOS_DOMAIN` (script thoát 2 nếu thiếu). `DXOS_ANCHOR_REMOTE` khác rỗng thì script tự thêm `deploy/compose.anchor.yaml` (cần `.secrets/anchor-deploy-key`, xem `docs/runbook-anchor.md`). |
 | Image Node đã ghim digest | `make pin-images` rồi commit trước khi gắn tag. Chưa ghim thì `ops/web_build_docker.sh` thoát 3 và `deploy.sh` dừng, chưa gọi compose. |
 | Release của tag đã có tệp `trust-core-image-<X.Y.Z>.txt` | Do workflow `release` sinh; script tải từ `https://github.com/PSA-OVNCR/dxos/releases/download/<tag>/`. Repo khác: `--repo-url`. |
+| Cổng đối soát đọc repo neo (tùy chọn, V34) | Đặt trong `.env` cả `VITE_ANCHOR_RAW_BASE=https://raw.githubusercontent.com/<org>/dxos-transparency-log/main` (đọc lúc dựng SPA) và `DXOS_ANCHOR_RAW_ORIGIN=https://raw.githubusercontent.com` (CSP của Caddy); hai giá trị phải khớp origin. Thiếu một trong hai thì cổng báo "chưa đối chiếu repo neo" hoặc CSP chặn. |
 | Cây làm việc sạch | `git status --porcelain` rỗng. `.env`, `deploy/release.env`, `deploy/deployments.log` đã nằm trong `.gitignore`. |
 
 ## 2. Script làm gì
@@ -43,7 +44,8 @@ Theo đúng thứ tự, dừng ở bước đầu tiên hỏng:
    `DXOS_TRUST_CORE_DIGEST` và `DXOS_RELEASE_TAG` khỏi môi trường của tiến trình ngay từ đầu: compose ưu tiên biến môi
    trường hơn `--env-file`, nên giá trị đã `export` trong shell sẽ lấn digest đã kiểm.
 9. Kiểm sức khỏe: `/readyz` của `trust-core-api` (trong container) in `200`, và `https://$DXOS_DOMAIN/verify/v1/keys`
-   trả 200 (`curl -k`: chấp nhận CA nội bộ của Caddy).
+   trả 200. `curl` xác minh chứng chỉ TLS; chỉ khi `DXOS_DOMAIN` là `localhost` hoặc `*.localhost` (CA nội bộ của Caddy)
+   mới dùng `curl -k`.
 10. Ghi dòng kết quả vào `deploy/deployments.log`.
 
 `deploy.sh` đọc `.env` bằng `sed`, không `source`, và không in giá trị bí mật. Lõi chạy đúng image theo digest của Release

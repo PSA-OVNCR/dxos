@@ -103,6 +103,7 @@ main() {
         mkdir -p "$(dirname "$log_file")"
         printf '%s\t%s\t%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$tag" "$commit" "$digest" "$1" >> "$log_file"
     }
+    # shellcheck disable=SC2329  # gọi qua trap on_exit EXIT
     on_exit() {
         local rc=$?
         trap - EXIT
@@ -162,7 +163,10 @@ main() {
         "import urllib.request as u; print(u.urlopen('http://127.0.0.1:8000/readyz', timeout=5).status)") \
         || die "/readyz của trust-core-api không trả 200"
     [ "$(printf '%s' "$ready" | tr -d '\r\n ')" = 200 ] || die "/readyz trả '$ready', cần 200"
-    curl -fsk --max-time 20 "https://$domain/verify/v1/keys" > /dev/null || die "https://$domain/verify/v1/keys không trả 200"
+    # Chỉ bỏ xác minh TLS (-k) với localhost/*.localhost (Caddy tự ký); tên miền thật phải có chứng chỉ hợp lệ.
+    local curl_tls=-fs
+    case $domain in localhost | *.localhost) curl_tls=-fsk ;; esac
+    curl "$curl_tls" --max-time 20 "https://$domain/verify/v1/keys" > /dev/null || die "https://$domain/verify/v1/keys không trả 200"
 
     record OK
     started=0

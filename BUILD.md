@@ -162,6 +162,9 @@ make web-build          # npm ci + npm run build --workspaces, chép dist vào v
 - `ops/build_web.sh <out_dir>` dựng vào `<out_dir>.tmp` rồi mới thay `<out_dir>`: build lỗi thì thoát khác 0 và bản đang
   chạy còn nguyên. Danh sách thư mục chép cố định ở đầu tệp. Chạy trực tiếp không cần Docker: `sh ops/build_web.sh /tmp/apps`
   (cần Node 22, npm 11.6.2; mã commit lấy từ git hoặc `DXOS_BUILD_COMMIT`).
+  Script từ chối (mã 2) `<out_dir>` là `/`, repo, thư mục cha của repo, `$HOME`, một tệp, hay thư mục không rỗng không có
+  `BUILD-INFO.json`, vì bước thay xóa nội dung cũ. `make web-build` không chép `.env`, `.secrets/`, `deploy/release.env` vào
+  container Node.
 - Cổng đối soát tự đối chiếu repo neo khi build có `VITE_ANCHOR_RAW_BASE` (môi trường hoặc `.env`) và `.env` có
   `DXOS_ANCHOR_RAW_ORIGIN` khớp (CSP của Caddy); để trống thì cổng nói rõ là chưa đối chiếu repo neo.
 - Header cho `/apps/*`: CSP `default-src 'self'` (không `unsafe-inline`), `nosniff`, `Referrer-Policy: no-referrer`;

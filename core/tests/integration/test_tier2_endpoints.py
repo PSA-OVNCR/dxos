@@ -4,6 +4,7 @@
 đọc ledger (admin). Chỉ dùng manifest tổng hợp ``test-app`` và ``test-flow`` (D6)."""
 
 import json
+import re
 import uuid
 
 import pytest
@@ -246,6 +247,9 @@ async def test_ledger_entries_filters_and_orders(api, outsider, admin):
     assert all(i["type"] == "policy.denied" and i["app_id"] == "test-app" for i in items)
     assert items == sorted(items, key=lambda i: -i["idx"])
     assert items[0]["subject"] == "test-app" and len(items[0]["actor_ref"]) == 64
+    # RFC3339 UTC dạng "Z" như mọi endpoint khác (contract-tier2 §14; review cuối Plan 03, m4: cột ``ts`` là
+    # domain ``rfc3339_utc`` kiểu text nên đã đúng dạng; assert này ghim lại).
+    assert all(re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", i["ts"]) for i in items), items
 
 
 async def test_ledger_entries_newest_first_across_types_and_default_limit(env, api, owner_a, admin):

@@ -20,6 +20,7 @@ ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "ops/build_web.sh"
 SHA = "0123456789abcdef0123456789abcdef01234567"
 ALL_OUT = ["BUILD-INFO.json", "chung-nhan", "phong-ho-so", "so-muon-sach", "verify"]
+PREV_INFO = '{"commit": "1111111", "built_at": "2026-10-01T00:00:00Z"}\n'
 DISTS = {"phong-ho-so": "apps/phong-ho-so/web/dist", "chung-nhan": "apps/chung-nhan/web/dist",
          "so-muon-sach": "examples/so-muon-sach/web/dist", "verify": "verify-portal/app/dist"}
 
@@ -121,10 +122,11 @@ def test_commit_from_env_must_look_like_a_commit(env, tmp_path):
 def test_failing_step_exits_non_zero_and_leaves_previous_output_untouched(env, tmp_path, step):
     out = tmp_path / "out"
     out.mkdir()
+    (out / "BUILD-INFO.json").write_text(PREV_INFO, encoding="utf-8")       # bản build trước
     (out / "old.txt").write_text("giữ nguyên", encoding="utf-8")
     r = _run(env, out, FAKE_FAIL=step)
-    assert r.returncode != 0
-    assert [p.name for p in out.iterdir()] == ["old.txt"]
+    assert r.returncode not in (0, 2), r.stderr                 # lỗi ở bước npm, không phải bị từ chối
+    assert sorted(p.name for p in out.iterdir()) == ["BUILD-INFO.json", "old.txt"]
     assert (out / "old.txt").read_text(encoding="utf-8") == "giữ nguyên"
     assert not (tmp_path / "out.tmp").exists()
 
@@ -139,6 +141,7 @@ def test_missing_dist_folder_fails_without_creating_output(env, tmp_path, worksp
 def test_stale_tmp_folder_and_previous_output_are_replaced(env, tmp_path):
     out, tmp = tmp_path / "out", tmp_path / "out.tmp"
     out.mkdir()
+    (out / "BUILD-INFO.json").write_text(PREV_INFO, encoding="utf-8")
     (out / "old.txt").write_text("cũ", encoding="utf-8")
     tmp.mkdir()
     (tmp / "rác.txt").write_text("dở dang", encoding="utf-8")
@@ -183,6 +186,7 @@ def test_output_that_is_a_mount_point_is_refreshed_in_place(env, tmp_path):
     if probe.returncode != 0:
         pytest.skip("không gắn được tmpfs trong sandbox này")
     try:
+        assert _run(env, out).returncode == 0                              # lần đầu: volume rỗng
         (out / "old.txt").write_text("cũ", encoding="utf-8")
         failed = _run(env, out, FAKE_FAIL="build")
         assert failed.returncode != 0 and (out / "old.txt").is_file()      # lỗi: nội dung cũ còn nguyên
@@ -192,3 +196,74 @@ def test_output_that_is_a_mount_point_is_refreshed_in_place(env, tmp_path):
         assert not (tmp_path / "out.tmp").exists()
     finally:
         subprocess.run(["umount", str(out)], check=False)  # noqa: S603, S607
+
+
+# ---------- <out_dir> nguy hiểm: từ chối trước khi gọi npm (review cuối Plan 03, I4) ----------
+# Mọi test dưới đây chạy với FAKE_FAIL=build: kể cả khi guard hỏng, script dừng ở bước build (mã 9) trước khi
+# chạm vào <out_dir>, nên test không bao giờ xóa gì thật.
+
+def _assert_refused(r: subprocess.CompletedProcess, log: Path) -> None:
+    assert r.returncode == 2, r.stdout + r.stderr
+    assert "từ chối" in r.stderr
+    assert not log.exists()                                          # chưa gọi npm
+
+
+def _run_in(env, cwd: Path, out: str, **extra: str) -> subprocess.CompletedProcess:
+    repo, bin_dir, log, _ = env
+    base = {k: v for k, v in os.environ.items() if not k.startswith(("DXOS_", "FAKE_", "VITE_"))}
+    base.update({"PATH": f"{bin_dir}{os.pathsep}{base['PATH']}", "FAKE_LOG": str(log), "FAKE_FAIL": "build",
+                 **extra})
+    return subprocess.run(["sh", str(repo / "ops/build_web.sh"), out], env=base,  # noqa: S603, S607
+                          capture_output=True, text=True, check=False, timeout=60, cwd=cwd)
+
+
+@pytest.mark.parametrize("arg", [".", "./", "ops/..", "$REPO"])
+def test_refuses_the_repo_itself(env, arg):
+    repo = env[0]
+    before = sorted(p.name for p in repo.iterdir())
+    r = _run_in(env, repo, str(repo) if arg == "$REPO" else arg)
+    _assert_refused(r, env[2])
+    assert sorted(p.name for p in repo.iterdir()) == before and (repo / ".git").is_dir()
+
+
+def test_refuses_an_ancestor_of_the_repo(env, tmp_path):
+    r = _run_in(env, env[0] / "ops", "../..")                        # = tmp_path, cha của repo
+    _assert_refused(r, env[2])
+    assert (env[0] / "ops/build_web.sh").is_file()
+
+
+@pytest.mark.parametrize("arg", ["/", "//", "/."])
+def test_refuses_the_filesystem_root(env, tmp_path, arg):
+    _assert_refused(_run_in(env, tmp_path, arg), env[2])
+
+
+def test_refuses_home(env, tmp_path):
+    home = tmp_path / "home"
+    home.mkdir()                                                     # rỗng: chỉ quy tắc $HOME chặn được
+    _assert_refused(_run_in(env, tmp_path, str(home), HOME=str(home)), env[2])
+    assert home.is_dir()
+
+
+def test_refuses_a_non_empty_folder_that_is_not_a_previous_build(env, tmp_path):
+    out = tmp_path / "data"
+    out.mkdir()
+    (out / "lạ.txt").write_text("không phải bản build", encoding="utf-8")
+    _assert_refused(_run_in(env, tmp_path, str(out)), env[2])
+    assert [p.name for p in out.iterdir()] == ["lạ.txt"]
+
+
+def test_refuses_an_existing_file(env, tmp_path):
+    f = tmp_path / "file"
+    f.write_text("x", encoding="utf-8")
+    _assert_refused(_run_in(env, tmp_path, str(f)), env[2])
+    assert f.read_text(encoding="utf-8") == "x"
+
+
+def test_empty_folder_and_previous_build_are_accepted(env, tmp_path):
+    empty = tmp_path / "empty"                                       # volume apps-static lần đầu: rỗng
+    empty.mkdir()
+    assert _run(env, empty).returncode == 0
+    (empty / "extra.txt").write_text("x", encoding="utf-8")          # đã có BUILD-INFO.json: bản build trước
+    r = _run(env, empty)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert sorted(p.name for p in empty.iterdir()) == ALL_OUT

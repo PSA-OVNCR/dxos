@@ -366,9 +366,10 @@ async def test_yearly_sequence_field_uses_zero_padded_format(make_settings, core
 # ---------- rà soát cuối Plan 02, m2: thân JSON không mã hóa được / lồng quá sâu → 422, không 500 ----------
 @pytest.mark.parametrize("body", [
     b'{"title": "x\\ud800y"}',                          # surrogate lẻ: json.loads nhận, UTF-8 thì không
+    b'{"title": "A\\u0000B\\u0000"}',                  # U+0000: jsonb không biểu diễn được (Plan 03, I3)
     b'{"title": ' + b"[" * 100 + b"]" * 100 + b"}",              # quá trần độ sâu
     b'{"title": ' + b"[" * 200_000 + b"]" * 200_000 + b"}",      # json.loads ném RecursionError
-], ids=["surrogate", "depth-100", "depth-200000"])
+], ids=["surrogate", "nul", "depth-100", "depth-200000"])
 async def test_unencodable_or_deep_body_is_422(api, tok_author, body):
     headers = {**tok_author, "content-type": "application/json"}
     for r in (await api.post(URL_F, content=body, headers=headers),

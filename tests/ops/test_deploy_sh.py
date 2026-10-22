@@ -201,7 +201,7 @@ def test_happy_path_order(run):
         " pull --ignore-buildable",
         " up -d --wait --wait-timeout 600",
         "exec -T trust-core-api",
-        "curl -fsk",
+        "/verify/v1/keys",
     ]), r.text
     assert "DXOS_TRUST_CORE_DIGEST=" + DIGEST in r.file("deploy/release.env")
     assert "DXOS_RELEASE_TAG=v0.3.0" in r.file("deploy/release.env")
@@ -283,7 +283,22 @@ def test_health_checks_use_same_compose_files_and_domain_from_env(run, stubs):
     ex = next(c for c in r.calls if "exec -T trust-core-api" in c)
     assert ex.startswith("docker compose -p dxos --env-file .env --env-file deploy/release.env ")
     assert "compose.release.yaml exec -T trust-core-api python -c " in ex and "/readyz" in ex
-    assert "curl -fsk --max-time 20 https://dxos.vn/verify/v1/keys" in r.calls
+    assert "curl -fs --max-time 20 https://dxos.vn/verify/v1/keys" in r.calls   # tên miền thật: xác minh TLS
+
+
+@pytest.mark.parametrize("domain", ["localhost", "dxos.localhost"])
+def test_health_check_skips_tls_verify_only_for_localhost(run, stubs, domain):
+    stubs.env = f"DXOS_DOMAIN={domain}\nDXOS_ANCHOR_REMOTE=\n"
+    r = run("v0.3.0")
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert f"curl -fsk --max-time 20 https://{domain}/verify/v1/keys" in r.calls
+
+
+def test_health_check_verifies_tls_for_lookalike_domain(run, stubs):
+    stubs.env = "DXOS_DOMAIN=localhost.example.vn\nDXOS_ANCHOR_REMOTE=\n"
+    r = run("v0.3.0")
+    assert "curl -fs --max-time 20 https://localhost.example.vn/verify/v1/keys" in r.calls
+    assert "curl -fsk" not in r.text
 
 
 def test_log_line_format_and_append(run, stubs):
@@ -368,13 +383,13 @@ def test_health_failure_logs_fail_and_prints_previous_tag(run, stubs):
     assert r.returncode == 1
     assert "Triển khai v0.3.0 hỏng. Quay lại bằng: ops/deploy.sh v0.2.0" in r.stdout
     assert r.log_last().endswith("\tFAIL") and r.log_last().split("\t")[1] == "v0.3.0"
-    assert "curl -fsk" not in r.text                          # dừng ở readyz, không đi tiếp
+    assert "/verify/v1/keys" not in r.text                    # dừng ở readyz, không đi tiếp
 
 
 def test_unexpected_readyz_output_is_a_failure(run, stubs):
     stubs.extra["FAKE_READYZ_PRINT"] = "204"                   # exec thoát 0 nhưng không in đúng 200
     r = run("v0.3.0")
-    assert r.returncode == 1 and "curl -fsk" not in r.text and r.log_last().endswith("\tFAIL")
+    assert r.returncode == 1 and "/verify/v1/keys" not in r.text and r.log_last().endswith("\tFAIL")
 
 
 def test_verify_keys_failure_logs_fail(run, stubs):
@@ -435,5 +450,8 @@ def test_script_header_syntax_and_shellcheck():
     assert os.access(SCRIPT, os.X_OK)
     assert subprocess.run(["bash", "-n", str(SCRIPT)], check=False).returncode == 0  # noqa: S603, S607
     if shutil.which("shellcheck"):
-        proc = subprocess.run(["shellcheck", str(SCRIPT)], capture_output=True, text=True, check=False)  # noqa: S603, S607
+        # -S warning: ghi chú mức info của shellcheck mới (runner đổi image) không làm CI đỏ; warning, error
+        # vẫn bị bắt.
+        proc = subprocess.run(["shellcheck", "-S", "warning", str(SCRIPT)],  # noqa: S603, S607
+                              capture_output=True, text=True, check=False)
         assert proc.returncode == 0, proc.stdout
