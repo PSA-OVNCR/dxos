@@ -6,7 +6,7 @@ SPDX-License-Identifier: Apache-2.0
 
 *Đội PSA_OVNCR · Kho mã: https://github.com/PSA-OVNCR/dxos (public, Apache-2.0) · Mục 1–12 cập nhật đến commit `56bac6e` (Plan 01) và Plan 02 (mục 11–12); mục 13 (Plan 03) xem bên dưới.*
 *Thay cho bản 20/10 (`2026-10-20-tong-ket-tien-do.md`, giữ lại làm lịch sử).*
-*Mục 13 (Plan 03, M3) cập nhật 22/10/2026 đến commit `59758be` (Task 14) và commit tài liệu của Task 15.*
+*Mục 13 (Plan 03, M3) cập nhật 22/10/2026 đến commit `4d7e0f1` (đợt sửa sau review cuối toàn nhánh).*
 
 ## 1. Tóm tắt trong 30 giây
 - **Cập nhật 22/10: Plan 03 (M3, v0.3.0) có mã xong ở cloud, chưa gắn tag, chưa chạy trên stack thật.** Xem mục 13 (task, số test, việc V27–V36). Các gạch đầu dòng còn lại của mục này là hiện trạng cũ của Plan 01.
@@ -27,7 +27,7 @@ SPDX-License-Identifier: Apache-2.0
 | M0 | 26/10 | Hạ tầng chạy được, đo RAM, spike Flowable | Gần xong: thiếu đo RAM và chạy trên VPS |
 | **M1** | **09/11** | Lõi Tier-0 phần 1, release **v0.1.0** | **Đã phát hành v0.1.0 (22/10)**; còn E2E trên VPS |
 | M2 | 16/11 | v0.2.0: guard + BPMN, niêm phong, installer, App A và B cài bằng manifest, witness độc lập | **Mã xong (cloud)**: Plan 02 15/15 task + review toàn nhánh; còn việc VPS và tag v0.2.0 (mục 12) |
-| M3 | 23/11 | v0.3.0: SDK, SPA A và B, cổng đối soát, triển khai VPS theo tag | **Mã xong (cloud)**: Plan 03 15/15 task; Task 1–14 đã qua review, Task 15 đang chờ review; **chưa gắn tag**; còn việc máy thật V27–V36 (mục 13) và tag `v0.3.0` sau `v0.2.0` (V33) |
+| M3 | 23/11 | v0.3.0: SDK, SPA A và B, cổng đối soát, triển khai VPS theo tag | **Mã xong (cloud)**: Plan 03 15/15 task đã qua review; review cuối toàn nhánh: 4 Important đã sửa ở `4d7e0f1`; **chưa gắn tag**; còn việc máy thật V27–V36 (mục 13) và tag `v0.3.0` sau `v0.2.0` (V33) |
 | M4 | 30/11 | v0.9.0: SHOULD, chạy thử với người dùng, tài liệu + SBOM | Chưa bắt đầu |
 | M5 | 04/12 | v1.0.0, máy sạch, đóng băng mã | Chưa bắt đầu |
 | Nộp bài | 17:00 06/12 | Điểm PoF chấm theo hiện trạng kho lúc gửi (G16) | |
@@ -186,7 +186,7 @@ Test gần nhất (`2b78542`): `make check` 1125 passed (không cảnh báo), in
 
 ## 13. Plan 03 (M3) — cập nhật 22/10/2026
 
-*Chạy bằng subagent trên main; Task 1–14 đã qua review (spec + chất lượng) và sửa xong mới đóng, Task 15 đang chờ review. Sổ điều phối từng quyết định: `.superpowers/sdd/2026-10-22-dxos-03-tier1-m3/progress.md`; báo cáo từng task cùng thư mục (`task-N-report.md`). Dựng ở cloud không có Docker, VPS hay Keycloak thật: mọi thứ cần chúng nằm ở bảng V-việc bên dưới, **không** tính là đã kiểm.*
+*Chạy bằng subagent trên main; 15/15 task đã qua review; review cuối toàn nhánh: 4 Important đã sửa ở `4d7e0f1`. Từng task được review (spec + chất lượng) và sửa xong mới đóng; báo cáo review cuối: `.superpowers/sdd/2026-10-22-dxos-03-tier1-m3/final-review.md`. Sổ điều phối từng quyết định: `.superpowers/sdd/2026-10-22-dxos-03-tier1-m3/progress.md`; báo cáo từng task cùng thư mục (`task-N-report.md`). Dựng ở cloud không có Docker, VPS hay Keycloak thật: mọi thứ cần chúng nằm ở bảng V-việc bên dưới, **không** tính là đã kiểm.*
 
 ### 13.1. Từng task
 Cột "Review" ghi kết quả vòng đầu và số vòng sửa. "Test" là số liệu do chính task báo lúc đóng, không phải số cuối (số cuối ở 13.2).
@@ -207,7 +207,7 @@ Cột "Review" ghi kết quả vòng đầu và số vòng sửa. "Test" là s�
 | 12 | `ops/deploy.sh`, `docs/runbook-deploy.md`, tar SPA trong release | `c387591`, `7866088` | 51 test với `git`/`docker`/`curl` giả | Duyệt (không có Critical/Important); **1 vòng sửa** do điều phối quyết định: thiếu `compose pull` (spec 16.3) và biến môi trường kế thừa lấn digest |
 | 13 | Hướng dẫn 30 phút, `examples/so-muon-sach`, `docs/at26-checklist.md` | `15c489d`, `aa2ae6c` | 10 test ví dụ; `test_tutorial_docs.py`; tutorial + `tests/apps` 34 passed | Vòng đầu **Important**: lệnh `dxos` thiếu `--ca-file`; **1 vòng sửa** rồi duyệt |
 | 14 | Biên nhận OpenTimestamps cho STH đã neo (mặc định tắt) | `1fe265f`, `eeb8af6`, `59758be` | 36 passed + 1 skipped (`core/tests/test_ots.py`), 10 integration, witness 146 | Vòng đầu 2 **Important** (không có hạn tổng với calendar; bộ đọc lỏng hơn bản chính thức); **2 vòng sửa** rồi duyệt |
-| 15 | Tài liệu: README (VI, EN), BUILD.md, CHANGELOG `[0.3.0]`, `sdk/js/README.md`, mục này, `tests/repo/test_docs_m3.py` | commit `docs(m3)` ngay sau `59758be` | `test_docs_m3.py` (RED rồi GREEN) | Chưa review |
+| 15 | Tài liệu: README (VI, EN), BUILD.md, CHANGELOG `[0.3.0]`, `sdk/js/README.md`, mục này, `tests/repo/test_docs_m3.py` | commit `docs(m3)` ngay sau `59758be` | `test_docs_m3.py` (RED rồi GREEN) | Sạch sau 1 vòng sửa |
 
 ### 13.2. Số test cuối (do Task 15 chạy trên commit này, 22/10/2026, cloud không Docker)
 - `make check PYTHON=python`: **1511 passed, 6 skipped, 483 deselected** (mã thoát 0; ruff sạch; 5 test Caddy sống bỏ qua vì không có binary `caddy`, 1 test `ots` chính thức bỏ qua).
@@ -215,6 +215,8 @@ Cột "Review" ghi kết quả vòng đầu và số vòng sửa. "Test" là s�
 - `reuse lint`: mã thoát 0, 565/565 tệp có bản quyền và giấy phép.
 - Integration (PostgreSQL 16 chạy tại chỗ, `DXOS_TEST_REQUIRE_DB=1 python -m pytest -m integration core/tests/integration`): **445 passed, 1 skipped** (bỏ qua: test trình duyệt cần `DXOS_TEST_BROWSER=1`). Bộ này không gồm test cần Docker (`-m infra`, `-m e2e`).
 - Playwright của cổng đối soát (API giả, chạy ở Task 6 với `PW_CHROMIUM` trỏ Chromium có sẵn): 15 passed. Task 15 không chạy lại.
+- **Đợt sửa sau review cuối (`4d7e0f1`, 22/10, cloud không Docker; có `shellcheck` 0.11.0 cài tạm trong `.venv`, không ghi vào requirements)**: `make check PYTHON=python` **1531 passed, 6 skipped, 485 deselected** (mã thoát 0); `npm run check` mã thoát 0 (SDK 251, cổng 39, App A 100, App B **106**, `so-muon-sach` 10); `reuse lint` mã thoát 0, 566/566 tệp; integration (PostgreSQL 16, OpenBao, SeaweedFS, Flowable 7.1.0 chạy tại chỗ, `DXOS_TEST_REQUIRE_DB=1 python -m pytest -m integration core/tests/integration`) **447 passed, 1 skipped**.
+- **CI**: run `ci` **39701368613** ở commit `4d7e0f1` xanh mọi job (`lint`, `secrets`, `web`, `reuse`, `unit`, `caddy-live`, `integration`). Trước đó job `unit` đỏ từ `c387591` tới `65e67af` vì `shellcheck` mới trên runner báo SC2329 (info) ở `ops/deploy.sh` (review cuối, I1).
 - **Chưa chạy ở bất kỳ nơi nào**: bộ Playwright live (`make web-live`), `make web-build`, `ops/vuot_rao.py`, `ops/deploy.sh`, `release.yml` bước dựng SPA, gọi calendar OpenTimestamps thật, test đối chiếu `ots` chính thức (`DXOS_OTS_CLIENT=ots`).
 
 ### 13.3. Việc cần máy thật hoặc trưởng nhóm (gom từ Plan 03)
@@ -238,12 +240,14 @@ Thứ tự: `v0.2.0` (V18) rồi `v0.3.0` (V33). Mỗi tag:
 1. `make pin-images` (V35) và commit nếu chưa ghim; image Node phải ghim trước khi chạy `ops/deploy.sh` (V29), vì script dựng SPA bằng Docker. (`release.yml` dựng tar SPA bằng Node trên Actions, không dùng image ghim.)
 2. Nâng phiên bản 4 gói Python và 3 tệp `__init__.py` (hiện vẫn `0.1.0`, danh sách ở `BUILD.md` mục "Phát hành"), chạy `make openapi`. Các gói web (`package.json` gốc và các workspace) đã ghi `0.3.0` từ Plan 03; workflow không kiểm chúng, nên khi gắn `v0.2.0` chúng vẫn là `0.3.0` (không ảnh hưởng release).
 3. Đổi `## [X.Y.Z] - Chưa phát hành` trong `CHANGELOG.md` thành ngày thật (mục `[0.3.0]` đã viết sẵn, mục `[Unreleased]` để trống).
-4. `make check PYTHON=python && npm run check && reuse lint`, commit, `git tag -a vX.Y.Z -m "…"`, `git push origin vX.Y.Z`.
-5. Sau khi Release có: V29 (`ops/deploy.sh vX.Y.Z` trên VPS).
+4. `make check PYTHON=python && npm run check && reuse lint` (kiểm bằng mã thoát), commit, push lên `main`.
+5. CI xanh ở commit gắn tag (`gh run list -R PSA-OVNCR/dxos --limit 5`; mọi job của run `ci` ở đúng commit đó là `success`).
+   Chưa xanh thì không gắn tag: máy cloud và máy trưởng nhóm không có `shellcheck`, CI thì có (review cuối Plan 03, I1).
+6. `git tag -a vX.Y.Z -m "…"`, `git push origin vX.Y.Z`.
+7. Sau khi Release có: V29 (`ops/deploy.sh vX.Y.Z` trên VPS).
 
-### 13.5. Điểm kỹ thuật còn mở (ghi từ review từng task, chưa sửa; để review toàn nhánh Plan 03 xem)
-- **Nhập CSV (Task 9)**: regex "ký tự lỗi" của App B không bắt ký tự điều khiển C0 và NUL, mà lõi không có bộ lọc C0 và `jsonb` của PostgreSQL từ chối `\u0000`, nên một dòng như vậy có thể gây lỗi 500 giữa lô. Cần kiểm phía lõi (cùng loại lỗi với surrogate đơn lẻ đã ghi ở Plan 02).
-- **`build_web.sh` (Task 10)**: `OUT=/` không bị chặn (nhánh dự phòng chạy `find / -mindepth 1 -exec rm -rf`); cần chặn `/`, `.`, `$HOME`, `$REPO`. Bộ live dùng `ignoreHTTPSErrors`; nên ghim SPKI của CA Caddy.
+### 13.5. Điểm kỹ thuật còn mở (ghi từ review từng task, chưa sửa; review toàn nhánh Plan 03 đã xem, các mục chịu lực đã sửa ở `4d7e0f1`)
+- **Bộ Playwright live (Task 10)**: dùng `ignoreHTTPSErrors`; nên ghim SPKI của CA Caddy (dời sang Plan 04, làm cùng V27).
 - **Sổ đăng ký (Task 8)**: năm của sổ lấy từ `issued_at` còn bộ đếm `so_hieu` theo năm tạo bản ghi; cần ghi vào runbook.
 - **Ma trận AT (Task 11)**: `2026-10-22-e2e-m2-docker-desktop.md` tự mâu thuẫn về AT-19 (bảng ghi PASSED, mục "Chưa làm" ghi chưa); ma trận ghi cả hai, trưởng nhóm cần xác nhận.
 - **OpenTimestamps (Task 14)**: thứ tự nhánh khi nhiều biên nhận cùng nút là tất định nhưng không cam kết trùng từng byte với `ots` chính thức (không ảnh hưởng tính hợp lệ).

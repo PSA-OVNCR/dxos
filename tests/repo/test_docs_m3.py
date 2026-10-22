@@ -154,6 +154,7 @@ def test_plan00_row_03_updated():
 
 
 _REVIEW_CLAIMS = ("mỗi task đã qua review", "mỗi task qua review")
+ALL_REVIEWED = "15/15 task đã qua review"
 
 
 def test_no_all_tasks_reviewed_claim_while_a_task_is_unreviewed():
@@ -165,10 +166,17 @@ def test_no_all_tasks_reviewed_claim_while_a_task_is_unreviewed():
     for name, text in (("progress mục 13", sec), ("progress hàng M3", m3_row), ("plan 00 hàng 03", plan_row)):
         for claim in _REVIEW_CLAIMS:
             assert claim not in text, f"{name}: '{claim}'"
+    places = (("progress mục 13", sec), ("progress hàng M3", m3_row), ("plan 00 hàng 03", plan_row))
     if "Chưa review" in sec:
-        # Task 15 chờ review: các nơi nhắc review phải nói rõ phạm vi Task 1–14
-        assert "Task 1–14 đã qua review" in m3_row and "Task 15 đang chờ review" in m3_row
-        assert "Task 1–14 đã qua review" in plan_row
+        # Còn task chờ review: không nơi nào được nói đủ 15/15 task đã qua review
+        for name, text in places:
+            assert ALL_REVIEWED not in text, name
+            assert "đang chờ review" in text, name
+    else:
+        # Mọi task đã review (review cuối Plan 03): cả ba nơi nói cùng một câu, kèm commit sửa review cuối
+        done = ALL_REVIEWED + r"; review cuối toàn nhánh: 4 Important đã sửa ở `[0-9a-f]{7,40}`"
+        for name, text in places:
+            assert re.search(done, text), name
 
 
 def test_build_md_web_section_says_images_unpinned_and_not_run():
