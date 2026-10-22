@@ -79,9 +79,11 @@ test.describe.serial('App A: từ nháp đến văn bản ban hành', () => {
 
   test('mở verify_url, chọn đúng tệp PDF và thấy "Hợp lệ"', async ({ browser }) => {
     const page = await open(browser, verifyUrl)
-    // Gói chỉ có khi STH phủ lá: chờ worker công bố STH ("Chữ ký hợp lệ — đang chờ..." chưa phải "Hợp lệ").
+    // Gói chỉ có khi STH phủ lá: chờ worker công bố STH ("Chữ ký hợp lệ — đang chờ..." còn là chờ). Niêm phong của
+    // App A bắt buộc tệp nên cổng chỉ tải gói sau khi chọn tệp: trước đó nhãn là "Chưa tự kiểm trên trình duyệt"
+    // (lần chạy V27 22/10/2026 chờ "Hợp lệ" trước khi chọn tệp nên hết giờ).
     await reloadUntil(page, async () => {
-      await expect(page.getByTestId('verdict')).toHaveText(/^Hợp lệ/, { timeout: 3_000 })
+      await expect(page.getByTestId('verdict')).toHaveText('Chưa tự kiểm trên trình duyệt', { timeout: 3_000 })
     })
     await page.setInputFiles('#file-input', PDF_PATH)
     await expect(page.getByText('Khớp: tệp này đúng là tệp đã được niêm phong.')).toBeVisible()
