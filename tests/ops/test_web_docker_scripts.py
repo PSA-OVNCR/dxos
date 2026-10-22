@@ -26,29 +26,29 @@ exit 0
 
 
 # Bí mật của stack (``.env`` của VPS, khóa ghi repo neo, digest phát hành) không được chép vào container npm,
-# nơi lifecycle script của bên thứ ba chạy với mạng (review cuối Plan 03, I2). ``.env.example`` vẫn được chép.
-SECRET_EXCLUDES = (".env", ".env.local", '".env.*.local"', ".env.development", ".env.production", ".env.test",
-                   ".secrets", "deploy/release.env")
+# nơi lifecycle script của bên thứ ba chạy với mạng (review cuối Plan 03, I2). Chặn mặc định mọi tệp
+# ``.env*``.
+SECRET_EXCLUDES = ('".env*"', ".secrets", "deploy/release.env")
 
 
 def _assert_secrets_not_copied(inner: str, tmp_path: Path) -> None:
     for excluded in SECRET_EXCLUDES:
         assert f"--exclude={excluded} " in inner or f"--exclude={excluded}\n" in inner, excluded
-    # Chạy đúng lệnh tar của INNER trên một cây giả: bí mật bị bỏ, .env.example và mã nguồn vẫn còn.
+    # Chạy đúng lệnh tar của INNER trên một cây giả: không tệp .env* nào (kể cả tên lạ, kể cả .env.example) và
+    # không bí mật nào lọt qua; mã nguồn vẫn còn.
     start = inner.index("tar cf - ")
     end = inner.index("-C /work", start) + len("-C /work")
     src, dst = tmp_path / "tar-src", tmp_path / "tar-dst"
-    for rel in (".env", ".env.local", ".env.production.local", ".env.production", ".env.development",
-                ".env.test", ".env.example", ".secrets/anchor-deploy-key", "deploy/release.env",
-                "deploy/compose.yaml", "apps/x/.env.example", "ops/build_web.sh"):
+    for rel in (".env", ".env.bak", ".env.vps", ".env.local", ".env.production.local", ".env.example",
+                ".secrets/anchor-deploy-key", "deploy/release.env", "deploy/compose.yaml",
+                "apps/x/.env", "apps/x/.env.example", "ops/build_web.sh"):
         (src / rel).parent.mkdir(parents=True, exist_ok=True)
         (src / rel).write_text("x", encoding="utf-8")
     dst.mkdir()
     cmd = inner[start:end].replace("\\\n", " ").replace("-C /work", f"-C {dst}")
     subprocess.run(["sh", "-c", cmd], cwd=src, check=True)  # noqa: S603, S607
     copied = sorted(str(f.relative_to(dst)) for f in dst.rglob("*") if f.is_file())
-    want = [".env.example", "apps/x/.env.example", "deploy/compose.yaml", "ops/build_web.sh"]
-    assert copied == want, copied
+    assert copied == ["deploy/compose.yaml", "ops/build_web.sh"], copied
 
 
 @pytest.fixture

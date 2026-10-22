@@ -49,14 +49,13 @@ ENV_ARGS=(-e DXOS_BUILD_COMMIT="$DXOS_BUILD_COMMIT")
 
 # Chạy trong container (sh của Debian): chép nguồn bằng tar, bỏ thư mục sinh ra và thư mục riêng của máy phát triển.
 # Không chép bí mật (.env*, .secrets/, deploy/release.env) vào container: npm ci chạy lifecycle script của bên
-# thứ ba có mạng. Giữ .env.example (mẫu, không bí mật); vì thế không dùng mẫu '.env.*' (sẽ bỏ cả .env.example).
+# thứ ba có mạng. Chặn mặc định mọi tệp .env* (kể cả .env.example: không mã nào trong container đọc nó).
 INNER='set -eu
 mkdir /work
 cd /src
 tar cf - --exclude=node_modules --exclude=.git --exclude=dist --exclude=.venv --exclude=.superpowers \
     --exclude=__pycache__ --exclude=test-results \
-    --exclude=.env --exclude=.env.local --exclude=".env.*.local" --exclude=.env.development \
-    --exclude=.env.production --exclude=.env.test --exclude=.secrets --exclude=deploy/release.env \
+    --exclude=".env*" --exclude=.secrets --exclude=deploy/release.env \
     . | tar xf - -C /work
 npm i -g npm@11.6.2
 sh /work/ops/build_web.sh /out'

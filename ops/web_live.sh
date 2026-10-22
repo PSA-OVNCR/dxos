@@ -38,7 +38,7 @@ docker compose -p dxos cp caddy:/data/caddy/pki/authorities/local/root.crt "$OUT
 }
 
 # Chép nguồn bằng tar nhưng không chép bí mật (.env*, .secrets/, deploy/release.env): npm ci chạy lifecycle script
-# của bên thứ ba có mạng. Giữ .env.example; vì thế không dùng mẫu '.env.*'.
+# của bên thứ ba có mạng. Chặn mặc định mọi tệp .env* (kể cả .env.example: không mã nào trong container đọc nó).
 INNER='set -eu
 GW=$(getent ahostsv4 host.docker.internal | awk '"'"'NR==1 {print $1}'"'"')
 [ -n "$GW" ] || { echo "không phân giải được host.docker.internal"; exit 3; }
@@ -50,8 +50,7 @@ mkdir /work
 cd /src
 tar cf - --exclude=node_modules --exclude=.git --exclude=dist --exclude=.venv --exclude=.superpowers \
     --exclude=__pycache__ --exclude=test-results \
-    --exclude=.env --exclude=.env.local --exclude=".env.*.local" --exclude=.env.development \
-    --exclude=.env.production --exclude=.env.test --exclude=.secrets --exclude=deploy/release.env \
+    --exclude=".env*" --exclude=.secrets --exclude=deploy/release.env \
     . | tar xf - -C /work
 cd /work
 npm i -g npm@11.6.2
