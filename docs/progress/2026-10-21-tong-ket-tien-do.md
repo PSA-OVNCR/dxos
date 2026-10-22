@@ -229,7 +229,7 @@ Cột "Review" ghi kết quả vòng đầu và số vòng sửa. "Test" là s�
 | V29 | Chạy `ops/deploy.sh v0.3.0` trên VPS sau khi có tag và image GHCR | VPS | Cần Docker Compose ≥ 2.24 (V22), NTP (V24), package GHCR công khai (V19). `docs/runbook-deploy.md` |
 | V30 | Xác nhận công cụ build/test có giấy phép MPL-2.0 (lightningcss), BlueOak-1.0.0, MIT-0, CC0-1.0 (`mdn-data`) chỉ nằm ngoài bundle | Trưởng nhóm | `LICENSES-THIRD-PARTY.md`. Không chấp nhận thì phải bỏ jsdom và đổi cách test |
 | V31 | Tổ chức AT-26 theo `docs/at26-checklist.md` (người ngoài đội làm hướng dẫn 30 phút) | Trưởng nhóm | Mọi lệnh trong hướng dẫn chưa chạy thật, ghi "chưa kiểm ở cloud — kiểm trong AT-26" |
-| V32 | Bật `DXOS_OTS_CALENDARS` trên VPS; sau vài giờ `ots upgrade` rồi `ots verify` tệp `ots/<n>.ots`; tùy chọn chạy `DXOS_OTS_CLIENT=ots python -m pytest core/tests/test_ots.py -k official` | VPS | `docs/runbook-anchor.md` mục 6. Mặc định tắt; cắt được nếu thiếu thời gian |
+| V32 | OpenTimestamps: **đã chạy 22/10 trên laptop** với calendar thật và repo neo cục bộ; `ots upgrade` xong, khối Bitcoin 972609, merkle root khớp mempool.space (`docs/progress/2026-10-22-ots-laptop.md`). Còn: bật trên VPS và với repo neo GitHub | VPS | `docs/runbook-anchor.md` mục 6 |
 | V33 | Gắn tag `v0.3.0` sau `v0.2.0` (xem 13.4) | Trưởng nhóm | Hành động công khai |
 | V34 | Đặt `VITE_ANCHOR_RAW_BASE` (lúc build) và `DXOS_ANCHOR_RAW_ORIGIN` (`.env`, hai giá trị phải khớp) theo repo neo thật khi repo đó có trên GitHub | VPS | Chưa đặt thì cổng đối soát nói rõ là chưa đối chiếu repo neo |
 | V35 | ~~Chạy `make pin-images` trên máy có Docker để ghim digest `NODE_IMAGE` và `PLAYWRIGHT_IMAGE`~~ — đã chạy 22/10 trên máy trưởng nhóm (`ops/pin_images.py`, exit 0); digest commit từ cloud | — | Xong |
