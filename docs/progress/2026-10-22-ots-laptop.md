@@ -24,7 +24,7 @@ SPDX-License-Identifier: Apache-2.0
    `004b31769d032519d1b661346b2723dd436e8a48924c5e8d0f58d0ec36ecab93`".
 5. Đối chiếu với block explorer công khai:
    - `https://mempool.space/api/block-height/972609` → hash `00000000000000000001a4b1e376cb4869d2bc5a86b9ec9fbf844c7f2bd8dcd7`;
-   - `https://mempool.space/api/block/<hash>` → `merkle_root` = `004b31769d032519d1b661346b2723dd436e8a48924c5e8d0f58d0ec36ecab93`, **khớp**. Thời điểm khối `1792667140` (2026-10-22 10:25:40 UTC).
+   - `https://mempool.space/api/block/<hash>` → `merkle_root` = `004b31769d032519d1b661346b2723dd436e8a48924c5e8d0f58d0ec36ecab93`, **khớp**. Thời điểm khối `1792667140` (2026-10-22 11:05:40 UTC).
 
 Kết luận: chuỗi STH → biên nhận OTS → khối Bitcoin kiểm được bằng công cụ chính thức. Bước cuối dựa vào block explorer thay vì nút Bitcoin riêng (spec cho phép người kiểm tự chọn).
 
