@@ -206,3 +206,11 @@ def test_repo_scripts_have_pinned_images():
     for name, var in (("web_build_docker.sh", "NODE_IMAGE"), ("web_live.sh", "PLAYWRIGHT_IMAGE")):
         text = (ROOT / "ops" / name).read_text(encoding="utf-8")
         assert re.search(rf"^{var}=\S+@sha256:[0-9a-f]{{64}}$", text, re.M), name
+
+
+def test_build_commit_lookup_works_under_git_bash():
+    """Git Bash + MSYS_NO_PATHCONV=1: `git -C /e/...` hỏng trên Windows; script phải `cd` rồi mới gọi git."""
+    text = (ROOT / "ops" / "web_build_docker.sh").read_text(encoding="utf-8")
+    assert 'git -C "$REPO"' not in text
+    assert '$(cd "$REPO" && git rev-parse HEAD)' in text
+

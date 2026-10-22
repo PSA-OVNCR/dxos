@@ -42,7 +42,9 @@ if [ -n "$VITE_ANCHOR_RAW_BASE" ] && [ -z "${DXOS_ANCHOR_RAW_ORIGIN:-$(env_get D
     echo "web_build_docker.sh: cảnh báo: có VITE_ANCHOR_RAW_BASE nhưng DXOS_ANCHOR_RAW_ORIGIN trống; CSP của Caddy sẽ chặn" \
          "trình duyệt đọc repo neo." >&2
 fi
-DXOS_BUILD_COMMIT=${DXOS_BUILD_COMMIT:-$(git -C "$REPO" rev-parse HEAD)}
+# `cd` thay cho `git -C` với $REPO: dưới Git Bash có MSYS_NO_PATHCONV=1, git.exe nhận nguyên /e/... và không tìm thấy
+# thư mục (gặp khi chạy V27 trên máy Windows 22/10/2026); docker thì hiểu /e/... nên các -v giữ nguyên.
+DXOS_BUILD_COMMIT=${DXOS_BUILD_COMMIT:-$(cd "$REPO" && git rev-parse HEAD)}
 
 ENV_ARGS=(-e DXOS_BUILD_COMMIT="$DXOS_BUILD_COMMIT")
 [ -z "$VITE_ANCHOR_RAW_BASE" ] || ENV_ARGS+=(-e VITE_ANCHOR_RAW_BASE="$VITE_ANCHOR_RAW_BASE")
