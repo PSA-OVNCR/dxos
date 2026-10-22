@@ -54,7 +54,9 @@ tar cf - --exclude=node_modules --exclude=.git --exclude=dist --exclude=.venv --
     . | tar xf - -C /work
 cd /work
 npm i -g npm@11.6.2
-npm ci
+# Image Playwright 1.63.0 kèm Node 24, còn package.json đòi Node 22 (engine-strict): chỉ ở container chạy test này
+# mới nới kiểm engine; bản dựng SPA (web_build_docker.sh) vẫn dùng Node 22 ghim digest (gặp khi chạy V27 22/10/2026).
+npm_config_engine_strict=false npm ci
 npx playwright test -c tests/web/live'
 
 docker run --rm --ipc=host --add-host=host.docker.internal:host-gateway \

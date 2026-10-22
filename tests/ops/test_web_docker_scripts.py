@@ -214,3 +214,11 @@ def test_build_commit_lookup_works_under_git_bash():
     assert 'git -C "$REPO"' not in text
     assert '$(cd "$REPO" && git rev-parse HEAD)' in text
 
+
+def test_live_relaxes_engine_check_only_inside_the_playwright_container():
+    """Image Playwright có Node 24; npm ci trong container test phải tắt engine-strict, bản dựng thì không."""
+    live = (ROOT / "ops" / "web_live.sh").read_text(encoding="utf-8")
+    build = (ROOT / "ops" / "web_build_docker.sh").read_text(encoding="utf-8")
+    assert "npm_config_engine_strict=false npm ci" in live
+    assert "engine_strict" not in build and "engine-strict=false" not in build
+
