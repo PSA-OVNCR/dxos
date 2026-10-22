@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dxos-cli"
-version = "0.1.0"
+version = "0.2.0"
 description = "dxos: CLI quản trị DX-OS Trust Core (đăng nhập device flow, cài/duyệt/vô hiệu hóa ứng dụng, health, ledger, neo)"
 license = "Apache-2.0"
 requires-python = ">=3.12"

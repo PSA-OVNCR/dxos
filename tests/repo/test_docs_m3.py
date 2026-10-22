@@ -77,7 +77,7 @@ def test_build_md_toolchain():
 def test_changelog_has_unreleased_030_above_020():
     text = _doc("CHANGELOG.md")
     i030 = text.index("## [0.3.0] - Chưa phát hành")
-    i020 = text.index("## [0.2.0] - Chưa phát hành")
+    i020 = text.index("## [0.2.0] - ")
     assert i030 < i020
     sec = text[i030:i020]
     for h in ("### Added", "### Changed", "### Security", "### Known limitations"):

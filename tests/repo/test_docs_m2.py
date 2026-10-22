@@ -172,9 +172,10 @@ def test_build_md_documents_m2_configuration():
         assert var in doc, var
 
 
-def test_changelog_has_unreleased_020_section():
+def test_changelog_020_section_is_dated():
+    """v0.2.0 phát hành 22/10/2026 (V18): workflow `release` đòi mục có ngày YYYY-MM-DD."""
     doc = _doc("CHANGELOG.md")
-    assert "\n## [0.2.0] - Chưa phát hành\n" in doc
+    assert "\n## [0.2.0] - 2026-10-22\n" in doc
     assert doc.index("## [0.2.0]") < doc.index("## [0.1.0]")
 
 

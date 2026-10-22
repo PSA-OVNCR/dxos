@@ -171,7 +171,7 @@ Test gần nhất (`2b78542`): `make check` 1125 passed (không cảnh báo), in
 | V15 | Quyết định: E2E trên VPS cần tạm thêm user dev (mật khẩu đã biết, có 2 admin) + client `dxos-test`; lệnh thêm/gỡ ở `docs/evidence/README.md` (lệnh gỡ chưa chạy thử) | Trưởng nhóm | Rủi ro bảo mật trên host công khai |
 | V16 | ~~Chạy lại `ops/keycloak_upgrade.py --profile dev-lite` trên dev stack~~ — đã chạy 22/10 trên máy trưởng nhóm, lần 2 "không thay đổi gì" | — | Xong |
 | V17 | E2E M2: **phần A xong 22/10** trên Docker Desktop (13 passed, `docs/progress/2026-10-22-e2e-m2-docker-desktop.md`); AT-20 chạy 22/10 trên máy trưởng nhóm: phần 503 + Flowable không bị tác động **đạt**, bước mở khóa lại của test hỏng (sửa ở `40d6d64`, chạy lại đạt 22/10: V36); còn phần B trên VPS p16 (AT-19, AT-20) | VPS | Lệnh đầy đủ ở `docs/handoff/vps-checklist-plan02.md` |
-| V18 | Gắn tag v0.2.0: nâng version 4 gói lên 0.2.0, `make openapi`, điền ngày CHANGELOG, rồi tag (job `check` chặn nếu thiếu) | Trưởng nhóm | Hành động công khai; sau v0.1.0 |
+| V18 | Gắn tag v0.2.0: ~~nâng version 4 gói lên 0.2.0, `make openapi`, điền ngày CHANGELOG~~ (đã làm 22/10, commit `docs`/`release` 0.2.0); còn trưởng nhóm gắn tag khi CI xanh ở commit đó | Trưởng nhóm | Hành động công khai; sau v0.1.0 |
 | V19 | Sau lần đẩy image đầu: đặt package `trust-core` trên GHCR là public (hoặc `docker login ghcr.io` trên VPS); ghi digest vào `LICENSES-THIRD-PARTY.md` | GitHub / VPS | Hành động công khai |
 | V20 | AT-13 trên VPS với image đã phát hành (`ops/at13_reuse.sh`), hai thành viên khác nhau nộp/duyệt, `DXOS_ALLOW_SELF_APPROVAL=false` | VPS | Cần image GHCR |
 | V21 | `docs/legal-mapping.md`: từng thành viên đọc toàn văn từng điều và tự điền tên + ngày; điền cột "Điểm" của Điều 14 k1 và chốt thời hạn giữ backup trong `docs/runbook-pii-erasure.md` | Cả đội | Không được để agent điền thay |
@@ -240,7 +240,7 @@ Các việc V1–V26 của mục 12 vẫn còn hiệu lực (ví dụ V18 tag `v
 ### 13.4. Thủ tục gắn tag (việc của trưởng nhóm; Task 15 không gắn và không đổi phiên bản)
 Thứ tự: `v0.2.0` (V18) rồi `v0.3.0` (V33). Mỗi tag:
 1. `make pin-images` (V35) và commit nếu chưa ghim; image Node phải ghim trước khi chạy `ops/deploy.sh` (V29), vì script dựng SPA bằng Docker. (`release.yml` dựng tar SPA bằng Node trên Actions, không dùng image ghim.)
-2. Nâng phiên bản 4 gói Python và 3 tệp `__init__.py` (hiện vẫn `0.1.0`, danh sách ở `BUILD.md` mục "Phát hành"), chạy `make openapi`. Các gói web (`package.json` gốc và các workspace) đã ghi `0.3.0` từ Plan 03; workflow không kiểm chúng, nên khi gắn `v0.2.0` chúng vẫn là `0.3.0` (không ảnh hưởng release).
+2. Nâng phiên bản 4 gói Python và 3 tệp `__init__.py` (22/10 đã nâng lên `0.2.0` cho tag `v0.2.0`, danh sách ở `BUILD.md` mục "Phát hành"), chạy `make openapi`. Các gói web (`package.json` gốc và các workspace) đã ghi `0.3.0` từ Plan 03; workflow không kiểm chúng, nên khi gắn `v0.2.0` chúng vẫn là `0.3.0` (không ảnh hưởng release).
 3. Đổi `## [X.Y.Z] - Chưa phát hành` trong `CHANGELOG.md` thành ngày thật (mục `[0.3.0]` đã viết sẵn, mục `[Unreleased]` để trống).
 4. `make check PYTHON=python && npm run check && reuse lint` (kiểm bằng mã thoát), commit, push lên `main`.
 5. CI xanh ở commit gắn tag (`gh run list -R PSA-OVNCR/dxos --limit 5`; mọi job của run `ci` ở đúng commit đó là `success`).

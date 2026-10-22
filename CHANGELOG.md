@@ -101,7 +101,7 @@ ghi ở `docs/progress/2026-10-21-tong-ket-tien-do.md` mục 13.
   Hai khác biệt này không làm gói thật đổi kết quả.
 - Gói npm `dxos-sdk-js` chưa công bố lên npm (`private: true`); ứng dụng dùng SDK qua npm workspace.
 
-## [0.2.0] - Chưa phát hành
+## [0.2.0] - 2026-10-22
 Mốc M2 (Tier-0 hoàn tất: workflow, niêm phong, đối soát, installer). Spec bản 1.0.3. Trưởng nhóm thay "Chưa phát hành"
 bằng ngày khi gắn tag `v0.2.0`; workflow `release` từ chối mục chưa có ngày.
 
