@@ -8,9 +8,9 @@ Dự án dự thi **Olympic Tin học Sinh viên Việt Nam – Phần mềm ngu
 
 ## Trạng thái v0.3.0
 **Mã đã xong ở cloud; chưa gắn tag.** SDK, giao diện App A và App B, cổng đối soát Vue, triển khai theo tag và hướng dẫn
-30 phút đã có, kèm test đơn vị và Playwright với API giả. **Chưa chạy trên stack thật**: dựng SPA bằng Docker
-(`make web-build`), bộ Playwright trên trình duyệt thật (V27), bảng thử vượt rào (V28), `ops/deploy.sh` trên VPS (V29),
-biên nhận OpenTimestamps (V32). Danh sách việc: `docs/progress/2026-10-21-tong-ket-tien-do.md` mục 13.
+30 phút đã có, kèm test đơn vị và Playwright với API giả. **Đã chạy trên stack dev (Docker Desktop, máy trưởng nhóm,
+22/10/2026)**: `make web-build`, bộ Playwright trên trình duyệt thật 10/10 (V27), bảng thử vượt rào 10/10 (V28), AT-20 (V36);
+xem `docs/progress/2026-10-22-web-live.md`. **Chưa chạy**: `ops/deploy.sh` trên VPS (V29), biên nhận OpenTimestamps (V32). Danh sách việc: `docs/progress/2026-10-21-tong-ket-tien-do.md` mục 13.
 
 ## Trạng thái v0.2.0
 **Đang hoàn thiện; chưa gắn tag.** Mã của mốc M2 (Tier-0: workflow, niêm phong, đối soát, installer) đã có, kèm unit và
@@ -27,11 +27,11 @@ AT-19, AT-20) chưa có. v0.1.0 đã gắn tag (22/10). Tiến độ: `docs/prog
 | `witness/`: CLI `dxos-witness` (`sync`, `verify-bundle`) + mẫu repo neo | Có |
 | `cli/`: CLI quản trị `dxos` | Có, kèm test |
 | `verify-portal/minimal`: trang đối soát tối giản (hash tính tại trình duyệt) | Có; đã kiểm trên Caddy + API thật, chưa qua Docker |
-| `apps/phong-ho-so`, `apps/chung-nhan` (Tầng 2) | Manifest 1.1.0 + BPMN, kèm giao diện Vue (Plan 03); giao diện chưa chạy trên trình duyệt thật (V27) |
+| `apps/phong-ho-so`, `apps/chung-nhan` (Tầng 2) | Manifest 1.1.0 + BPMN, kèm giao diện Vue (Plan 03); đã chạy trên Chromium thật với stack dev 22/10 (V27) |
 | E2E mốc M2 (`tests/e2e`), `ops/at13_reuse.sh` | E2E đã chạy trên Docker Desktop 22/10: 13 passed, 1 skipped (AT-20 cần khóa OpenBao do trưởng nhóm nhập), [docs/progress/2026-10-22-e2e-m2-docker-desktop.md](docs/progress/2026-10-22-e2e-m2-docker-desktop.md); chưa chạy trên VPS. `ops/at13_reuse.sh` chưa chạy (cần tag `v0.2.0`) |
 | `sdk/js`: SDK TypeScript (client, OIDC PKCE, tự kiểm gói bằng chứng, thành phần Vue) | Có, kèm test (Plan 03); [sdk/js/README.md](sdk/js/README.md) |
-| `verify-portal/app`: cổng đối soát Vue `/apps/verify/` (trang tối giản cũ ở `/apps/verify-lite/`) | Có, kèm Playwright với API giả trong CI; chưa kiểm trên stack thật (V27) |
-| `ops/`: `deploy.sh` (triển khai theo tag), `vuot_rao.py` (bảng thử vượt rào), `build_web.sh` | Có; chưa chạy trên VPS / stack thật (V28, V29) |
+| `verify-portal/app`: cổng đối soát Vue `/apps/verify/` (trang tối giản cũ ở `/apps/verify-lite/`) | Có, kèm Playwright với API giả trong CI; đã kiểm trên stack dev 22/10 (V27) |
+| `ops/`: `deploy.sh` (triển khai theo tag), `vuot_rao.py` (bảng thử vượt rào), `build_web.sh` | Có; `vuot_rao.py` đã chạy trên stack dev 22/10 (V28: 10/10); `deploy.sh` chưa chạy trên VPS (V29) |
 | `examples/so-muon-sach` + hướng dẫn 30 phút | Có; AT-26 (người ngoài đội làm thử) chưa tổ chức (V31) |
 
 ## Kiến trúc tóm tắt
@@ -58,7 +58,7 @@ Dựng và kiểm:
 npm ci && make web-check     # cần Node 22 và npm 11.6.2 (BUILD.md)
 make web-build               # dựng bằng container Node dùng một lần, ghi vào volume apps-static
 ```
-`make web-build` cần Docker và image Node ghim digest; digest đã ghim ngày 22/10/2026 bằng `make pin-images` trên máy trưởng nhóm (V35), lệnh dựng chưa chạy (V27).
+`make web-build` cần Docker và image Node ghim digest; digest đã ghim ngày 22/10/2026 bằng `make pin-images` trên máy trưởng nhóm (V35); lệnh dựng đã chạy trên máy đó 22/10 (V27).
 Cổng đối soát chỉ đối chiếu repo neo khi build có `VITE_ANCHOR_RAW_BASE` và `.env` có `DXOS_ANCHOR_RAW_ORIGIN` khớp
 (cần repo neo thật, V34); không thì cổng nói rõ là chưa đối chiếu. Triển khai lên VPS theo tag: [docs/runbook-deploy.md](docs/runbook-deploy.md).
 SDK cho lập trình viên Tầng 2: [sdk/js/README.md](sdk/js/README.md). Ma trận nghiệm thu AT-01..AT-28: [docs/acceptance.md](docs/acceptance.md).

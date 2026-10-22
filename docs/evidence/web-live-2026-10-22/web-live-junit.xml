@@ -1,0 +1,64 @@
+<testsuites id="" name="" tests="10" failures="0" skipped="0" errors="0" time="26.355808">
+<testsuite name="app-a.spec.ts" timestamp="2026-10-22T06:39:45.891Z" hostname="" tests="6" failures="0" skipped="0" time="17.828" errors="0">
+<testcase name="App A: từ nháp đến văn bản ban hành › chuyen_vien_tp1 tạo văn bản, tải PDF, chờ &quot;Sạch&quot; rồi gửi duyệt" classname="app-a.spec.ts" time="7.538">
+<properties>
+<property name="serial" value="">
+</property>
+</properties>
+</testcase>
+<testcase name="App A: từ nháp đến văn bản ban hành › truong_phong1 duyệt bước duyệt nội dung" classname="app-a.spec.ts" time="1.504">
+<properties>
+<property name="serial" value="">
+</property>
+</properties>
+</testcase>
+<testcase name="App A: từ nháp đến văn bản ban hành › van_thu1 xác nhận đã rà dữ liệu cá nhân" classname="app-a.spec.ts" time="0.77">
+<properties>
+<property name="serial" value="">
+</property>
+</properties>
+</testcase>
+<testcase name="App A: từ nháp đến văn bản ban hành › giam_doc1 duyệt bước ban hành và thấy mã QR" classname="app-a.spec.ts" time="1.238">
+<properties>
+<property name="serial" value="">
+</property>
+</properties>
+</testcase>
+<testcase name="App A: từ nháp đến văn bản ban hành › mở verify_url, chọn đúng tệp PDF và thấy &quot;Hợp lệ&quot;" classname="app-a.spec.ts" time="5.84">
+<properties>
+<property name="serial" value="">
+</property>
+</properties>
+</testcase>
+<testcase name="App A: từ nháp đến văn bản ban hành › Sổ đăng ký văn bản đi có số mới" classname="app-a.spec.ts" time="0.938">
+<properties>
+<property name="serial" value="">
+</property>
+</properties>
+</testcase>
+</testsuite>
+<testsuite name="app-b.spec.ts" timestamp="2026-10-22T06:39:45.891Z" hostname="" tests="3" failures="0" skipped="0" time="4.726" errors="0">
+<testcase name="App B: nhập CSV, duyệt lô, trang in › can_bo_clb1 nhập CSV 3 dòng (UTF-8 BOM) và gửi duyệt" classname="app-b.spec.ts" time="1.056">
+<properties>
+<property name="serial" value="">
+</property>
+</properties>
+</testcase>
+<testcase name="App B: nhập CSV, duyệt lô, trang in › truong_clb1 duyệt lô 3 mục" classname="app-b.spec.ts" time="1.758">
+<properties>
+<property name="serial" value="">
+</property>
+</properties>
+</testcase>
+<testcase name="App B: nhập CSV, duyệt lô, trang in › trang in có họ tên và QR, không có email" classname="app-b.spec.ts" time="1.912">
+<properties>
+<property name="serial" value="">
+</property>
+</properties>
+</testcase>
+</testsuite>
+<testsuite name="verify.spec.ts" timestamp="2026-10-22T06:39:45.891Z" hostname="" tests="1" failures="0" skipped="0" time="1.407" errors="0">
+<testcase name="cổng đối soát cho niêm phong của App B: kết quả tự kiểm của trình duyệt" classname="verify.spec.ts" time="1.407">
+</testcase>
+</testsuite>
+</testsuites>

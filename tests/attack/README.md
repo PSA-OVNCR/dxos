@@ -6,4 +6,4 @@ manifest nới chính sách, duyệt bằng task của app khác. Plan 03 (S9.1,
 
 Kịch bản nằm trong **`ops/vuot_rao.py`** (chạy bằng `make vuot-rao` hoặc `python ops/vuot_rao.py`), không phải trong
 thư mục này. Test của chính script nằm ở `tests/ops/test_vuot_rao.py` (stack giả, không cần Docker). Ma trận kỳ vọng
-V1..V10 và AT tương ứng ở cuối `docs/acceptance.md`. Kết quả chạy trên stack dev là việc V28.
+V1..V10 và AT tương ứng ở cuối `docs/acceptance.md`. Kết quả chạy trên stack dev 22/10/2026 (10/10, V28): `docs/progress/2026-10-22-web-live.md`.

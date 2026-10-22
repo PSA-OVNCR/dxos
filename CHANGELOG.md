@@ -85,17 +85,16 @@ Mã đã xong và đã qua test đơn vị, integration và Playwright với API
   `ops/deploy.sh` chỉ bỏ xác minh TLS (`curl -k`) khi `DXOS_DOMAIN` là `localhost`/`*.localhost`.
 
 ### Known limitations
-Mọi mục dưới đây **chưa chạy** vì môi trường dựng mã (cloud) không có Docker, trình duyệt thật cho stack, VPS hay mạng ra
-calendar OpenTimestamps; việc cần làm ghi ở `docs/progress/2026-10-21-tong-ket-tien-do.md` mục 13.
-- Bộ Playwright live trên App A, App B và cổng đối soát, và `make web-build` với image Node thật: chưa chạy (V27). Digest
-  `NODE_IMAGE` và `PLAYWRIGHT_IMAGE` đã ghim ngày 22/10/2026 bằng `make pin-images` trên máy trưởng nhóm (V35).
-- `ops/vuot_rao.py` chưa chạy trên stack thật (V28); `ops/deploy.sh` mới được kiểm bằng `git`, `docker`, `curl` giả, chưa chạy
-  trên VPS (V29); `release.yml` bước dựng SPA chưa chạy trên Actions (V33).
+Đã chạy trên stack dev (Docker Desktop, máy trưởng nhóm, 22/10/2026; `docs/progress/2026-10-22-web-live.md`): `make web-build`, bộ Playwright live 10/10
+(V27), `ops/vuot_rao.py` 10/10 (V28), AT-20 (V36), E2E M1 + M2 13 passed trên mã M3. Các mục dưới đây **chưa chạy**; việc cần làm
+ghi ở `docs/progress/2026-10-21-tong-ket-tien-do.md` mục 13.
+- `ops/deploy.sh` mới được kiểm bằng `git`, `docker`, `curl` giả, chưa chạy trên VPS (V29); `release.yml` bước dựng SPA chưa chạy
+  trên Actions (V33).
 - Biên nhận OpenTimestamps: client calendar mới kiểm với calendar giả; chưa gọi calendar thật, chưa `ots verify` (V32). Test
   đối chiếu với client chính thức (`DXOS_OTS_CLIENT=ots`) chưa chạy.
 - Cổng đối soát chỉ đối chiếu repo neo khi build có `VITE_ANCHOR_RAW_BASE` và `.env` có `DXOS_ANCHOR_RAW_ORIGIN` khớp nhau; repo neo
   thật chưa có (V34). AT-26 (người ngoài đội làm theo hướng dẫn) chưa tổ chức (V31).
-- Chưa kiểm AT-20 sau bản sửa bước mở khóa OpenBao của test (`40d6d64`; V36). Phần mềm build có giấy phép MPL-2.0, BlueOak-1.0.0,
+- Phần mềm build có giấy phép MPL-2.0, BlueOak-1.0.0,
   MIT-0, CC0-1.0 (`mdn-data`) chỉ nằm trong công cụ build, không vào bundle; chờ trưởng nhóm xác nhận (V30).
 - `verifyBundle` (JS) và `dxos-witness verify-bundle` (Python) dùng chung bộ vector nhưng còn hai khác biệt đã biết: JS chỉ nhận tối đa 2 dấu `=` đệm
   trong base64 (Python nhận nhiều hơn sau một nhóm đủ), và số nguyên dài hơn 4300 chữ số cho `MALFORMED` ở Python nhưng JS vẫn chấp nhận.

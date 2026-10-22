@@ -4,7 +4,7 @@
   `policy.denied` gần nhất (`make vuot-rao`, Plan 03 Task 11, spec 9.1, H11). Chỉ chạy trên stack có realm dev (client
   `dxos-test`); mật khẩu dev qua biến `DXOS_E2E_PASSWORD`; khác `localhost` phải thêm `--allow-remote`. Mã thoát 0 mọi
   kịch bản bị chặn, 1 có kịch bản lọt, 2 lỗi cấu hình hoặc kết nối. Trên Windows cần `localhost` và `admin.localhost`
-  phân giải về 127.0.0.1, và `--ca-file` trỏ tới CA nội bộ của Caddy (giống `ops/e2e/run_e2e.sh`). Chạy thật là việc V28
+  phân giải về 127.0.0.1, và `--ca-file` trỏ tới CA nội bộ của Caddy (giống `ops/e2e/run_e2e.sh`). Đã chạy trên stack dev 22/10/2026: 10/10 (V28, `docs/progress/2026-10-22-web-live.md`)
 - `netcheck.py`: kiểm ma trận kết nối mạng (AT-01), Plan 01 Task 4
 - `measure.sh`: đo RAM theo container (AT-22), Plan 01 Task 7
 - `deploy.sh`: `ops/deploy.sh <vX.Y.Z> [--profile p16|p8] [--repo-url URL]` triển khai theo tag trên VPS: fetch tag (không

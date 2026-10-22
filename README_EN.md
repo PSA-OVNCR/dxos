@@ -10,8 +10,9 @@ Entry for the **Vietnam Student Informatics Olympiad – Open Source Software 20
   parts that need the VPS (AT-13, AT-18, AT-19, AT-20) have not been run. v0.1.0 is tagged (22 Oct).
 - **v0.3.0 (M3): code done in the cloud; not tagged yet.** The SDK, the App A and App B user interfaces, the Vue
   verification portal, tag-based deployment and the 30-minute tutorial exist, with unit tests and Playwright tests
-  against a mocked API. **Not run on a real stack yet:** the SPA build in Docker (`make web-build`), the Playwright suite
-  on a real browser (V27), the attack board (V28), `ops/deploy.sh` on the VPS (V29) and OpenTimestamps receipts (V32).
+  against a mocked API. **Run on the dev stack (Docker Desktop, team lead's machine, 22 Oct 2026):** `make web-build`, the
+  Playwright suite on real Chromium 10/10 (V27), the attack board 10/10 (V28) and AT-20 (V36); see
+  `docs/progress/2026-10-22-web-live.md`. **Not run yet:** `ops/deploy.sh` on the VPS (V29) and OpenTimestamps receipts (V32).
   The to-do list (Vietnamese) is in section 13 of `docs/progress/2026-10-21-tong-ket-tien-do.md`.
 
 ## Layer 2: SDK, applications and verification portal
@@ -39,7 +40,7 @@ npm ci && make web-check     # needs Node 22 and npm 11.6.2 (see BUILD.md)
 make web-build               # builds in a one-shot Node container into the apps-static volume
 ```
 `make web-build` needs Docker and a digest-pinned Node image. The digest was pinned on 22 Oct 2026 with `make pin-images`
-on the team lead's machine (V35); the build itself has not been run yet (V27). The portal compares against the anchor repository only when the
+on the team lead's machine (V35); the build ran on that machine on 22 Oct 2026 (V27). The portal compares against the anchor repository only when the
 build has `VITE_ANCHOR_RAW_BASE` and `.env` has a matching `DXOS_ANCHOR_RAW_ORIGIN` (needs the real anchor repository,
 V34); otherwise it says plainly that no comparison was made. Tag-based VPS deployment:
 [docs/runbook-deploy.md](docs/runbook-deploy.md) (Vietnamese). The SDK for Layer-2 developers:

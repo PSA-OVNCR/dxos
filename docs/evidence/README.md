@@ -9,9 +9,9 @@
 | Trang đối soát tối giản (Plan 02 Task 10) | `verify-page-live-check.md`, `verify-page-1..8-*.png` | Có: chạy 21/10 trên Caddy 2.10.0 + API thật (không qua Docker, xem tệp); cần chụp lại trên dev-lite khi có Docker |
 | E2E mốc M2 (Plan 02 Task 15): AT-05, 07, 08, 11, 12, 17, 19, 27, 28 | `docs/progress/2026-11-xx-m2-e2e.md` (theo mẫu `docs/progress/2026-10-20-task17-e2e.md`) + `e2e-junit.xml` | Có (Docker Desktop, chưa phải VPS): 22/10 chạy `pytest -m e2e tests/e2e` trên máy trưởng nhóm, 13 passed, 1 skipped (AT-20), ghi ở `docs/progress/2026-10-22-e2e-m2-docker-desktop.md`; chưa chạy trên VPS |
 | AT-13 (cài App B trên image đã phát hành, diff `core/` và gateway rỗng) | `at13-reuse.txt` (do `ops/at13_reuse.sh` ghi) | Chưa có: cần tag `v0.2.0` và image trên GHCR trước |
-| AT-19 (40 request đồng thời + `X-Forwarded-For` giả → 429) | trong `e2e-junit.xml` của E2E M2 | Chưa có |
-| AT-20 (OpenBao khóa trước task cuối → 503, task còn ở Flowable; mở khóa → `SEALED`) | trong kết quả pytest chạy trên máy chủ | Chưa có. Giới hạn: trường hợp OpenBao hỏng **sau** khi Flowable đã hoàn thành chỉ chứng minh ở integration test (Plan 02 Task 7, `FlakySigner`) |
-| Kiểm trình duyệt thật App A, App B, cổng đối soát (Plan 03 Task 10, V27) | `docs/progress/<ngày>-web-live.md` + `web-live-junit.xml` + `shots/*.png` | Chưa có: bộ `tests/web/live` đã viết và kiểm kiểu, chưa chạy (sandbox không có Docker); lệnh ở mục "Kiểm trình duyệt thật (V27)" |
+| AT-19 (40 request đồng thời + `X-Forwarded-For` giả → 429) | trong `e2e-junit.xml` của E2E M2 | Có: PASSED trên Docker Desktop 22/10 (`docs/progress/2026-10-22-e2e-m2-docker-desktop.md`, chạy lại trên mã M3 ở `docs/progress/2026-10-22-web-live.md`); VPS chưa |
+| AT-20 (OpenBao khóa trước task cuối → 503, task còn ở Flowable; mở khóa → `SEALED`) | trong kết quả pytest chạy trên máy chủ | Có: PASSED trên Docker Desktop 22/10 sau bản sửa `40d6d64` (V36, `docs/progress/2026-10-22-web-live.md`). Giới hạn: trường hợp OpenBao hỏng **sau** khi Flowable đã hoàn thành chỉ chứng minh ở integration test (Plan 02 Task 7, `FlakySigner`) |
+| Kiểm trình duyệt thật App A, App B, cổng đối soát (Plan 03 Task 10, V27) | `docs/progress/<ngày>-web-live.md` + `web-live-junit.xml` + `shots/*.png` | Có: 10 passed trên Docker Desktop 22/10 (`docs/progress/2026-10-22-web-live.md`, ảnh và junit ở `docs/evidence/web-live-2026-10-22/`) |
 | Cổng năng suất M2 | `docs/progress/2026-11-16.md` | Chưa có: trưởng nhóm ghi sau khi chạy xong các mục trên |
 
 Mỗi minh chứng ghi kèm: ngày giờ, commit của `dxos`, lệnh đã chạy và kết quả.
@@ -56,7 +56,7 @@ Kiểm đã gỡ: `python ops/keycloak_upgrade.py` (hồ sơ p16) không còn b�
 
 ## Kiểm trình duyệt thật (V27, Plan 03 Task 10)
 
-Việc của máy trưởng nhóm (Windows + Docker Desktop). Chưa được chạy thử: sandbox của người phát triển không có Docker.
+Việc của máy trưởng nhóm (Windows + Docker Desktop). Đã chạy 22/10/2026 bằng `bash ops/web_build_docker.sh` rồi `bash ops/web_live.sh` trong Git Bash (kết quả: `docs/progress/2026-10-22-web-live.md`); tệp `.bat` mẫu dưới đây chưa chạy nguyên văn.
 Điều kiện: stack dev-lite đang chạy cùng overlay e2e, Keycloak đã nạp người dùng dev, App A và App B đã cài (BUILD.md, mục E2E).
 
 1. Ghim digest hai image mới (một lần, rồi commit `ops/web_build_docker.sh` và `ops/web_live.sh`):

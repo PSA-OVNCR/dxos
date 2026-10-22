@@ -10,8 +10,8 @@ test. Hợp đồng HTTP mà SDK bám theo: [docs/api/contract-tier2.md](../../d
   tạo thêm bản thư viện `dist/` (`index`, `vue`) nhưng bản đó chưa được ai dùng.
 - Hiện gói chỉ dùng được trong workspace này và chưa phát hành; `exports` trỏ vào `src/` (TypeScript, cần bundler như
   Vite), không trỏ vào `dist/`. Ai dùng `dist/` ngoài repo phải tự trỏ đường dẫn tới đó.
-- Đã kiểm bằng test đơn vị (Vitest + jsdom) và Playwright với API giả. **Chưa kiểm với Keycloak và lõi thật trên trình
-  duyệt thật** (V27, xem `docs/progress/2026-10-21-tong-ket-tien-do.md` mục 13).
+- Đã kiểm bằng test đơn vị (Vitest + jsdom) và Playwright với API giả. Đã chạy qua App A, App B và cổng đối soát với
+  Keycloak và lõi thật trên Chromium (stack dev, 22/10/2026, V27: `docs/progress/2026-10-22-web-live.md`).
 - `verifyBundle` bám `dxos-witness verify-bundle` và chạy chung bộ vector, nhưng **không** hứa trùng tuyệt đối với Python. Hai khác biệt đã
   biết: JS chỉ nhận tối đa 2 dấu `=` đệm base64, và số nguyên dài hơn 4300 chữ số cho `MALFORMED` ở Python nhưng JS vẫn chấp nhận.
 - SDK chỉ để hiển thị và gọi API cho tiện. Mọi quyết định về quyền, guard, niêm phong đều do lõi; vai trò trong token

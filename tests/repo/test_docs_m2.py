@@ -189,6 +189,13 @@ def test_evidence_readme_lists_m2_items_without_results():
     # trên VPS
     assert e2e.startswith("Có") and "chưa chạy trên VPS" in e2e
     assert "2026-10-22-e2e-m2-docker-desktop.md" in e2e
+    # AT-19 và AT-20 đã chạy trên Docker Desktop 22/10 (AT-20 lại sau `40d6d64`, V36):
+    # ghi kết quả kèm nguồn, nói rõ VPS chưa
+    for key in ("AT-19", "AT-20"):
+        cell = rows.pop(key).rstrip(" |").split("|")[-1].strip()
+        assert cell.startswith("Có") and "docs/progress/2026-10-22-" in cell, key
+    at19 = next(line for line in doc.splitlines() if line.startswith("| AT-19"))
+    assert "VPS chưa" in at19
     for key, row in rows.items():
         # chưa chạy: cột trạng thái không được ghi kết quả
         assert row.rstrip(" |").split("|")[-1].strip().startswith("Chưa có"), key

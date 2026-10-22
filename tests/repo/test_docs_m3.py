@@ -179,11 +179,23 @@ def test_no_all_tasks_reviewed_claim_while_a_task_is_unreviewed():
             assert re.search(done, text), name
 
 
-def test_build_md_web_section_says_images_unpinned_and_not_run():
+def test_build_md_web_section_states_pin_and_where_it_ran():
+    """V35 và V27 đã chạy trên máy Windows 22/10/2026: BUILD.md nói rõ đã chạy ở đâu và chưa chạy ở đâu."""
     text = _doc("BUILD.md")
     sec = text[text.index("## Dựng SPA Tầng 2"):]
-    assert "V35" in sec and "V27" in sec
-    assert "make pin-images" in sec and "chưa từng chạy" in sec
+    assert "V35" in sec and "V27" in sec and "make pin-images" in sec
+    assert "docs/progress/2026-10-22-web-live.md" in sec
+    assert "Chưa chạy trên Linux hay VPS" in sec
+
+
+def test_web_live_evidence_doc_matches_files():
+    doc = _doc("docs/progress/2026-10-22-web-live.md")
+    assert "10 passed" in doc and "10/10" in doc and "14 passed" in doc
+    shots = ROOT / "docs" / "evidence" / "web-live-2026-10-22"
+    for name in re.findall(r"`([a-z0-9-]+\.png)`", doc):
+        assert (shots / name).is_file(), name
+    junit = (shots / "web-live-junit.xml").read_text(encoding="utf-8")
+    assert 'tests="10" failures="0" skipped="0" errors="0"' in junit
 
 
 def test_verify_parity_gap_is_disclosed():

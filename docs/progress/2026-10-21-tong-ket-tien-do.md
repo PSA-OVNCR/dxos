@@ -9,7 +9,7 @@ SPDX-License-Identifier: Apache-2.0
 *Mục 13 (Plan 03, M3) cập nhật 22/10/2026 đến commit `4d7e0f1` (đợt sửa sau review cuối toàn nhánh).*
 
 ## 1. Tóm tắt trong 30 giây
-- **Cập nhật 22/10: Plan 03 (M3, v0.3.0) có mã xong ở cloud, chưa gắn tag, chưa chạy trên stack thật.** Xem mục 13 (task, số test, việc V27–V36). Các gạch đầu dòng còn lại của mục này là hiện trạng cũ của Plan 01.
+- **Cập nhật 22/10: Plan 03 (M3, v0.3.0) có mã xong ở cloud, chưa gắn tag; đã chạy trên stack dev ở máy trưởng nhóm** (web-build, Playwright live 10/10, vượt rào 10/10, AT-20; `docs/progress/2026-10-22-web-live.md`), chưa chạy trên VPS. Xem mục 13 (task, số test, việc V27–V36). Các gạch đầu dòng còn lại của mục này là hiện trạng cũ của Plan 01.
 - **Plan 01 (M0 → M1): xong phần mã của cả 17 task.** Task 1–6 và 8–16 đã xong; Task 7 (đo RAM) dời sang VPS;
   Task 17 còn chạy lại E2E trên VPS và gắn tag `v0.1.0`.
 - Lõi Tầng 1 đã có: SSO/JWT, kho manifest, PDP + che PII, Records API, tải tệp → kiểm dịch → kho theo nội dung,
@@ -170,7 +170,7 @@ Test gần nhất (`2b78542`): `make check` 1125 passed (không cảnh báo), in
 | V14 | Kiểm `dxos login` (device flow) và tự làm mới token với Keycloak thật | VPS / dev-lite | Chỉ test bằng server giả |
 | V15 | Quyết định: E2E trên VPS cần tạm thêm user dev (mật khẩu đã biết, có 2 admin) + client `dxos-test`; lệnh thêm/gỡ ở `docs/evidence/README.md` (lệnh gỡ chưa chạy thử) | Trưởng nhóm | Rủi ro bảo mật trên host công khai |
 | V16 | ~~Chạy lại `ops/keycloak_upgrade.py --profile dev-lite` trên dev stack~~ — đã chạy 22/10 trên máy trưởng nhóm, lần 2 "không thay đổi gì" | — | Xong |
-| V17 | E2E M2: **phần A xong 22/10** trên Docker Desktop (13 passed, `docs/progress/2026-10-22-e2e-m2-docker-desktop.md`); AT-20 chạy 22/10 trên máy trưởng nhóm: phần 503 + Flowable không bị tác động **đạt**, bước mở khóa lại của test hỏng (sửa ở `40d6d64`, chưa chạy lại); còn phần B trên VPS p16 (AT-19, AT-20) | VPS | Lệnh đầy đủ ở `docs/handoff/vps-checklist-plan02.md` |
+| V17 | E2E M2: **phần A xong 22/10** trên Docker Desktop (13 passed, `docs/progress/2026-10-22-e2e-m2-docker-desktop.md`); AT-20 chạy 22/10 trên máy trưởng nhóm: phần 503 + Flowable không bị tác động **đạt**, bước mở khóa lại của test hỏng (sửa ở `40d6d64`, chạy lại đạt 22/10: V36); còn phần B trên VPS p16 (AT-19, AT-20) | VPS | Lệnh đầy đủ ở `docs/handoff/vps-checklist-plan02.md` |
 | V18 | Gắn tag v0.2.0: nâng version 4 gói lên 0.2.0, `make openapi`, điền ngày CHANGELOG, rồi tag (job `check` chặn nếu thiếu) | Trưởng nhóm | Hành động công khai; sau v0.1.0 |
 | V19 | Sau lần đẩy image đầu: đặt package `trust-core` trên GHCR là public (hoặc `docker login ghcr.io` trên VPS); ghi digest vào `LICENSES-THIRD-PARTY.md` | GitHub / VPS | Hành động công khai |
 | V20 | AT-13 trên VPS với image đã phát hành (`ops/at13_reuse.sh`), hai thành viên khác nhau nộp/duyệt, `DXOS_ALLOW_SELF_APPROVAL=false` | VPS | Cần image GHCR |
@@ -218,13 +218,14 @@ Cột "Review" ghi kết quả vòng đầu và số vòng sửa. "Test" là s�
 - **Đợt sửa sau review cuối (`4d7e0f1`, 22/10, cloud không Docker; có `shellcheck` 0.11.0 cài tạm trong `.venv`, không ghi vào requirements)**: `make check PYTHON=python` **1531 passed, 6 skipped, 485 deselected** (mã thoát 0); `npm run check` mã thoát 0 (SDK 251, cổng 39, App A 100, App B **106**, `so-muon-sach` 10); `reuse lint` mã thoát 0, 566/566 tệp; integration (PostgreSQL 16, OpenBao, SeaweedFS, Flowable 7.1.0 chạy tại chỗ, `DXOS_TEST_REQUIRE_DB=1 python -m pytest -m integration core/tests/integration`) **447 passed, 1 skipped**.
 - **Sau `4d7e0f1`**: `cc1c20f` chặn mặc định mọi tệp `.env*` (kể cả `.env.example`, `.env.bak`, `.env.vps`) khi `ops/web_build_docker.sh` và `ops/web_live.sh` chép nguồn vào container npm (CI run 39703255338 xanh sau khi chạy lại một lần bước cài Playwright bị lỗi); commit kế tiếp cho `ops/build_web.sh` từ chối `<out_dir>` có thành phần `.`/`..` (trừ `.` trần) trước mọi chuẩn hóa, và từ chối thư mục không đọc được (re-review I4).
 - **CI**: run `ci` **39701368613** ở commit `4d7e0f1` xanh mọi job (`lint`, `secrets`, `web`, `reuse`, `unit`, `caddy-live`, `integration`). Trước đó job `unit` đỏ từ `c387591` tới `65e67af` vì `shellcheck` mới trên runner báo SC2329 (info) ở `ops/deploy.sh` (review cuối, I1).
-- **Chưa chạy ở bất kỳ nơi nào**: bộ Playwright live (`make web-live`), `make web-build`, `ops/vuot_rao.py`, `ops/deploy.sh`, `release.yml` bước dựng SPA, gọi calendar OpenTimestamps thật, test đối chiếu `ots` chính thức (`DXOS_OTS_CLIENT=ots`).
+- **Chạy trên máy trưởng nhóm 22/10 (Docker Desktop, Git Bash; `docs/progress/2026-10-22-web-live.md`)**: `bash ops/web_build_docker.sh` exit 0; `bash ops/web_live.sh` **10 passed**; `ops/vuot_rao.py` **10/10**, exit 0; E2E trên mã M3 13 passed + AT-20 14 passed. Bốn lỗi chỉ lộ khi chạy thật đã sửa: `15d65b0`, `6d13a0e`, `3056d53`, `395a90b`.
+- **Chưa chạy ở bất kỳ nơi nào**: `ops/deploy.sh`, `release.yml` bước dựng SPA, gọi calendar OpenTimestamps thật, test đối chiếu `ots` chính thức (`DXOS_OTS_CLIENT=ots`).
 
 ### 13.3. Việc cần máy thật hoặc trưởng nhóm (gom từ Plan 03)
 | # | Việc | Ở đâu | Ghi chú |
 |---|---|---|---|
-| V27 | Chạy `make web-build` và bộ Playwright live (`make web-live` hoặc `ops/web_live.sh`) cho App A, App B và cổng đối soát; chụp ảnh minh chứng; ghi `docs/progress/<ngày>-web-live.md` | Máy trưởng nhóm / VPS | Cần V35 trước. Bộ live chưa từng chạy; giả định về realm dev, `ignoreHTTPSErrors` và host-resolver-rules chưa kiểm. Lệnh Windows: `docs/evidence/README.md` |
-| V28 | Chạy `python ops/vuot_rao.py` (hoặc `make vuot-rao`) trên stack dev; dán bảng kết quả vào `docs/progress/` | Máy trưởng nhóm | Kịch bản V5 (ban hành đủ luồng niêm phong) dễ lỗi nhất; mã thoát 2 = bước chuẩn bị hỏng, không phải "bị chặn" |
+| V27 | ~~Chạy `make web-build` và bộ Playwright live cho App A, App B và cổng đối soát; chụp ảnh minh chứng~~ — đã chạy 22/10 trên máy trưởng nhóm: build exit 0, live **10 passed** (`docs/progress/2026-10-22-web-live.md`, ảnh ở `docs/evidence/web-live-2026-10-22/`) | — | Xong trên Windows; chưa chạy trên Linux/VPS. `ignoreHTTPSErrors` vẫn còn (Plan 04) |
+| V28 | ~~Chạy `python ops/vuot_rao.py` trên stack dev~~ — đã chạy 22/10 trên máy trưởng nhóm: **10/10 bị chặn đúng**, exit 0 (`docs/progress/2026-10-22-web-live.md`) | — | Xong |
 | V29 | Chạy `ops/deploy.sh v0.3.0` trên VPS sau khi có tag và image GHCR | VPS | Cần Docker Compose ≥ 2.24 (V22), NTP (V24), package GHCR công khai (V19). `docs/runbook-deploy.md` |
 | V30 | Xác nhận công cụ build/test có giấy phép MPL-2.0 (lightningcss), BlueOak-1.0.0, MIT-0, CC0-1.0 (`mdn-data`) chỉ nằm ngoài bundle | Trưởng nhóm | `LICENSES-THIRD-PARTY.md`. Không chấp nhận thì phải bỏ jsdom và đổi cách test |
 | V31 | Tổ chức AT-26 theo `docs/at26-checklist.md` (người ngoài đội làm hướng dẫn 30 phút) | Trưởng nhóm | Mọi lệnh trong hướng dẫn chưa chạy thật, ghi "chưa kiểm ở cloud — kiểm trong AT-26" |
@@ -232,7 +233,7 @@ Cột "Review" ghi kết quả vòng đầu và số vòng sửa. "Test" là s�
 | V33 | Gắn tag `v0.3.0` sau `v0.2.0` (xem 13.4) | Trưởng nhóm | Hành động công khai |
 | V34 | Đặt `VITE_ANCHOR_RAW_BASE` (lúc build) và `DXOS_ANCHOR_RAW_ORIGIN` (`.env`, hai giá trị phải khớp) theo repo neo thật khi repo đó có trên GitHub | VPS | Chưa đặt thì cổng đối soát nói rõ là chưa đối chiếu repo neo |
 | V35 | ~~Chạy `make pin-images` trên máy có Docker để ghim digest `NODE_IMAGE` và `PLAYWRIGHT_IMAGE`~~ — đã chạy 22/10 trên máy trưởng nhóm (`ops/pin_images.py`, exit 0); digest commit từ cloud | — | Xong |
-| V36 | Chạy lại AT-20 trên máy trưởng nhóm sau bản sửa bước mở khóa OpenBao của test (`40d6d64`) | Máy trưởng nhóm | Thay phần "chưa chạy lại" của V17; AT-20 cần `docker` ngoài container |
+| V36 | ~~Chạy lại AT-20 sau bản sửa `40d6d64`~~ — đã chạy 22/10 trên máy trưởng nhóm: **14 passed** gồm AT-20; OpenBao mở khóa lại (`sealed: false`) (`docs/progress/2026-10-22-web-live.md`) | — | Xong |
 
 Các việc V1–V26 của mục 12 vẫn còn hiệu lực (ví dụ V18 tag `v0.2.0`, V21, V22, V24).
 
@@ -254,5 +255,4 @@ Thứ tự: `v0.2.0` (V18) rồi `v0.3.0` (V33). Mỗi tag:
 - **OpenTimestamps (Task 14)**: thứ tự nhánh khi nhiều biên nhận cùng nút là tất định nhưng không cam kết trùng từng byte với `ots` chính thức (không ảnh hưởng tính hợp lệ).
 - **Khác biệt đã biết giữa bộ kiểm JS và Python** (Task 4, chưa sửa, không đổi kết quả hợp lệ/không hợp lệ của gói thật): `b64decodePy` chỉ chấp nhận tối đa 2 dấu `=` đệm trong khi Python chấp nhận nhiều hơn sau một nhóm đủ; số nguyên dài hơn 4300 chữ số cho `MALFORMED` ở Python nhưng JS vẫn chấp nhận (ở trường không được ký). Vì vậy không được nói hai bên "cùng mã lỗi" tuyệt đối.
 - Cổng đối soát: nếu GitHub trả được `v1.pub` nhưng lỗi tạm thời ở tệp khác, người dùng thấy "Không hợp lệ" thay vì "chưa đối chiếu" (đánh đổi đã chấp nhận ở Task 6).
-- Trên stack dev đang chạy, `/apps/verify/` trả 404 cho tới khi `make web-build` (trang cũ ở `/apps/verify-lite/`).
-- Ảnh minh chứng trong `docs/evidence/verify-page-*.png` chụp từ trang tối giản; ảnh của cổng Vue chưa có (nằm trong V27).
+- Ảnh minh chứng trong `docs/evidence/verify-page-*.png` chụp từ trang tối giản; ảnh của cổng Vue (Chromium thật) ở `docs/evidence/web-live-2026-10-22/` (V27).

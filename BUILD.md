@@ -149,9 +149,10 @@ Bốn SPA (App A `/apps/phong-ho-so/`, App B `/apps/chung-nhan/`, cổng đối 
 (`dxos_apps-static`, Caddy mount chỉ đọc ở `/srv/apps`). Stack không có dịch vụ build; `make web-build` chạy MỘT
 container Node dùng một lần (image ghim digest ở đầu `ops/web_build_docker.sh`, ghim bằng `make pin-images`).
 
-> **Đã ghim, chưa chạy.** `NODE_IMAGE` (`ops/web_build_docker.sh`) và `PLAYWRIGHT_IMAGE` (`ops/web_live.sh`) đã ghim digest ngày
-> 22/10/2026 bằng `make pin-images` trên máy trưởng nhóm (V35; nếu digest bị xóa, hai script thoát mã 3 cho tới khi ghim lại).
-> `make web-build` và `make web-live`, cùng bộ Playwright live, **chưa từng chạy** (V27). `make web-check` và
+> **Đã ghim, đã chạy trên máy Windows.** `NODE_IMAGE` (`ops/web_build_docker.sh`) và `PLAYWRIGHT_IMAGE` (`ops/web_live.sh`) đã ghim
+> digest ngày 22/10/2026 bằng `make pin-images` trên máy trưởng nhóm (V35; nếu digest bị xóa, hai script thoát mã 3 cho tới khi
+> ghim lại). Cùng ngày, trên máy đó (Git Bash + Docker Desktop), `bash ops/web_build_docker.sh` thoát 0 và `bash ops/web_live.sh`
+> cho 10 passed (V27, `docs/progress/2026-10-22-web-live.md`). Chưa chạy trên Linux hay VPS. `make web-check` và
 > `sh ops/build_web.sh <thư mục>` (Node 22, npm 11.6.2) không cần Docker.
 
 

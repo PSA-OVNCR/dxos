@@ -56,7 +56,7 @@ repo. "Chưa có" nghĩa là chưa ai chạy hoặc chưa lưu kết quả.
 
 Mỗi kịch bản đòi cả mã lẫn `type` problem+json của lõi: 404 của gateway hay `app-not-active` không tính là bị chặn.
 Chạy trên stack dev (`make vuot-rao`, hoặc `python ops/vuot_rao.py`), in bảng `| # | Hành vi tấn công | Kỳ vọng | Thực tế |
-Kết quả |` rồi 20 lá `policy.denied` gần nhất. Dùng khi demo (H11) và đối chiếu AT. Kết quả thật là việc V28.
+Kết quả |` rồi 20 lá `policy.denied` gần nhất. Dùng khi demo (H11) và đối chiếu AT. Kết quả thật trên stack dev 22/10/2026 (10/10, V28): `docs/progress/2026-10-22-web-live.md`.
 
 | # | Hành vi tấn công | Kỳ vọng | AT |
 |---|---|---|---|
