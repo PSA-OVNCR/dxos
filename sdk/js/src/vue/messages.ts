@@ -97,6 +97,7 @@ const BY_GUARD_REASON: Record<string, string> = {
   field_missing: 'Hồ sơ còn thiếu trường bắt buộc',
   attachments_not_clean: 'Tệp đính kèm chưa được kiểm dịch xong hoặc không sạch',
   pii_not_reviewed: 'Văn thư hoặc giám đốc chưa xác nhận đã rà dữ liệu cá nhân',
+  pii_scan_pending: 'Còn tệp đang được dò dữ liệu cá nhân; hãy đợi dò xong, xác nhận đã rà lại rồi thử lại',
   record_sealed: 'Hồ sơ đã được niêm phong, không thể thay đổi',
 }
 

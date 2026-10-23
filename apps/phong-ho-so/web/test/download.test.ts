@@ -28,3 +28,10 @@ test('pdfFileName replaces "/" with "-" and falls back to the record id', () => 
   expect(pdfFileName(undefined, 'r1')).toBe('r1.pdf')
   expect(pdfFileName('', 'r1')).toBe('r1.pdf')
 })
+
+test('pdfFileName marks the redacted copy with -che, before the file number', () => {
+  expect(pdfFileName('02/QĐ-SM', 'r1', undefined, 'redacted')).toBe('02-QĐ-SM-che.pdf')
+  expect(pdfFileName('02/QĐ-SM', 'r1', 2, 'redacted')).toBe('02-QĐ-SM-che-2.pdf')
+  expect(pdfFileName(undefined, 'r1', undefined, 'redacted')).toBe('r1-che.pdf')
+  expect(pdfFileName('02/QĐ-SM', 'r1', 2, 'original')).toBe('02-QĐ-SM-2.pdf')
+})

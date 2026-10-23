@@ -87,7 +87,11 @@ Quy tắc của client (đã có test):
 - Đoạn đường dẫn được mã hóa, kể cả dấu `.`, nên `..` không đi lên thư mục cha.
 - Gọi công khai (`publicSeal`, `checkHash`, `bundle`) là ẩn danh: không gửi token, 401 không kích hoạt `onUnauthorized`.
 
-Các phương thức khác: `whoami`, `list`, `get`, `bulk`, `attachments`, `download`, `tasks`, `complete`, `piiReview`, `revoke`,
+`downloadObject(sha256, variant = 'original' | 'redacted')` tải một tệp CLEAN (`GET /api/v1/objects/{sha256}?variant=...`, một lần,
+không tự thử lại). Bản gốc của tệp có dữ liệu cá nhân chỉ mở được với người có quyền xem PII (không thì 404); bản che (`redacted`) chỉ
+có khi danh sách tệp báo `pii.redacted: true`. `attachments` trả mỗi tệp kèm `pii` (`null`, hoặc `{status, findings, counts, redacted}`).
+
+Các phương thức khác: `whoami`, `list`, `get`, `bulk`, `attachments`, `tasks`, `complete`, `piiReview`, `revoke`,
 `erasePii`. Kiểu trả về nằm trong `src/types.ts`.
 
 ## Tự kiểm gói bằng chứng: `verifyBundle`
@@ -128,7 +132,9 @@ else console.log(res.code, res.message)    // res.code là FailCode: FORMAT, SIG
 | `RecordForm` | Biểu mẫu sinh từ `CollectionView` của manifest; `v-model` và sự kiện `submit` (payload chỉ gồm trường đã đổi: **PATCH bằng `submit`, không bằng `v-model`**) |
 | `ProblemMessage` | Hiện lỗi API thành câu tiếng Việt (`messageFor`) |
 | `AppShell`, `ConfirmDialog` | Khung ứng dụng (đăng nhập, tải manifest, màn hình lỗi, thanh trên) và hộp xác nhận |
-| `SealPanel`, `PiiPanel` | Panel niêm phong (QR, thu hồi) và rà soát/xóa PII dùng chung cho App A, App B |
+| `SealPanel`, `PiiPanel` | Panel niêm phong (QR, thu hồi) và rà soát/xóa PII dùng chung cho App A, App B. `PiiPanel` nhận thêm `files` (danh sách tệp) để liệt kê phát hiện theo tệp và nhắc đợi dò xong; chỉ là chữ hướng dẫn, nút không bị khóa vì lõi mới quyết định |
+| `PiiFileStatus` | Một tệp: "Đang dò dữ liệu cá nhân…" / "Phát hiện 3 dữ liệu cá nhân (CCCD 1, SĐT 1, STK 1)" và nút "Tải bản che", "Tải bản gốc" (phát `download` với bản cần tải; ứng dụng tải và hiện lỗi bằng `ProblemMessage`) |
+| `usePoll` | Hỏi lại định kỳ khi còn việc phải chờ (ví dụ tệp có `pii.status` PENDING); thử lại lỗi tạm thời như `QuarantineStatus`, dừng ở lỗi 4xx hoặc quá hạn |
 | `boot`, `connect`, `createSession`, `useSession` | Khởi động ứng dụng và phiên làm việc (client, vai trò, manifest) |
 
 ```ts

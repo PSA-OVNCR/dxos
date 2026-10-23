@@ -68,26 +68,26 @@ describe('SealPanel', () => {
   test('download fetches the CLEAN file and saves it as <so_hieu>.pdf with "/" replaced by "-"', async () => {
     const blob = new Blob(['%PDF-1.7'])
     const c = detailClient({
-      get: rec({ seal_state: 'SEALED', data: { so_hieu: '02/QĐ-SM' } }), seal: sealInfo(), download: blob,
+      get: rec({ seal_state: 'SEALED', data: { so_hieu: '02/QĐ-SM' } }), seal: sealInfo(), downloadObject: blob,
       attachments: [att({ upload_id: 'u0', status: 'INFECTED', sha256: null }), att({ upload_id: 'u1', sha256: SHA })],
     })
     const w = await mountWith(VanBanDetail, c, { id: 'r1' })
     await click(w, 'Tải bản PDF đã ban hành')
-    expect(c.download).toHaveBeenCalledTimes(1)
-    expect(c.download).toHaveBeenCalledWith(SHA)
+    expect(c.downloadObject).toHaveBeenCalledTimes(1)
+    expect(c.downloadObject).toHaveBeenCalledWith(SHA, 'original')
     expect(saveBlob).toHaveBeenCalledWith(blob, '02-QĐ-SM.pdf')
   })
 
   test('several CLEAN files get one numbered button each, never one name for two files', async () => {
     const c = detailClient({
-      get: rec({ seal_state: 'SEALED', data: { so_hieu: '02/QĐ-SM' } }), seal: sealInfo(), download: new Blob(['x']),
+      get: rec({ seal_state: 'SEALED', data: { so_hieu: '02/QĐ-SM' } }), seal: sealInfo(), downloadObject: new Blob(['x']),
       attachments: [att({ upload_id: 'u1', sha256: SHA }), att({ upload_id: 'u2', sha256: 'c'.repeat(64) })],
     })
     const w = await mountWith(VanBanDetail, c, { id: 'r1' })
     expect(w.findAll('button').map((b) => b.text()).filter((t) => t.startsWith('Tải bản PDF')))
       .toEqual(['Tải bản PDF đã ban hành (tệp 1)', 'Tải bản PDF đã ban hành (tệp 2)'])
     await click(w, 'Tải bản PDF đã ban hành (tệp 2)')
-    expect(c.download).toHaveBeenCalledWith('c'.repeat(64))
+    expect(c.downloadObject).toHaveBeenCalledWith('c'.repeat(64), 'original')
     expect(vi.mocked(saveBlob).mock.calls[0]?.[1]).toBe('02-QĐ-SM-2.pdf')
   })
 
@@ -105,12 +105,12 @@ describe('SealPanel', () => {
 
   test('a failed download shows the server problem and is not retried', async () => {
     const c = detailClient({
-      get: rec({ seal_state: 'SEALED' }), seal: sealInfo(), attachments: [att({ sha256: SHA })], download: problem('integrity-error'),
+      get: rec({ seal_state: 'SEALED' }), seal: sealInfo(), attachments: [att({ sha256: SHA })], downloadObject: problem('integrity-error'),
     })
     const w = await mountWith(VanBanDetail, c, { id: 'r1' })
     await click(w, 'Tải bản PDF đã ban hành')
     expect(w.find('[role=alert]').text()).toBe('Tệp lưu trữ không qua được kiểm tra toàn vẹn, hãy báo quản trị viên')
-    expect(c.download).toHaveBeenCalledTimes(1)
+    expect(c.downloadObject).toHaveBeenCalledTimes(1)
     expect(saveBlob).not.toHaveBeenCalled()
   })
 

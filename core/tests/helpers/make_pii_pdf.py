@@ -78,6 +78,19 @@ def build_pii_pdf() -> bytes:
         doc.close()
 
 
+def build_lines_pdf(lines: list[str]) -> bytes:
+    """PDF một trang, mỗi phần tử ``lines`` một dòng chữ (dùng thử đếm phát hiện theo loại)."""
+    doc = pdfium.PdfDocument.new()
+    try:
+        p = doc.new_page(612, 792)
+        for i, line in enumerate(lines):
+            add_text(doc, p, line, 72, 720 - 20 * i)
+        raw.FPDFPage_GenerateContent(p.raw)
+        return save(doc)
+    finally:
+        doc.close()
+
+
 def build_blank_pages_pdf(pages: int) -> bytes:
     """PDF ``pages`` trang, mỗi trang một dòng chữ không có số (dùng thử giới hạn số trang)."""
     doc = pdfium.PdfDocument.new()

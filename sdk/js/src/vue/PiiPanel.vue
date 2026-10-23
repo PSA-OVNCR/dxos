@@ -8,13 +8,18 @@ SPDX-License-Identifier: Apache-2.0
 import { computed, onBeforeUnmount, ref, useId } from 'vue'
 import { ApiError } from '../errors'
 import { hasRole } from '../format'
-import type { CollectionView, DxRecord } from '../types'
+import type { AttachmentItem, CollectionView, DxRecord } from '../types'
 import ConfirmDialog from './ConfirmDialog.vue'
+import { piiLabel } from './piiText'
 import ProblemMessage from './ProblemMessage.vue'
 import { ERASE_REASONS } from './reasons'
 import { useSession } from './session'
 
-const props = defineProps<{ app: string; col: string; record: DxRecord; collection: CollectionView }>()
+const props = defineProps<{
+  app: string; col: string; record: DxRecord; collection: CollectionView
+  /** Danh sách tệp của bản ghi (có `pii`): hiện phát hiện theo tệp cho người rà. Chỉ là hướng dẫn, máy chủ quyết định. */
+  files?: AttachmentItem[]
+}>()
 const emit = defineEmits<{ changed: [] }>()
 const { client, roles, view } = useSession()
 
@@ -39,6 +44,20 @@ const canReview = computed(() =>
 const canErase = computed(() =>
   piiFields.value.length > 0 && props.record.wf_state !== 'running' && props.record.seal_state !== 'SEAL_PENDING'
   && hasRole(roles.value, view.value?.policies.pii.erase_roles))
+/** Tệp có trạng thái dò PII, đánh số như danh sách tệp của ứng dụng ("Tệp 1", "Tệp 2"...). */
+const piiFiles = computed(() =>
+  (props.files ?? []).map((f, i) => ({ n: i + 1, id: f.upload_id, pii: f.pii })).filter((f) => f.pii != null))
+/** Lời nhắc trước khi xác nhận: đợi dò xong, hoặc rà tay tệp không dò được. Không chặn nút (lõi mới là bên quyết định). */
+const reviewHint = computed(() => {
+  const states = piiFiles.value.map((f) => f.pii?.status)
+  if (states.includes('PENDING')) {
+    return 'Còn tệp đang được dò dữ liệu cá nhân. Hãy đợi dò xong rồi mới xác nhận đã rà; xác nhận làm trước đó sẽ không còn hiệu lực.'
+  }
+  if (states.includes('TOO_LARGE') || states.includes('FAILED')) {
+    return 'Có tệp chưa dò được dữ liệu cá nhân: cần rà thủ công toàn bộ tệp đó trước khi xác nhận.'
+  }
+  return ''
+})
 const reloadHint = computed(() => {
   const e = actionError.value
   return e instanceof ApiError && (e.status === 409 || e.status === 412)
@@ -88,6 +107,10 @@ async function confirmErase(): Promise<void> {
     <ProblemMessage :error="actionError" />
     <div v-if="reloadHint" class="dx-actions"><button type="button" class="dx-secondary" @click="emit('changed')">Tải lại</button></div>
     <p v-if="notice" role="status">{{ notice }}</p>
+    <ul v-if="canReview && piiFiles.length > 0" class="dx-pii-files">
+      <li v-for="f in piiFiles" :key="f.id">Tệp {{ f.n }}: {{ piiLabel(f.pii!) }}</li>
+    </ul>
+    <p v-if="canReview && reviewHint" class="dx-pii-note">{{ reviewHint }}</p>
     <div class="dx-actions">
       <button v-if="canReview" type="button" :disabled="busy" @click="review">Xác nhận đã rà dữ liệu cá nhân</button>
       <button v-if="canErase && !erasing" type="button" class="dx-secondary" :disabled="busy" @click="startErase">Xóa dữ liệu cá nhân</button>

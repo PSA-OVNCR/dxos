@@ -15,6 +15,9 @@ export const SHOT_DIR = process.env.DXOS_SHOT_DIR ?? join(OUT_DIR, 'shots')
 export const STATE_DIR = join(OUT_DIR, 'state')
 /** Tệp PDF sạch dùng cho cả E2E Python (core/tests/fixtures/files). */
 export const PDF_PATH = process.env.DXOS_FIXTURE_PDF ?? resolve(__dirname, '../../../core/tests/fixtures/files/clean-text.pdf')
+/** PDF có 3 dữ liệu cá nhân hư cấu (1 CCCD, 1 SĐT, 1 STK) cho luồng dò PII của App A (Plan 04 Task 6, V39). */
+export const PII_PDF_PATH = process.env.DXOS_FIXTURE_PII_PDF
+  ?? resolve(__dirname, '../../../core/tests/fixtures/files/pii-fictional.pdf')
 
 export const APP_A = '/apps/phong-ho-so/'
 export const APP_B = '/apps/chung-nhan/'

@@ -63,7 +63,7 @@ export function task(over: Partial<TaskItem> = {}): TaskItem {
 export function att(over: Partial<AttachmentItem> = {}): AttachmentItem {
   return {
     upload_id: 'u1', status: 'CLEAN', sha256: 'a'.repeat(64), reason: null,
-    created_at: '2026-10-22T00:00:00Z', ...over,
+    created_at: '2026-10-22T00:00:00Z', pii: null, ...over,
   }
 }
 
@@ -112,7 +112,7 @@ export const apiErr = problem
 
 export const CLIENT_METHODS = [
   'whoami', 'manifest', 'list', 'listAll', 'get', 'create', 'bulk', 'patch', 'upload', 'uploadStatus',
-  'attachments', 'download', 'start', 'tasks', 'complete', 'piiReview', 'revoke', 'erasePii', 'seal',
+  'attachments', 'downloadObject', 'start', 'tasks', 'complete', 'piiReview', 'revoke', 'erasePii', 'seal',
   'publicSeal', 'checkHash', 'bundle',
 ] as const satisfies readonly (keyof DxosClient)[]
 

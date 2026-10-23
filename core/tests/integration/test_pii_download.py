@@ -26,7 +26,7 @@ from dxos_core.settings import read_secret
 from dxos_proof.canonical import canonical_bytes, sha256_hex
 from helpers.api import running_api, tok
 from helpers.files import fixture
-from helpers.make_pii_pdf import build_blank_pages_pdf
+from helpers.make_pii_pdf import build_blank_pages_pdf, build_lines_pdf
 from helpers.manifests import load
 
 pytestmark = pytest.mark.integration
@@ -141,6 +141,12 @@ async def _review(api, rid: str) -> None:
     assert r.status_code == 200, r.text
 
 
+def _pii3(redacted: bool) -> dict:
+    """``pii`` của danh sách tệp cho ``pii-fictional.pdf``: 3 phát hiện, mỗi loại một."""
+    return {"status": "DONE", "findings": 3, "counts": {"BANK_ACCOUNT": 1, "CCCD": 1, "PHONE": 1},
+            "redacted": redacted}
+
+
 async def _pii(api, rid: str, who: dict = READER) -> list[dict | None]:
     r = await api.get(f"{URL}/{rid}/attachments", headers=who)
     assert r.status_code == 200, r.text
@@ -195,7 +201,7 @@ async def test_no_findings_original_unchanged(api, ctx, core_conn):
     assert (await _get(api, sha, READER)).status_code == 200
     assert (await _get(api, sha, READER, "redacted")).status_code == 404
     assert await core_conn.fetchval("SELECT count(*) FROM object_refs WHERE role='redacted'") == 0
-    assert await _pii(api, rid) == [{"status": "DONE", "findings": 0, "redacted": False}]
+    assert await _pii(api, rid) == [{"status": "DONE", "findings": 0, "counts": {}, "redacted": False}]
 
 
 async def test_unknown_variant_404(api, ctx, core_conn):
@@ -229,7 +235,7 @@ async def test_too_large_file_original_stays_locked(api, ctx, core_conn):
     assert await _last_denied(core_conn) == "reveal_pii:pii_original"
     assert (await _get(api, sha, READER, "redacted")).status_code == 404       # không dựng bản che
     assert (await _get(api, sha, REVIEWER, "original")).status_code == 200
-    assert await _pii(api, rid) == [{"status": "TOO_LARGE", "findings": 0, "redacted": False}]
+    assert await _pii(api, rid) == [{"status": "TOO_LARGE", "findings": 0, "counts": {}, "redacted": False}]
 
 
 async def test_not_yet_scanned_original_stays_locked(api, ctx, core_conn):
@@ -240,7 +246,7 @@ async def test_not_yet_scanned_original_stays_locked(api, ctx, core_conn):
     assert await _last_denied(core_conn) == "reveal_pii:pii_original"
     assert (await _get(api, sha, READER, "redacted")).status_code == 404
     assert (await _get(api, sha, REVIEWER, "original")).status_code == 200
-    assert await _pii(api, rid) == [{"status": "PENDING", "findings": 0, "redacted": False}]
+    assert await _pii(api, rid) == [{"status": "PENDING", "findings": 0, "counts": {}, "redacted": False}]
 
 
 async def test_failed_scan_original_stays_locked(api, ctx, core_conn, monkeypatch):
@@ -255,7 +261,7 @@ async def test_failed_scan_original_stays_locked(api, ctx, core_conn, monkeypatc
     assert (await _get(api, sha, READER, "original")).status_code == 404
     assert (await _get(api, sha, READER, "redacted")).status_code == 404
     assert (await _get(api, sha, REVIEWER, "original")).status_code == 200
-    assert await _pii(api, rid) == [{"status": "FAILED", "findings": 0, "redacted": False}]
+    assert await _pii(api, rid) == [{"status": "FAILED", "findings": 0, "counts": {}, "redacted": False}]
 
 
 async def _redact_jobs(conn) -> list[str]:
@@ -282,14 +288,14 @@ async def test_redaction_failure_keeps_original_locked_then_retry_job_repairs_it
     assert (await _get(api, sha, READER, "original")).status_code == 404
     assert (await _get(api, sha, READER, "redacted")).status_code == 404
     assert (await _get(api, sha, REVIEWER, "original")).status_code == 200
-    assert await _pii(api, rid) == [{"status": "DONE", "findings": 3, "redacted": False}]
+    assert await _pii(api, rid) == [_pii3(False)]
     assert await _redacted_of(core_conn, sha) is None
     monkeypatch.undo()                                          # hết lỗi
     await core_conn.execute("UPDATE jobs SET run_after=now() WHERE kind=$1", REDACT_JOB)
     await _run(ctx, limit=1)
     assert await _redact_jobs(core_conn) == ["DONE"]
     assert await _redacted_of(core_conn, sha)
-    assert await _pii(api, rid) == [{"status": "DONE", "findings": 3, "redacted": True}]
+    assert await _pii(api, rid) == [_pii3(True)]
     r = await _get(api, sha, READER, "redacted")
     assert r.status_code == 200 and _has_text(r.content) == [False, False]
     assert (await _get(api, sha, READER, "original")).status_code == 404       # vẫn khóa
@@ -361,7 +367,7 @@ async def _assert_locked_without_copy(api, core_conn, rid: str, sha: str) -> Non
     assert (await _get(api, sha, READER, "original")).status_code == 404
     assert (await _get(api, sha, READER, "redacted")).status_code == 404
     assert (await _get(api, sha, REVIEWER, "original")).status_code == 200
-    assert await _pii(api, rid) == [{"status": "DONE", "findings": 3, "redacted": False}]
+    assert await _pii(api, rid) == [_pii3(False)]
 
 
 async def test_output_too_large_is_final_original_stays_locked_and_nothing_retries(
@@ -454,7 +460,7 @@ async def test_scan_covers_every_type_whatever_the_manifest_asks(api, ctx, core_
     assert payload == {"sha256": sha}
     rows = await core_conn.fetch("SELECT type, page, bbox FROM pii_findings WHERE sha256=$1", sha)
     assert sorted(r["type"] for r in rows) == ["BANK_ACCOUNT", "CCCD", "PHONE"]
-    assert await _pii(api, rid) == [{"status": "DONE", "findings": 3, "redacted": True}]
+    assert await _pii(api, rid) == [_pii3(True)]
     red = (await _get(api, sha, READER, "redacted")).content
     for r in rows:
         assert _black_under(red, r["page"], json.loads(r["bbox"])), r["type"]
@@ -528,11 +534,11 @@ async def test_attachment_list_shows_pii_state(api, ctx, core_conn):
     r = await api.get(f"{URL}/{rid}/attachments", headers=READER)
     assert r.json()["items"][0]["status"] == "STAGING" and r.json()["items"][0]["pii"] is None
     await _run(ctx, limit=1)                                  # CLEAN, chưa dò
-    assert await _pii(api, rid) == [{"status": "PENDING", "findings": 0, "redacted": False}]
+    assert await _pii(api, rid) == [{"status": "PENDING", "findings": 0, "counts": {}, "redacted": False}]
     await _run(ctx)
-    assert await _pii(api, rid) == [{"status": "DONE", "findings": 3, "redacted": True}]
+    assert await _pii(api, rid) == [_pii3(True)]
     item = (await api.get(f"{URL}/{rid}/attachments", headers=READER)).json()["items"][0]
-    assert item["sha256"] == sha and set(item["pii"]) == {"status", "findings", "redacted"}
+    assert item["sha256"] == sha and set(item["pii"]) == {"status", "findings", "counts", "redacted"}
 
 
 async def test_rejected_upload_has_no_pii_state(api, ctx, core_conn):
@@ -540,3 +546,22 @@ async def test_rejected_upload_has_no_pii_state(api, ctx, core_conn):
     await _run(ctx)
     items = (await api.get(f"{URL}/{rid}/attachments", headers=READER)).json()["items"]
     assert [(i["status"], i["pii"]) for i in items] == [("REJECTED", None)]
+
+
+async def test_pii_counts_are_per_type_and_sum_to_findings(api, ctx, core_conn):
+    """R21: ``counts`` đếm phát hiện theo loại (chỉ loại có n > 0), tổng bằng ``findings``; chỉ có số đếm."""
+    rid, sha = await _scanned(api, ctx, fixture("pii-fictional.pdf"))
+    [pii] = await _pii(api, rid)
+    assert pii["counts"] == {"BANK_ACCOUNT": 1, "CCCD": 1, "PHONE": 1}
+    assert sum(pii["counts"].values()) == pii["findings"] == 3
+    for reader in (READER, REVIEWER):                          # ai đọc được danh sách đều thấy cùng số đếm
+        assert (await _pii(api, rid, reader)) == [pii]
+
+
+async def test_pii_counts_add_up_per_type(api, ctx):
+    """Hai CCCD và một SĐT trong cùng tệp: ``counts`` {CCCD: 2, PHONE: 1}, ``findings`` 3."""
+    data = build_lines_pdf(["CCCD: 079203012345 (hu cau)", "CCCD: 001204067890 (hu cau)",
+                            "Dien thoai: 0912 345 678 (hu cau)"])
+    rid, _ = await _scanned(api, ctx, data)
+    assert await _pii(api, rid) == [{"status": "DONE", "findings": 3, "counts": {"CCCD": 2, "PHONE": 1},
+                                     "redacted": True}]

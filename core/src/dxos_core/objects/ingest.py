@@ -168,23 +168,34 @@ async def list_uploads(conn: asyncpg.Connection, record_id: uuid.UUID, *,
     """Mọi upload của một bản ghi, cũ trước. ``sha256`` chỉ có khi CLEAN, ``reason`` chỉ khi INFECTED/REJECTED
     (đúng như ``upload_status``); không trả tên tệp (chỉ lưu hash), kích thước hay khóa lưu trữ.
 
-    ``pii`` (Plan 04 Task 5): ``{"status", "findings", "redacted"}`` cho upload CLEAN **khi collection đòi dò
-    PII tài liệu** (``expect_pii``); ``status`` là ``DONE``/``TOO_LARGE``/``FAILED`` theo ``pii_scans``, hoặc
-    ``PENDING`` khi chưa có hàng nào; ``redacted`` là có bản che để tải (``variant=redacted``). Mọi trường hợp
-    khác (chưa CLEAN, collection không dò) thì ``pii`` là ``null``."""
+    ``pii`` (Plan 04 Task 5, R21): ``{"status", "findings", "counts", "redacted"}`` cho upload CLEAN **khi
+    collection đòi dò PII tài liệu** (``expect_pii``); ``status`` là ``DONE``/``TOO_LARGE``/``FAILED`` theo
+    ``pii_scans``, hoặc ``PENDING`` khi chưa có hàng nào; ``counts`` là số phát hiện theo loại, chỉ gồm loại
+    có n > 0 (tổng bằng ``findings``; ``{}`` khi không có), chỉ là số đếm, không bao giờ là giá trị hay mã
+    băm của giá trị; ``redacted`` là có bản che để tải (``variant=redacted``). Mọi trường hợp khác (chưa
+    CLEAN, collection không dò) thì ``pii`` là ``null``."""
     rows = await conn.fetch(
         "SELECT u.id, u.status, u.sha256, u.reason, u.created_at, s.status AS scan_status, s.findings,"
         " r.sha256 IS NOT NULL AS redacted"
         " FROM uploads u LEFT JOIN pii_scans s ON s.sha256 = u.sha256"
         " LEFT JOIN pii_redactions r ON r.sha256 = u.sha256 WHERE u.record_id=$1"
         " ORDER BY u.created_at, u.id", record_id)
+    counts: dict[str, dict[str, int]] = {}
+    if expect_pii:
+        shas = [row["sha256"] for row in rows if row["status"] == "CLEAN" and row["scan_status"] is not None]
+        for c in await conn.fetch(
+                "SELECT sha256, type, count(*) AS n FROM pii_findings"
+                " WHERE sha256 = ANY($1::text[]) GROUP BY sha256, type ORDER BY type", shas):
+            counts.setdefault(c["sha256"], {})[c["type"]] = c["n"]
     out = []
     for row in rows:
         s = upload_status(row)
         pii = None
         if expect_pii and row["status"] == "CLEAN":
-            pii = ({"status": "PENDING", "findings": 0, "redacted": False} if row["scan_status"] is None else
-                   {"status": row["scan_status"], "findings": row["findings"], "redacted": row["redacted"]})
+            pii = ({"status": "PENDING", "findings": 0, "counts": {}, "redacted": False}
+                   if row["scan_status"] is None else
+                   {"status": row["scan_status"], "findings": row["findings"],
+                    "counts": counts.get(row["sha256"], {}), "redacted": row["redacted"]})
         out.append({"upload_id": str(row["id"]), "status": s["status"], "sha256": s.get("sha256"),
                     "reason": s.get("reason"), "created_at": _ts(row["created_at"]), "pii": pii})
     return out

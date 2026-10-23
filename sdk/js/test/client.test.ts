@@ -154,10 +154,43 @@ describe('attachments', () => {
     expect(f.calls[0]!.url).toBe('/api/v1/uploads/u')
     expect(await c.attachments('a', 'c', 'r')).toHaveLength(1)
     expect(f.calls[1]!.url).toBe('/api/v1/apps/a/collections/c/records/r/attachments')
-    const b = await c.download('ab'.repeat(32))
+    const b = await c.downloadObject('ab'.repeat(32))
     expect(b).toBeInstanceOf(Blob)
     expect(await b.text()).toBe('%PDF-1.7')
     expect(f.calls[2]!.url).toBe(`/api/v1/objects/${'ab'.repeat(32)}?variant=original`)
+  })
+
+  test('attachments keep the pii state the server reports (null when the collection does not detect)', async () => {
+    const pii = { status: 'DONE', findings: 3, counts: { CCCD: 1, PHONE: 1, BANK_ACCOUNT: 1 }, redacted: true }
+    const f = fakeFetch([{ json: { items: [
+      { upload_id: 'u1', status: 'CLEAN', sha256: 'ab'.repeat(32), reason: null, created_at: 'z', pii },
+      { upload_id: 'u2', status: 'STAGING', sha256: null, reason: null, created_at: 'z', pii: null },
+    ] } }])
+    const items = await client(f).attachments('a', 'c', 'r')
+    expect(items.map((i) => i.pii)).toEqual([pii, null])
+  })
+
+  test('downloadObject asks for ?variant=redacted when told to', async () => {
+    const f = fakeFetch([{ blob: new Blob(['%PDF-che']) }])
+    const b = await client(f).downloadObject('cd'.repeat(32), 'redacted')
+    expect(await b.text()).toBe('%PDF-che')
+    expect(f.calls).toHaveLength(1)
+    expect(f.calls[0]!.url).toBe(`/api/v1/objects/${'cd'.repeat(32)}?variant=redacted`)
+    expect(f.calls[0]!.method).toBe('GET')
+  })
+
+  test.each([[404, 'not-found'], [503, 'unavailable']])('downloadObject never retries a %i', async (status, slug) => {
+    const f = fakeFetch([{ status, problem: { type: `https://dxos.dev/problems/${slug}`, title: 't', status } }])
+    const e = await client(f).downloadObject('ab'.repeat(32), 'redacted').catch((x) => x)
+    expect(e).toBeInstanceOf(ApiError)
+    expect(e.slug).toBe(slug)
+    expect(f.calls).toHaveLength(1)
+  })
+
+  test('downloadObject encodes the hash as one path segment', async () => {
+    const f = fakeFetch([{ blob: new Blob(['x']) }])
+    await client(f).downloadObject('../x?y=1', 'original')
+    expect(f.calls[0]!.url).toBe('/api/v1/objects/%2E%2E%2Fx%3Fy%3D1?variant=original')
   })
 })
 

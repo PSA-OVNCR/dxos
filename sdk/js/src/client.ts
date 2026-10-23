@@ -4,7 +4,7 @@
 // Quy tắc: không bao giờ tự thử lại yêu cầu ghi; mọi ghi cần If-Match đều GET bản ghi ngay trước đó.
 import { ApiError, slugOf } from './errors'
 import type {
-  AttachmentItem, BulkResult, DxRecord, ManifestView, SealInfo, SealState, TaskItem, UploadStatus,
+  AttachmentItem, BulkResult, DxRecord, ManifestView, ObjectVariant, SealInfo, SealState, TaskItem, UploadStatus,
 } from './types'
 
 export interface ClientOptions {
@@ -173,8 +173,12 @@ export class DxosClient {
     return r.items
   }
 
-  async download(sha256: string): Promise<Blob> {
-    return (await this.ok('GET', `/api/v1/objects/${seg(sha256)}?variant=original`)).blob()
+  /**
+   * Tải một tệp CLEAN theo sha256. `variant='original'` (mặc định) có thể bị khóa theo quyền xem dữ liệu cá nhân
+   * (máy chủ trả 404), `variant='redacted'` là bản che (chỉ có khi đã dựng). GET một lần, không tự thử lại.
+   */
+  async downloadObject(sha256: string, variant: ObjectVariant = 'original'): Promise<Blob> {
+    return (await this.ok('GET', `/api/v1/objects/${seg(sha256)}?variant=${variant}`)).blob()
   }
 
   // ---- quy trình -------------------------------------------------------------------------

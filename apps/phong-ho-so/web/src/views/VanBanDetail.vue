@@ -3,11 +3,12 @@ SPDX-FileCopyrightText: 2026 PSA_OVNCR
 SPDX-License-Identifier: Apache-2.0
 -->
 <script setup lang="ts">
-// Chi tiết văn bản: trường theo nhãn manifest, tệp đính kèm (lấy từ máy chủ), sửa, tải tệp, gửi duyệt.
+// Chi tiết văn bản: trường theo nhãn manifest, tệp đính kèm (lấy từ máy chủ) kèm dữ liệu cá nhân đã dò, sửa, tải tệp
+// (bản gốc hoặc bản che), gửi duyệt.
 // Ẩn nút theo chủ sở hữu/trạng thái chỉ là tiện dụng; lõi quyết định và mọi lỗi của lõi hiện bằng ProblemMessage.
 // Không có yêu cầu ghi nào được tự thử lại; lỗi 409/412 thì báo và gợi ý tải lại.
-import { ApiError, type AttachmentItem, type DxRecord, type UploadStatus } from 'dxos-sdk-js'
-import { PiiPanel, ProblemMessage, QuarantineStatus, RecordForm, SealPanel } from 'dxos-sdk-js/vue'
+import { ApiError, type AttachmentItem, type DxRecord, type ObjectVariant, type UploadStatus } from 'dxos-sdk-js'
+import { PiiFileStatus, PiiPanel, ProblemMessage, QuarantineStatus, RecordForm, SealPanel, usePoll } from 'dxos-sdk-js/vue'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { pdfFileName, saveBlob } from '../download'
 import { APP, COL, useSession } from '../session'
@@ -25,6 +26,8 @@ const loading = ref(true)
 const loadError = ref<unknown>(null)
 const filesError = ref<unknown>(null)
 const actionError = ref<unknown>(null)
+const downloadError = ref<unknown>(null)
+const downloading = ref(false)
 const notice = ref('')
 const busy = ref(false)
 const editing = ref(false)
@@ -70,7 +73,9 @@ async function load(): Promise<void> {
   loadError.value = null
   filesError.value = null
   actionError.value = null // tải lại là cách thoát khỏi lỗi cũ (nhất là 409)
+  downloadError.value = null
   notice.value = ''
+  restartPoll()
   const [r, a] = await Promise.allSettled([
     client.get(APP, COL, props.id),
     client.attachments(APP, COL, props.id),
@@ -115,6 +120,19 @@ async function refresh(): Promise<void> {
     if (mine === run && alive) actionError.value = e
   }
 }
+
+/**
+ * Tệp CLEAN chưa có kết quả dò PII (`pii.status` PENDING): hỏi lại danh sách tệp đến khi xong. Lỗi tạm thời được thử lại
+ * (GET); quá hạn thì ngừng và báo; lỗi dứt khoát hiện bằng ProblemMessage.
+ */
+const { failure: pollFailure, timedOut: pollTimedOut, restart: restartPoll } = usePoll({
+  active: () => files.value.some((f) => f.pii?.status === 'PENDING'),
+  tick: async () => {
+    const mine = run
+    const list = await client.attachments(APP, COL, props.id)
+    if (mine === run && alive) files.value = list
+  },
+})
 
 watch(() => props.id, () => {
   editing.value = false
@@ -164,9 +182,27 @@ function sealedFiles(sealed: boolean): AttachmentItem[] {
 /** `run` là hàm chạy-một-lần của SealPanel: chung trạng thái bận và khung báo lỗi với các nút của nó. */
 function download(run: (fn: () => Promise<void>) => Promise<boolean>, f: AttachmentItem, index: number, count: number): Promise<boolean> {
   return run(async () => {
-    const blob = await client.download(f.sha256 ?? '')
+    const blob = await client.downloadObject(f.sha256 ?? '', 'original')
     saveBlob(blob, pdfFileName(record.value?.data.so_hieu, props.id, count > 1 ? index + 1 : undefined))
   })
+}
+
+/**
+ * Tải bản gốc hoặc bản che của một tệp trong danh sách. Bản gốc có thể bị khóa theo quyền xem dữ liệu cá nhân: máy chủ trả
+ * 404 và lỗi hiện ngay dưới danh sách (ProblemMessage). Một lần gọi, không tự thử lại; đang tải thì khóa nút.
+ */
+async function downloadFile(f: AttachmentItem, index: number, variant: ObjectVariant): Promise<void> {
+  if (downloading.value || !f.sha256) return
+  downloading.value = true
+  downloadError.value = null
+  try {
+    const blob = await client.downloadObject(f.sha256, variant)
+    saveBlob(blob, pdfFileName(record.value?.data.so_hieu, props.id, files.value.length > 1 ? index + 1 : undefined, variant))
+  } catch (e) {
+    if (alive) downloadError.value = e
+  } finally {
+    downloading.value = false
+  }
 }
 
 function isPdf(f: File): boolean {
@@ -247,11 +283,13 @@ async function onFile(ev: Event): Promise<void> {
         </button>
       </template>
     </SealPanel>
-    <PiiPanel :app="APP" :col="COL" :record="record" :collection="collection" @changed="refresh()" />
+    <PiiPanel :app="APP" :col="COL" :record="record" :collection="collection" :files="files" @changed="refresh()" />
 
-    <section aria-labelledby="dx-files-h">
+    <section aria-labelledby="dx-files-h" class="dx-files-section">
       <h2 id="dx-files-h">Tệp đính kèm</h2>
       <ProblemMessage :error="filesError" />
+      <ProblemMessage :error="pollFailure" />
+      <ProblemMessage :error="downloadError" />
       <p v-if="files.length === 0 && !filesError">Chưa có tệp nào.</p>
       <ul v-else class="dx-files">
         <li v-for="(a, i) in files" :key="a.upload_id">
@@ -262,6 +300,7 @@ async function onFile(ev: Event): Promise<void> {
             :initial="statusOf(a)"
             @settled="reloadFiles()"
           />
+          <PiiFileStatus :item="a" :busy="downloading" :timed-out="pollTimedOut" @download="(v) => downloadFile(a, i, v)" />
         </li>
       </ul>
       <div v-if="canWrite && collection.attachments" class="dx-field">

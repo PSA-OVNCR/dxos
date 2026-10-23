@@ -28,13 +28,30 @@ export type UploadStatus =
   | { status: 'INFECTED'; reason: string | null }
   | { status: 'REJECTED'; reason: string }
 
+/**
+ * Trạng thái dò dữ liệu cá nhân của một tệp CLEAN, chỉ có khi collection đòi dò PII tài liệu (contract-tier2.md 3.4).
+ * `counts` chỉ gồm loại có n > 0 (tổng bằng `findings`); chỉ là số đếm, không bao giờ là giá trị.
+ * `redacted` = có bản che (`variant=redacted`) để tải.
+ */
+export interface AttachmentPii {
+  status: 'PENDING' | 'DONE' | 'TOO_LARGE' | 'FAILED'
+  findings: number
+  counts: Record<string, number>
+  redacted: boolean
+}
+
 export interface AttachmentItem {
   upload_id: string
   status: UploadStatus['status']
   sha256: string | null
   reason: string | null
   created_at: string
+  /** `null` khi collection không dò PII tài liệu hoặc tệp chưa CLEAN; máy chủ luôn gửi khoá này. */
+  pii: AttachmentPii | null
 }
+
+/** Bản của một tệp để tải: `original` có thể bị khóa theo quyền xem PII, `redacted` chỉ có khi đã dựng. */
+export type ObjectVariant = 'original' | 'redacted'
 
 export interface TaskItem {
   task_id: string
