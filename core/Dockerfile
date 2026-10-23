@@ -20,9 +20,11 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends git openssh-client tzdata \
  && rm -rf /var/lib/apt/lists/*
 
+# constraints.txt ghim phiên bản mọi phụ thuộc runtime (Plan 04 Task 1); build ra cùng bộ gói mà CI đã kiểm.
+COPY constraints.txt /tmp/src/constraints.txt
 COPY libs/dxos-proof /tmp/src/dxos-proof
 COPY core /tmp/src/core
-RUN pip install /tmp/src/dxos-proof /tmp/src/core \
+RUN pip install -c /tmp/src/constraints.txt /tmp/src/dxos-proof /tmp/src/core \
  && mkdir -p /opt/dxos \
  && cp -r /tmp/src/core/migrations /opt/dxos/migrations \
  && install -m 0755 /tmp/src/core/docker/api-entrypoint.sh /usr/local/bin/dxos-api-entrypoint \

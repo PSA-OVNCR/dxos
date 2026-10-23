@@ -84,3 +84,40 @@ def test_repo_script_images_are_found_by_default_roots():
     # Chưa ghim: có trong danh sách chờ ghim; đã ghim: không còn. Cả hai trạng thái đều hợp lệ, nhưng mọi ref
     # còn lại phải thuộc hai image của Task 10 (deploy/ đã ghim hết từ Plan 01).
     assert found <= {"node:22-bookworm-slim", "mcr.microsoft.com/playwright:v1.63.0-noble"}
+
+
+WORKFLOW = (
+    "jobs:\n"
+    "  secrets:\n"
+    "    steps:\n"
+    "      - run: docker run --rm -v \"$PWD:/repo\" zricethezav/gitleaks:v8.18.4 detect --redact\n"
+    "  sbom:\n"
+    "    steps:\n"
+    "      - name: SBOM\n"
+    "        run: docker run --rm -v \"$PWD:/src:ro\" anchore/syft:v1.18.1 dir:/src -o cyclonedx-json\n"
+    "      - run: docker run --rm busybox:1.37 true\n"
+    "      - run: docker run -d clamav/clamav:1.4@" + D2 + "\n"
+)
+
+
+def test_workflow_syft_and_gitleaks_images_are_found_and_pinned(tmp_path):
+    wf = tmp_path / ".github" / "workflows"
+    wf.mkdir(parents=True)
+    (wf / "ci.yml").write_text(WORKFLOW, encoding="utf-8")
+    assert sorted(r for _, r in pin_images.find_refs(wf)) == [
+        "anchore/syft:v1.18.1", "zricethezav/gitleaks:v8.18.4"]                 # busybox, clamav không đụng
+    pinned = pin_images.pin(wf, lambda ref: D1)
+    assert sorted(pinned) == ["anchore/syft:v1.18.1", "zricethezav/gitleaks:v8.18.4"]
+    text = (wf / "ci.yml").read_text(encoding="utf-8")
+    assert f"zricethezav/gitleaks:v8.18.4@{D1} detect --redact\n" in text
+    assert f"anchore/syft:v1.18.1@{D1} dir:/src -o cyclonedx-json\n" in text
+    assert "busybox:1.37 true\n" in text and f"clamav/clamav:1.4@{D2}\n" in text
+    assert pin_images.find_refs(wf) == []                                  # chạy lại không còn gì để ghim
+
+
+def test_repo_workflow_images_are_covered_by_the_default_roots():
+    found = {r for _, r in pin_images.find_refs(ROOT / ".github" / "workflows")}
+    # Chưa ghim thì có trong danh sách chờ (V37); đã ghim thì không còn. Không image nào khác được lọt vào.
+    assert found <= {"zricethezav/gitleaks:v8.18.4", "anchore/syft:v1.18.1"}
+    src = (ROOT / "ops/pin_images.py").read_text(encoding="utf-8")
+    assert '".github" / "workflows"' in src                                     # main() quét cả thư mục này

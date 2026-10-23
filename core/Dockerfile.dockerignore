@@ -4,6 +4,7 @@
 *
 !libs/dxos-proof/
 !core/
+!constraints.txt
 core/tests/
 libs/dxos-proof/tests/
 **/__pycache__/

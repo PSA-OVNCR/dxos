@@ -7,11 +7,11 @@ PROFILE ?= p16
 ENV_FILE ?= .env
 COMPOSE = docker compose -p dxos --env-file $(ENV_FILE) -f deploy/compose.yaml -f deploy/compose.$(PROFILE).yaml
 
-.PHONY: help dev-install lint test reuse check up down ps logs netcheck test-infra test-db-up test-integration pin-images \
+.PHONY: help dev-install lint test reuse check up down ps logs netcheck test-infra test-db-up test-integration pin-images pin-actions licenses \
 	openapi web-check web-build web-live vuot-rao
 
 help:
-	@echo "make dev-install  - cài công cụ phát triển và các gói Python ở chế độ editable"
+	@echo "make dev-install  - cài công cụ phát triển và các gói Python ở chế độ editable (phụ thuộc theo constraints.txt)"
 	@echo "make lint         - ruff"
 	@echo "make test         - test đơn vị (không cần Docker)"
 	@echo "make reuse        - kiểm tra giấy phép từng tệp (REUSE)"
@@ -23,6 +23,8 @@ help:
 	@echo "make test-db-up   - dựng dịch vụ cho integration test (PostgreSQL :55432, OpenBao, SeaweedFS, Flowable :58080)"
 	@echo "make test-integration - integration test (marker integration), cần make test-db-up"
 	@echo "make pin-images   - ghim digest mọi image trong deploy/ (cần Docker có buildx)"
+	@echo "make pin-actions  - ghim mọi uses: trong .github/workflows theo SHA commit (cần ra được github.com)"
+	@echo "make licenses     - quét giấy phép gói Python (runtime) và npm; ngoại lệ ở LICENSES-THIRD-PARTY.md"
 	@echo "make openapi      - sinh lại docs/api/openapi.json từ ứng dụng FastAPI (không cần dịch vụ)"
 	@echo "make web-check    - workspace npm: typecheck + test + build (cần Node 22 và npm 11.6.2, đã chạy npm ci)"
 	@echo "make web-build    - dựng các SPA trong container Node vào volume apps-static (cần Docker; digest đã ghim)"
@@ -30,8 +32,8 @@ help:
 	@echo "make vuot-rao     - bảng thử vượt rào (10 kịch bản tấn công) trên stack dev đang chạy; ARGS='--only V1,V3'"
 
 dev-install:
-	$(PYTHON) -m pip install -r requirements-dev.txt
-	$(PYTHON) -m pip install -e libs/dxos-proof -e core -e witness -e cli
+	$(PYTHON) -m pip install -c constraints.txt -r requirements-dev.txt
+	$(PYTHON) -m pip install -c constraints.txt -e libs/dxos-proof -e core -e witness -e cli
 
 lint:
 	ruff check .
@@ -70,6 +72,12 @@ test-infra:
 
 pin-images:
 	$(PYTHON) ops/pin_images.py
+
+pin-actions:
+	$(PYTHON) ops/pin_actions.py
+
+licenses:
+	$(PYTHON) ops/license_scan.py
 
 openapi:
 	$(PYTHON) ops/openapi.py

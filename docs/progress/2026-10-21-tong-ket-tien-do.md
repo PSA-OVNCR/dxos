@@ -256,3 +256,11 @@ Thứ tự: `v0.2.0` (V18) rồi `v0.3.0` (V33). Mỗi tag:
 - **Khác biệt đã biết giữa bộ kiểm JS và Python** (Task 4, chưa sửa, không đổi kết quả hợp lệ/không hợp lệ của gói thật): `b64decodePy` chỉ chấp nhận tối đa 2 dấu `=` đệm trong khi Python chấp nhận nhiều hơn sau một nhóm đủ; số nguyên dài hơn 4300 chữ số cho `MALFORMED` ở Python nhưng JS vẫn chấp nhận (ở trường không được ký). Vì vậy không được nói hai bên "cùng mã lỗi" tuyệt đối.
 - Cổng đối soát: nếu GitHub trả được `v1.pub` nhưng lỗi tạm thời ở tệp khác, người dùng thấy "Không hợp lệ" thay vì "chưa đối chiếu" (đánh đổi đã chấp nhận ở Task 6).
 - Ảnh minh chứng trong `docs/evidence/verify-page-*.png` chụp từ trang tối giản; ảnh của cổng Vue (Chromium thật) ở `docs/evidence/web-live-2026-10-22/` (V27).
+
+## 14. Plan 04 (M4–M5)
+
+### 14.1. Việc cần máy thật hoặc trưởng nhóm (gom từ Plan 04)
+| # | Việc | Ở đâu | Ghi chú |
+|---|---|---|---|
+| V37 | Chạy `make pin-actions` (`python ops/pin_actions.py`) để đổi `uses: owner/repo@vN` trong `.github/workflows/*.yml` thành `@<sha40> # vN`, rồi chạy `make pin-images` để ghim digest `anchore/syft` và `zricethezav/gitleaks`; commit kết quả. Cloud mới chạy hai công cụ bằng resolver giả (test); chưa ghim thật | Máy trưởng nhóm | Cần ra được github.com và Docker buildx. Sau khi ghim, kiểm CI xanh |
+| V37b | Duyệt hoặc loại 3 gói máy quét giấy phép thấy ngoài danh sách cho phép (`LICENSES-THIRD-PARTY.md`, phần "Chờ trưởng nhóm duyệt"): `certifi` MPL-2.0 (runtime, httpx kéo vào), `cffi` MIT-0 (runtime, cryptography kéo vào), `tslib` 0BSD (npm, dev tùy chọn). Duyệt = chuyển dòng lên bảng "Ngoại lệ đã duyệt". Tới lúc đó `make licenses` và job `licenses` của CI báo lỗi | Trưởng nhóm | Gói Python không thay được (certifi, cffi nằm sâu trong httpx và cryptography) |

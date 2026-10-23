@@ -54,6 +54,21 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: npx -w dxos-verify-portal playwright test
 
+  # Giấy phép gói bên thứ ba (Plan 04 Task 1): cài đúng bộ runtime theo constraints.txt (chứng minh các ghim cài được),
+  # rồi quét Python (importlib.metadata) và npm (package-lock.json). Ngoại lệ ở LICENSES-THIRD-PARTY.md.
+  licenses:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: python -m pip install -c constraints.txt -e libs/dxos-proof -e core -e witness -e cli
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - run: npm i -g npm@11.6.2
+      - run: npm ci
+      - run: python ops/license_scan.py
+
   integration:
     runs-on: ubuntu-latest
     env:
