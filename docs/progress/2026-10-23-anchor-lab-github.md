@@ -49,28 +49,36 @@ VALID OK; khóa đã ghim từ repo neo; đã neo: sth/000000000754.json; OTS: b
 
 Log: `docs/evidence/anchor-lab-2026-10-23/at17-verify-bundle-github.log`.
 
-## Cổng đối soát chế độ ghim (V34): chưa đạt, cần chạy lại
+## Cổng đối soát chế độ ghim (V34)
 
-Lần build cổng có `VITE_ANCHOR_RAW_BASE` rồi chạy bộ trình duyệt thật (`ops/web_live.sh`): 8 passed, 1 failed, 1 did not run.
-Test hỏng là App A, bước "mở verify_url, chọn đúng tệp PDF và thấy Hợp lệ": cổng hiện `Không hợp lệ`. Trace ghi
-`GET https://raw.githubusercontent.com/PSA-OVNCR/dxos-transparency-log-lab/main/keys/seal-key/v1.pub` trả 404.
+**Lần 1 (22/10, 17:27 UTC): 8 passed, 1 failed, 1 did not run.** Test hỏng là App A, bước "mở verify_url, chọn đúng tệp PDF
+và thấy Hợp lệ": cổng hiện `Không hợp lệ`; trace ghi `keys/seal-key/v1.pub` trả 404. Test chạy cùng phút với lần neo đầu
+(17:27:20 UTC), lúc đó khóa chưa có trên GitHub hoặc CDN của raw.githubusercontent.com còn giữ câu trả lời 404.
 
-Nguyên nhân, nhiều khả năng: test chạy trong cùng phút với lần neo đầu (17:27:20 UTC). Lúc test hỏi, `keys/seal-key/v1.pub` chưa
-có trên GitHub, hoặc CDN của raw.githubusercontent.com còn giữ câu trả lời 404 (bộ đệm khoảng 5 phút). Từ 17:33 UTC repo đã đủ
-`keys/` và `sth/`, và AT-17 ở trên đạt với chính các tệp đó.
+Ruling: giữ nguyên "thiếu khóa niêm phong trong repo neo → Không hợp lệ (`KEY_NOT_ANCHORED`)" — coi 404 là "chưa đối chiếu"
+thì máy chủ bị chiếm chỉ cần dùng khóa chưa neo để né việc ghim — cái giá nếu sai: vài phút đầu sau khi nối repo neo mới,
+người xem thấy "Không hợp lệ"; runbook yêu cầu chạy `anchor:run` và chờ CDN trước khi phát niêm phong.
 
-Ruling: giữ nguyên hành vi "thiếu khóa niêm phong trong repo neo → Không hợp lệ (`KEY_NOT_ANCHORED`)" — nếu coi 404 là "chưa đối
-chiếu" thì máy chủ bị chiếm chỉ cần dùng một khóa chưa neo để né việc ghim; lời giải thích trên cổng đã nói rõ "khóa niêm phong
-chưa có trong repo neo" — cái giá nếu sai: người xem thấy "Không hợp lệ" trong vài phút đầu sau khi đổi repo neo, nên runbook
-yêu cầu chạy `anchor:run` và chờ CDN trước khi phát niêm phong.
+**Lần 2 (23/10, sau khi laptop khởi động lại, `chay-m3-13-lab-web.bat`): 8 passed, 1 failed, 1 did not run.**
+- Lần chạy trước đó cùng ngày hỏng 3 test vì OpenBao khóa sau khi máy khởi động lại (lõi chặn bước duyệt cuối khi KMS khóa,
+  đúng thiết kế R-1). Script nay tự mở khóa bằng `m2-5-unseal.ps1` nếu thấy `"sealed": true`.
+- Cả bốn tệp khóa trên GitHub trả 200.
+- **Cổng đối soát với niêm phong App B: "Hợp lệ — đã đối chiếu repo neo"**, repo đối chiếu
+  `https://raw.githubusercontent.com/PSA-OVNCR/dxos-transparency-log-lab/main` (ảnh
+  `docs/evidence/anchor-lab-2026-10-23/verify-github-pinned-app-b.png`). Test này chờ (tải lại trang) cho tới khi STH phủ
+  niêm phong được neo.
+- Test App A vẫn hỏng, lần này vì lý do khác: `NOT_ANCHORED: STH đã neo (cỡ 754) chưa phủ lá 791`. Niêm phong vừa ban hành,
+  STH phủ nó chưa được đẩy lên repo neo, và test không chờ. Ở chế độ ghim, bộ kiểm JS (giống `dxos-witness --anchor-dir`,
+  ruling C8 của Plan 02) coi "chưa neo" là hỏng, nên cổng hiện **"Không hợp lệ"** cho một niêm phong thật vừa phát.
 
-Chưa chạy lại được bộ trình duyệt: lúc định chạy lại, laptop đã khóa màn hình, các tệp `.bat` không khởi động. Việc còn lại:
-chạy `chay-m3-12-web-lab2.bat` (thư mục `_claude-run`), kỳ vọng 10 passed và cổng hiện "Hợp lệ" kèm "đã đối chiếu repo neo".
+Đây là lỗi sản phẩm, không chỉ là lỗi test: ngay sau khi ban hành (đúng lúc demo), cổng ở chế độ ghim nói văn bản thật là
+"Không hợp lệ". Đã đưa vào Plan 04 Task 14: khi khóa đã đối chiếu repo neo mà STH phủ niêm phong chưa được neo, cổng báo
+"Hợp lệ — chưa neo công khai" (như khi không ghim), không báo "Không hợp lệ"; `dxos-witness --anchor-dir` giữ kiểm chặt.
 
 ## Chưa làm
 
-- Chạy lại bộ trình duyệt với repo neo GitHub (trên).
+- Sửa cổng cho niêm phong chưa neo (Plan 04 Task 14), rồi chạy lại bộ trình duyệt với repo neo GitHub.
 - Trên VPS: dùng repo chính `dxos-transparency-log` với khóa deploy riêng của VPS, `DXOS_ANCHOR_REPO_DIR` mới (runbook mục 3).
 - Witness độc lập theo dõi repo neo chính.
 
-Log gốc trên máy trưởng nhóm: `E:\PMMNM 2026\_claude-run\m3-10-lab-anchor.log`, `m3-11-anchor-verify.log`.
+Log gốc trên máy trưởng nhóm: `E:\PMMNM 2026\_claude-run\m3-10-lab-anchor.log`, `m3-11-anchor-verify.log`, `m3-13-lab-web.log`.
