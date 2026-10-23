@@ -1,0 +1,27 @@
+{
+  "name": "dxos-admin-ui",
+  "version": "0.9.0",
+  "private": true,
+  "type": "module",
+  "description": "Trang quản trị web của DX-OS (Vue): sức khỏe hệ thống, sổ cái, duyệt app, cách ly; chạy trên API /admin/v1, không có backend riêng.",
+  "license": "Apache-2.0",
+  "scripts": {
+    "typecheck": "vue-tsc --noEmit -p .",
+    "test": "vitest run",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "dxos-sdk-js": "0.3.0",
+    "vue": "3.5.43",
+    "vue-router": "4.6.4"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "6.0.9",
+    "@vue/test-utils": "2.5.1",
+    "jsdom": "29.1.1",
+    "typescript": "5.9.3",
+    "vite": "8.1.6",
+    "vitest": "5.0.3",
+    "vue-tsc": "3.3.12"
+  }
+}

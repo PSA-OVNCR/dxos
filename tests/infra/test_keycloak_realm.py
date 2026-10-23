@@ -112,6 +112,22 @@ def test_spa_is_public_pkce_s256_without_password_grant():
     assert "dxos-api-audience" in spa["defaultClientScopes"]
 
 
+@pytest.mark.parametrize("path", [PROD, DEV], ids=["prod", "dev"])
+def test_realm_has_admin_ui_client_pkce(path):
+    """Trang admin web (Plan 04 Task 9): client công khai riêng, chỉ code flow + PKCE S256, chỉ host admin."""
+    c = _client(_load(path), "dxos-admin-ui")
+    assert c["publicClient"] is True and c["enabled"] is True
+    assert c["standardFlowEnabled"] is True
+    assert c["directAccessGrantsEnabled"] is False
+    assert c["implicitFlowEnabled"] is False
+    assert c["serviceAccountsEnabled"] is False
+    assert c["attributes"]["pkce.code.challenge.method"] == "S256"
+    assert c["redirectUris"] == ["https://admin.${DXOS_DOMAIN}/ui/*"]
+    assert c["webOrigins"] == ["https://admin.${DXOS_DOMAIN}"]
+    assert c["attributes"]["post.logout.redirect.uris"] == "https://admin.${DXOS_DOMAIN}/ui/*"
+    assert "dxos-api-audience" in c["defaultClientScopes"]   # API quản trị kiểm audience như mọi API khác
+
+
 def test_installer_is_confidential_service_account_only():
     c = _client(_load(PROD), "dxos-installer")
     assert c["publicClient"] is False and c["serviceAccountsEnabled"] is True

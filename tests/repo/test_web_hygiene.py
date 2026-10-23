@@ -9,8 +9,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 # Thư mục mã nguồn web (chỉ `src/`, để fixture trong `test/` không bị quét).
-SRC_GLOBS = ["sdk/js/src", "verify-portal/app/src", "apps/*/web/src", "examples/*/web/src"]
-PACKAGE_GLOBS = ["sdk/js", "verify-portal/app", "apps/*/web", "examples/*/web"]
+SRC_GLOBS = ["sdk/js/src", "verify-portal/app/src", "admin-ui/src", "apps/*/web/src", "examples/*/web/src"]
+PACKAGE_GLOBS = ["sdk/js", "verify-portal/app", "admin-ui", "apps/*/web", "examples/*/web"]
 
 FORBIDDEN = {
     "v-html": re.compile(r"v-html"),
@@ -58,6 +58,14 @@ def test_scanner_detects_each_forbidden_pattern():
     for name, text in samples.items():
         assert name in _violations(text), name
     assert _violations("const retrieval = 1; // https://dxos.dev/problems/x") == []
+
+
+def test_admin_ui_workspace_is_scanned_and_registered():
+    assert ROOT / "admin-ui/src" in _dirs(SRC_GLOBS)
+    assert ROOT / "admin-ui" in _dirs(PACKAGE_GLOBS)
+    root = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))
+    assert "admin-ui" in root["workspaces"]
+    assert any(f.is_relative_to(ROOT / "admin-ui/src") for f in _src_files())
 
 
 def test_web_sources_exist_and_have_no_forbidden_api():

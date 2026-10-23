@@ -222,7 +222,7 @@ class FakeKeycloak:
 def v010(name: str) -> FakeKeycloak:
     """Keycloak đã nạp realm kiểu v0.1.0: realm hiện tại trừ đi các thay đổi của Task 11."""
     realm = _realm_file(name)
-    realm["clients"] = [c for c in realm["clients"] if c["clientId"] != "dxos-cli"]
+    realm["clients"] = [c for c in realm["clients"] if c["clientId"] not in {"dxos-cli", "dxos-admin-ui"}]
     realm["users"] = [u for u in realm.get("users", []) if u["username"] != "admin2"
                       and not u.get("serviceAccountClientId")]
     realm.pop("adminEventsEnabled", None)
@@ -274,7 +274,8 @@ def test_prod_profile_touches_only_task11_items_and_never_creates_users():
     rc, out = run(fake)
     assert rc == 0, out
     verbs = sorted(_write_summary(fake))
-    assert verbs == ["add-roles -r", "create clients", "remove-roles -r", "update realms/dxos"], verbs
+    assert verbs == ["add-roles -r", "create clients", "create clients",     # dxos-cli, dxos-admin-ui
+                     "remove-roles -r", "update realms/dxos"], verbs
     assert not [u for u in fake.users if not u["sa_client"]]
     upd = next(w for w in fake.writes if w[0] == "update")
     assert set(upd[upd.index("-s") + 1::2]) >= {"adminEventsEnabled=true", "adminEventsDetailsEnabled=true"}
@@ -326,7 +327,8 @@ def test_direct_kcadm_mode():
 
 def test_kcadm_path_from_env():
     fake = v010("realm-dxos.json")
-    rc, _ = run(fake, environ={"KEYCLOAK_ADMIN_PASSWORD": PASSWORD, "DXOS_KCADM": "/x/kcadm.sh"})
+    rc, _ = run(fake, environ={"KEYCLOAK_ADMIN_PASSWORD": PASSWORD, "DXOS_KCADM": "/x/kcadm.sh",
+                                  "DXOS_DOMAIN": "localhost"})
     assert rc == 0 and fake.calls[0][0][0] == "/x/kcadm.sh"
 
 
@@ -416,6 +418,26 @@ def test_client_placeholder_resolved_with_domain_is_created():
     assert rc == 0, out
     spa = next(c for c in fake.clients if c["clientId"] == "dxos-spa")
     assert spa["redirectUris"] == ["https://localhost/apps/*"]
+
+
+def test_upgrade_creates_admin_ui_client_once():
+    """Stack cũ chưa có client trang admin web: tạo đúng như tệp realm (đã thay domain); lần hai không ghi."""
+    fake = v010("realm-dxos.json")
+    assert "dxos-admin-ui" not in {c["clientId"] for c in fake.clients}
+    rc, out = run(fake)
+    assert rc == 0, out
+    assert "tạo client dxos-admin-ui" in out
+    ui = next(c for c in fake.clients if c["clientId"] == "dxos-admin-ui")
+    assert ui["publicClient"] is True and ui["directAccessGrantsEnabled"] is False
+    assert ui["attributes"]["pkce.code.challenge.method"] == "S256"
+    assert ui["redirectUris"] == ["https://admin.localhost/ui/*"]
+    assert ui["webOrigins"] == ["https://admin.localhost"]
+    created = [w for w in fake.writes if w[:2] == ["create", "clients"]]
+    assert len(created) == 2          # dxos-cli và dxos-admin-ui
+    before = len(fake.writes)
+    rc, out = run(fake)
+    assert rc == 0 and len(fake.writes) == before, _write_summary(fake)[before:]
+    assert [c["clientId"] for c in fake.clients].count("dxos-admin-ui") == 1
 
 
 def test_cleanup_failure_is_a_warning():

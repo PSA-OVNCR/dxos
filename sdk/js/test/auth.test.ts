@@ -4,6 +4,19 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { appRoles, createAuth, settingsFor, type UserLike, type UserManagerLike } from '../src/auth'
 
+// Ghi lại cấu hình mà createAuth đưa cho UserManager thật (lớp con của bản thật, không đổi hành vi).
+const built = vi.hoisted(() => [] as { client_id?: string; authority?: string; redirect_uri?: string; userStore?: unknown }[])
+vi.mock('oidc-client-ts', async (orig) => {
+  const real = await orig<typeof import('oidc-client-ts')>()
+  class Spy extends real.UserManager {
+    constructor(settings: ConstructorParameters<typeof real.UserManager>[0]) {
+      super(settings)
+      built.push(settings)
+    }
+  }
+  return { ...real, UserManager: Spy }
+})
+
 function b64url(o: unknown): string {
   return btoa(JSON.stringify(o)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 }
@@ -89,6 +102,23 @@ describe('settingsFor', () => {
     expect(s.authority).toBe('https://k/auth/realms/r')
     expect(s.client_id).toBe('c')
     expect(s.redirect_uri).toBe('https://h/apps/y/')
+  })
+})
+
+describe('createAuth clientId', () => {
+  test('createAuth uses given clientId and keeps sessionStorage', async () => {
+    built.length = 0
+    const admin = createAuth({ appBase: '/ui/', clientId: 'dxos-admin-ui' })
+    await admin.login('#/health').catch(() => undefined) // chỉ cần UserManager được dựng; không có IdP để chuyển hướng
+    const dflt = createAuth({ appBase: '/apps/x/' })
+    await dflt.token()
+    expect(built.map((s) => s.client_id)).toEqual(['dxos-admin-ui', 'dxos-spa'])
+    expect(built[0]?.redirect_uri).toBe(`${location.origin}/ui/`)
+    expect(built[0]?.authority).toBe(`${location.origin}/auth/realms/dxos`)
+    // Kho user và kho state (code_verifier) là sessionStorage, không phải localStorage.
+    await (built[0]?.userStore as { set(k: string, v: string): Promise<void> }).set('k', 'v')
+    expect(sessionStorage.getItem('oidc.k')).toBe('v')
+    expect(localStorage.length).toBe(0)
   })
 })
 
