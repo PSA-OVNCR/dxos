@@ -21,7 +21,7 @@ FLOW_URL = "/api/v1/apps/test-flow/manifest"
 REC_T = "/api/v1/apps/test-app/collections/item/records"
 REC_F = "/api/v1/apps/test-flow/collections/doc/records"
 ENTRIES = "/admin/v1/ledger/entries"
-ITEM_KEYS = {"upload_id", "status", "sha256", "reason", "created_at"}
+ITEM_KEYS = {"upload_id", "status", "sha256", "reason", "created_at", "pii"}
 
 
 @pytest.fixture
@@ -154,7 +154,7 @@ async def test_attachments_list_survives_reload(api, owner_a):
     item = r.json()["items"][0]
     assert set(item) == ITEM_KEYS
     assert item["status"] == "STAGING" and item["sha256"] is None and item["reason"] is None
-    assert item["created_at"].endswith("Z")
+    assert item["created_at"].endswith("Z") and item["pii"] is None
 
 
 async def test_attachments_list_after_scan_shows_clean_sha(env, api):

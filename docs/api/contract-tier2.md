@@ -207,11 +207,13 @@ NOT present: attachments list, upload ids, sha256s, filenames, seal_id, creator 
 - Does NOT return record_id, size, filename, timestamps. To rediscover a record's `upload_id`s after a reload use the list in 3.4.
 - Flow: AV scan first (INFECTED), then PDF check (REJECTED), then promote to CAS (CLEAN) (ingest.py:69-128). ClamAV down -> stays STAGING and retried every 30 s (ingest.py:28,86-89).
 
-### 3.3 GET object  `GET /api/v1/objects/{sha256}?variant=original`  (router.py:135-174)
-- `sha256` must be 64 lowercase hex; `variant` default "original" and ONLY `original` exists: any other value (e.g. `redacted`) -> 404 `not-found` (router.py:138).
-- Role: caller must be allowed `read` on at least one record that references this sha with role `original` (router.py:143-155); only CLEAN objects; otherwise 404 (policy.denied logged for the first ref).
+### 3.3 GET object  `GET /api/v1/objects/{sha256}?variant=original|redacted`  (router.py `get_object`; Plan 04 Task 5)
+- `sha256` must be 64 lowercase hex and is **always the sha256 of the original file** (the one the attachment list returns), also for `variant=redacted`; the redacted copy has its own hash that is never a download key. `variant` default "original"; `original` and `redacted` exist, any other value (case-sensitive) -> 404 `not-found`.
+- Role: caller must be allowed `read` on at least one record that references this sha with role `original`; only CLEAN objects; otherwise 404 (policy.denied `read` logged for the first ref).
+- `variant=original` is gated (P4-D4, ruling R17) whenever the record's app manifest has `policies.pii.document_detect` with a supported type (CCCD, PHONE, BANK_ACCOUNT): the caller then also needs `reveal_pii` (`policies.pii.reveal_roles`) on that record's collection, **unless the file's scan is `DONE` with 0 findings**. Findings > 0, `TOO_LARGE`, `FAILED` and "not scanned yet" all fail closed: 404 `not-found` and ledger `policy.denied {action: "reveal_pii", reason: "pii_original"}`. The uploader gets no exception (without `reveal_pii` they cannot download their own original). With several referencing records, any one that passes decides. Collections whose manifest has no supported `document_detect` behave exactly as before (original open to anyone with `read`).
+- `variant=redacted` needs only `read`. It exists only when a redacted copy was made (scan `DONE` with findings > 0 and the copy built); otherwise 404 with no ledger entry. The copy is a PDF with one black-boxed image per page and no text layer, 150 dpi (lowered per page so the image stays within 4000 x 4000 px), page size equal to the displayed page (rotation and CropBox applied), boxes padded by 2 pt, at most 200 pages, no metadata of the original. It is stored as an object `CLEAN` with `scanner_version = 'dxos-redact/1'`, linked from `pii_scans.redacted_sha256` (migration 007) and by `object_refs(role='redacted')` for every record that references the original.
 - 200 body = raw bytes (read via fetch + Blob, since a Bearer header is needed). Headers: `Content-Type: application/pdf` (column `mime_sniffed`, always 'application/pdf' written by ingest.py:114),
-  `X-Content-Type-Options: nosniff`, `Cache-Control: private, no-store`, `Content-Disposition: attachment; filename="<sha256>.pdf"` (router.py:172-174). Each successful read appends ledger `object.read`.
+  `X-Content-Type-Options: nosniff`, `Cache-Control: private, no-store`, `Content-Disposition: attachment; filename="<sha256>.pdf"` (`"<sha256>.redacted.pdf"` for `redacted`). Each successful read appends ledger `object.read` (`{sha256, record_id}`, plus `variant: "redacted"` for the redacted copy).
 - Errors: 404, 500 `integrity-error`, 503 `storage-unavailable`.
 - Note: the attachment sha256s of a record are not exposed on the record; they appear only in (a) upload status of CLEAN uploads, (b) the public seal payload/bundle (`payload.attachments`), never in `GET /seal`.
 
@@ -224,8 +226,10 @@ NOT present: attachments list, upload ids, sha256s, filenames, seal_id, creator 
 AttachmentItem = {"upload_id": "<uuid>", "status": "STAGING"|"CLEAN"|"INFECTED"|"REJECTED",
                   "sha256": "<64 hex>"|null,      // non-null only when CLEAN
                   "reason": string|null,           // non-null only when INFECTED (signature name, may still be null) or REJECTED (code of 3.2)
-                  "created_at": "<iso Z>"}         // same format as record created_at (2.0)
+                  "created_at": "<iso Z>",         // same format as record created_at (2.0)
+                  "pii": null | {"status": "PENDING"|"DONE"|"TOO_LARGE"|"FAILED", "findings": int, "redacted": bool}}
 ```
+  `pii` (Plan 04 Task 5) is non-null only for a `CLEAN` upload in a collection whose active manifest asks for document PII detection (`policies.pii.document_detect` with a supported type); it is `null` for every other upload and for apps that do not ask (the key is always present). `status` is `pii_scans.status` (`DONE`, `TOO_LARGE`: over 200 pages, not scanned, `FAILED`: PDFium/detector error) or `PENDING` when the file has no scan row yet (`findings: 0`, `redacted: false`). `findings` counts `pii_findings` rows (a number split over two pages counts twice). `redacted` is true when `variant=redacted` of 3.3 exists. Values and their hashes are never returned.
   `status`/`sha256`/`reason` follow exactly the rules of 3.2. The original filename is never stored, so it is not returned. `sha256` is what `GET /api/v1/objects/{sha256}` (3.3) takes.
 - Errors: 401, 404.
 
@@ -427,7 +431,7 @@ Workflow: guard-failed(403|409, ext `guard`,`reason`), already-running, no-workf
 Seal: not-sealed(409), invalid-reason-code(422), invalid-note(422). Verify: keys-unavailable(503), kms-unavailable(503, /keys).
 Admin only: ledger-entries 422 reuses `invalid-request` (section 14); manifest-invalid(422, ext `code`), app-version-not-found(404), version-not-newer, install-in-progress, app-version-conflict, deployment-mismatch, app-version-not-pending (409), idp-admin-unavailable(503).
 `guard` values = the literal guard string in the manifest (e.g. `attachments_clean`, `pii_reviewed`, `not_same_actor:creator`, `not_same_actor:duyet_noi_dung`); catalog: attachments_clean, pii_reviewed, not_same_actor, role_in, field_required, record_not_sealed, assignee_is_caller (registry/validator.py:26-29).
-Ledger-only denial reasons (not returned to the client; `read_manifest` is the `action` of the 2.9 denial): no_app_role, admin_no_data_access, not_in_access_list, unknown_collection, not_task_role, not_eraser, not_revoker, not_pii_reviewer, guard:<guard>:<reason>.
+Ledger-only denial reasons (not returned to the client; `read_manifest` is the `action` of the 2.9 denial): no_app_role, admin_no_data_access, not_in_access_list, unknown_collection, not_task_role, not_eraser, not_revoker, not_pii_reviewer, pii_original (action `reveal_pii`, object download of 3.3), guard:<guard>:<reason>.
 
 ---------------------------------------------------------------------------------------------------
 ## 9. SPA deployment: Caddy / Keycloak / APISIX
@@ -508,7 +512,7 @@ e2e/install_apps.sh (installs apps A/B via CLI, four-eyes: DXOS_TOKEN submitter 
 7. PATCH is a raw merge-patch of `data` (null deletes); GET data may be masked -> never write masked values back.
 8. Only `owner` can PATCH/attach/start (default update list). App A reviewers cannot edit.
 9. `GET /records` has no filters and is oldest-first: "my tasks" views must use the tasks inbox; "my records" for owner-only roles is automatic (owner filter), other roles see everything.
-10. Objects: `variant` only `original`; download needs Bearer -> fetch+Blob; `Content-Disposition` filename is `<sha256>.pdf`.
+10. Objects: `variant` is `original` or `redacted` (3.3; `original` is gated by `reveal_pii` for files with PII); download needs Bearer -> fetch+Blob; `Content-Disposition` filename is `<sha256>.pdf`.
 11. verify_url = `/apps/verify/#<seal_id>`; QR must be generated client-side from that string (hash fragment so seal_id is not in server logs).
 12. Public bundle for `require_file:true` apps needs the file hash (POST :bundle) - compute in-browser with `crypto.subtle.digest("SHA-256", await file.arrayBuffer())`, as verify.js:376-380 does.
 13. Rate limit on /verify is 5 req/s per client IP (X-Forwarded-For) burst 10; /api 50 req/s.

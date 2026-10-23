@@ -87,7 +87,8 @@ async def deny(conn: asyncpg.Connection, p: Principal, m: Manifest | str, *, act
 
     ``reason`` theo định dạng thống nhất: ``guard:<guard>:<lý do>``, ``not_task_role``, ``kms_unavailable``,
     ``seal_key_expired``, ``org_not_configured``, ``not_pii_reviewer`` (Task 7/12 thêm ``not_revoker``,
-    ``not_eraser``, ``self_approval``). Bên gọi tự trả mã HTTP.
+    ``not_eraser``, ``self_approval``; Plan 04 Task 5 thêm ``pii_original``: tải bản gốc tệp bị khóa).
+    Bên gọi tự trả mã HTTP.
     ``m`` là manifest hoặc chỉ ``app_id`` (installer từ chối duyệt trước khi kiểm manifest, Task 12).
     Như ``enforce``: phải gọi **ngoài** transaction, nếu không lá có thể bị rollback cùng transaction (F3).
     """

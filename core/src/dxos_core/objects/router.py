@@ -23,6 +23,8 @@ from dxos_core.identity.jwt import Principal
 from dxos_core.ledger.log import append
 from dxos_core.objects.ingest import list_uploads, register_upload, upload_status
 from dxos_core.objects.storage import IntegrityError
+from dxos_core.pii.job import detectable
+from dxos_core.policy import pdp
 from dxos_core.policy.pdp import decide
 from dxos_core.records import service
 from dxos_core.records.router import ctx_dep
@@ -32,6 +34,7 @@ log = logging.getLogger("dxos_core.objects.router")
 router = APIRouter(tags=["objects"])
 _SHA = re.compile(r"^[0-9a-f]{64}$")
 _FORM_OVERHEAD = 64 * 1024
+VARIANTS = ("original", "redacted")
 
 
 def _too_large(limit: int) -> ProblemError:
@@ -119,11 +122,13 @@ async def upload_attachment(app: str, col: str, rid: str, request: Request,
 @router.get("/api/v1/apps/{app}/collections/{col}/records/{rid}/attachments")
 async def list_attachments(app: str, col: str, rid: str, ctx: service.Ctx = Depends(ctx_dep)) -> dict:  # noqa: B008
     """Tệp đính kèm của bản ghi, cũ trước. Quyền như ``GET`` bản ghi (chủ hoặc vai trò ``read``): không có
-    quyền thì cùng một 404 và ``policy.denied``. Chỉ liệt kê trạng thái: không ghi ``field.revealed``."""
+    quyền thì cùng một 404 và ``policy.denied``. Chỉ liệt kê trạng thái: không ghi ``field.revealed``.
+    Mỗi tệp CLEAN của collection có dò PII tài liệu mang thêm ``pii`` (xem ``list_uploads``)."""
     m, _ = await service.load_target(ctx, app, col)
     row = await service.fetch_record(ctx, m, col, rid)
     await service.enforce_or_problem(ctx, "read", m, col, row["owner_sub"], str(row["id"]))
-    return {"items": await list_uploads(ctx.conn, row["id"])}
+    expect_pii = bool(detectable(m.policies.pii.document_detect))
+    return {"items": await list_uploads(ctx.conn, row["id"], expect_pii=expect_pii)}
 
 
 @router.get("/api/v1/uploads/{upload_id}")
@@ -142,10 +147,25 @@ async def get_upload(upload_id: str, ctx: service.Ctx = Depends(ctx_dep)) -> dic
     return upload_status(row)
 
 
+def _original_locked(m, scan: asyncpg.Record | None) -> bool:
+    """Bản gốc có bị khóa sau ``reveal_pii`` không (P4-D4, R17). Chỉ khi manifest đòi dò PII tài liệu bằng
+    loại có bộ dò. Khi đó chỉ tệp **đã dò xong và không có phát hiện** mới mở cho mọi người có ``read``:
+    còn phát hiện, ``TOO_LARGE``, ``FAILED`` hay chưa dò đều khóa (fail-closed)."""
+    if not detectable(m.policies.pii.document_detect):
+        return False
+    return not (scan is not None and scan["status"] == "DONE" and scan["findings"] == 0)
+
+
 @router.get("/api/v1/objects/{sha256}")
 async def get_object(sha256: str, request: Request, variant: str = "original",
                      ctx: service.Ctx = Depends(ctx_dep)) -> Response:  # noqa: B008
-    if not _SHA.fullmatch(sha256) or variant != "original":
+    """Tải tệp CLEAN theo sha256 **của tệp gốc**.
+
+    ``variant=original``: cần ``read`` một bản ghi tham chiếu; nếu collection dò PII tài liệu thì còn cần
+    ``reveal_pii`` trừ khi tệp đã dò xong và không có phát hiện (``_original_locked``), không thì 404 và
+    ``policy.denied`` lý do ``pii_original``. ``variant=redacted``: chỉ cần ``read``; có khi tệp đã có bản che
+    (dò xong có phát hiện), không thì 404. ``variant`` khác: 404."""
+    if not _SHA.fullmatch(sha256) or variant not in VARIANTS:
         raise ProblemError(404, "not-found", "Not Found")
     obj = await ctx.conn.fetchrow("SELECT status, mime_sniffed FROM objects WHERE sha256=$1", sha256)
     if obj is None or obj["status"] != "CLEAN":
@@ -154,31 +174,51 @@ async def get_object(sha256: str, request: Request, variant: str = "original",
         "SELECT r.id, r.app_id, r.collection, r.owner_sub"
         " FROM object_refs o JOIN records r ON r.id = o.record_id"
         " WHERE o.sha256=$1 AND o.role='original' ORDER BY r.created_at", sha256)
+    scan = await ctx.conn.fetchrow(
+        "SELECT status, findings, redacted_sha256 FROM pii_scans WHERE sha256=$1", sha256)
     manifests: dict = {}
     chosen = None
+    locked = None                    # bản ghi đọc được nhưng bản gốc bị khóa vì thiếu reveal_pii
     for ref in refs:
         if ref["app_id"] not in manifests:
             manifests[ref["app_id"]] = await get_active(ctx.conn, ref["app_id"])
         m = manifests[ref["app_id"]]
-        if m and decide(ctx.principal, "read", m, ref["collection"], ref["owner_sub"]).allow:
-            chosen = (ref, m)
-            break
+        if not (m and decide(ctx.principal, "read", m, ref["collection"], ref["owner_sub"]).allow):
+            continue
+        if (variant == "original" and _original_locked(m, scan)
+                and not decide(ctx.principal, "reveal_pii", m, ref["collection"], None).allow):
+            locked = locked or (ref, m)
+            continue
+        chosen = (ref, m)
+        break
     if chosen is None:
+        if locked is not None:      # đọc được bản ghi nhưng không được xem bản gốc: ghi policy.denied rồi 404
+            await pdp.deny(ctx.conn, ctx.principal, locked[1], action="reveal_pii", reason="pii_original",
+                           subject=sha256, hmac_key=ctx.hmac_key)
+            raise ProblemError(404, "not-found", "Not Found")
         first = next(((r, manifests[r["app_id"]]) for r in refs if manifests.get(r["app_id"])), None)
         if first is not None:   # ghi policy.denied rồi trả 404
             ref0, m0 = first
             await service.enforce_or_problem(ctx, "read", m0, ref0["collection"], ref0["owner_sub"], sha256)
         raise ProblemError(404, "not-found", "Not Found")
     ref, m = chosen
+    key = sha256
+    if variant == "redacted":
+        if scan is None or scan["redacted_sha256"] is None:
+            raise ProblemError(404, "not-found", "Not Found")
+        key = scan["redacted_sha256"]
     try:
-        data = await asyncio.to_thread(request.app.state.store.read_object, sha256)
+        data = await asyncio.to_thread(request.app.state.store.read_object, key)
     except IntegrityError as exc:
         raise ProblemError(500, "integrity-error", "Stored object failed its integrity check") from exc
     except (ClientError, BotoCoreError) as exc:
         raise ProblemError(503, "storage-unavailable", "Object storage unavailable") from exc
-    await append(ctx.conn, type="object.read", subject=sha256,
-                 body={"sha256": sha256, "record_id": str(ref["id"])},
+    body = {"sha256": sha256, "record_id": str(ref["id"])}
+    if variant == "redacted":
+        body["variant"] = variant
+    await append(ctx.conn, type="object.read", subject=sha256, body=body,
                  hmac_key=ctx.hmac_key, app_id=m.app.id, actor_sub=ctx.principal.sub)
+    name = sha256 if variant == "original" else f"{sha256}.redacted"
     return Response(content=data, media_type=obj["mime_sniffed"], headers={
         "X-Content-Type-Options": "nosniff", "Cache-Control": "private, no-store",
-        "Content-Disposition": f'attachment; filename="{sha256}.pdf"'})
+        "Content-Disposition": f'attachment; filename="{name}.pdf"'})

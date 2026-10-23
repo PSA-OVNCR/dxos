@@ -18,10 +18,18 @@ ledger ``pii.detected``, rồi đánh dấu việc xong.
 * Không để guard chờ mãi (R16): ``enqueue_missing_scans`` (gọi từ ``:pii-review``) xếp lại việc cho tệp CLEAN
   chưa có hàng ``pii_scans`` và chưa có việc đang chờ/chạy; ``record_failed_scan`` (worker gọi khi việc hết
   lượt thử) ghi ``FAILED`` để bản ghi quay về rà tay.
+* Bản che (Task 5, P4-D5): ``DONE`` có phát hiện thì ``redact_pdf`` dựng PDF chỉ có ảnh; bản che được ghi vào
+  kho CAS trước (idempotent theo sha256), rồi trong **cùng transaction** với ``pii_scans``: hàng ``objects``
+  (CLEAN, ``scanner_version='dxos-redact/1'``), ``pii_scans.redacted_sha256`` và
+  ``object_refs(role='redacted')`` cho mọi bản ghi đang tham chiếu tệp gốc. Hai việc chạy song song cho một
+  tệp: bên thua rollback phần của mình (bản che nằm thừa trong kho nhưng không ai tham chiếu). Dựng bản che
+  lỗi (PDFium) thì vẫn ghi ``DONE`` với các phát hiện, không có ``redacted_sha256``: không ai tải được gì
+  ngoài người có ``reveal_pii``.
 """
 
 import asyncio
 import ctypes
+import hashlib
 import json
 import logging
 import re
@@ -37,12 +45,13 @@ from dxos_core.jobs.queue import Job, complete, enqueue
 from dxos_core.ledger.log import append
 from dxos_core.objects import pdfcheck
 from dxos_core.pii.detect import DETECTABLE, Box, Finding, detect_text
+from dxos_core.pii.redact import MAX_PAGES, redact_pdf
 
 log = logging.getLogger("dxos_core.pii.job")
 
 PII_JOB = "pii_detect"
 DETECTOR = "dxos-pii/1"
-MAX_PAGES = 200
+REDACTOR = "dxos-redact/1"              # ``objects.scanner_version`` của bản che
 PAGE_BREAK = "\f"                       # ký tự ngăn trang trong ``extract`` (không có hộp)
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _SCALE = 1000                           # FPDF_PageToDevice trả số nguyên: nhân 1000 để giữ 0,001 pt
@@ -170,6 +179,20 @@ def _scan(data: bytes, types: Sequence[str]) -> tuple[str, list[Finding]]:
     return "DONE", findings
 
 
+def _redact(data: bytes, findings: Sequence[Finding]) -> bytes | None:
+    """Bản che của ``data`` hoặc None nếu dựng lỗi (chạy trong thread). Lỗi do chính tệp là tất định, thử
+    lại không giúp gì; chỉ ghi tên lớp lỗi, không ghi nội dung."""
+    try:
+        return redact_pdf(data, findings)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("không dựng được bản che (%s); giữ khóa bản gốc", type(exc).__name__)
+        return None
+
+
+class _LostRace(Exception):
+    """Việc khác đã ghi ``pii_scans`` của tệp này trước: rollback phần ghi bản che của việc này."""
+
+
 def _bbox_json(finding: Finding) -> str:
     return json.dumps([[round(b.left, 3), round(b.bottom, 3), round(b.right, 3), round(b.top, 3)]
                        for b in finding.boxes])
@@ -191,20 +214,44 @@ async def process_pii_job(ctx: WorkerContext, job: Job) -> None:
         raise ValueError("pii_detect: object không tồn tại hoặc không CLEAN")
     data = await asyncio.to_thread(ctx.store.read_object, sha)
     scan_status, findings = await asyncio.to_thread(_scan, data, types)
-    async with ctx.pool.acquire() as conn, conn.transaction():
-        inserted = await conn.fetchval(
-            "INSERT INTO pii_scans(sha256, status, findings, detector) VALUES ($1, $2, $3, $4)"
-            " ON CONFLICT (sha256) DO NOTHING RETURNING sha256",
-            sha, scan_status, len(findings), DETECTOR)
-        if inserted is not None:
-            await conn.executemany(
-                "INSERT INTO pii_findings(sha256, type, page, bbox) VALUES ($1, $2, $3, $4::jsonb)",
-                [(sha, f.type, f.page, _bbox_json(f)) for f in findings])
-            if scan_status == "DONE":
-                await append(conn, type="pii.detected", subject=sha, hmac_key=ctx.hmac_key,
-                             body={"sha256": sha, "counts": dict(Counter(f.type for f in findings)),
-                                   "detector": DETECTOR})
-        await complete(conn, job.id)
+    redacted = None
+    if scan_status == "DONE" and findings:
+        redacted = await asyncio.to_thread(_redact, data, findings)
+    redacted_sha = hashlib.sha256(redacted).hexdigest() if redacted is not None else None
+    if redacted is not None:
+        await asyncio.to_thread(ctx.store.put_object, redacted_sha, redacted)
+    async with ctx.pool.acquire() as conn:
+        try:
+            async with conn.transaction():
+                if redacted_sha is not None:          # trước pii_scans: redacted_sha256 là khóa ngoại
+                    await conn.execute(
+                        "INSERT INTO objects(sha256, size, mime_sniffed, status, scanner_version, scanned_at,"
+                        " storage_key) VALUES ($1, $2, 'application/pdf', 'CLEAN', $3, now(), $4)"
+                        " ON CONFLICT (sha256) DO NOTHING",
+                        redacted_sha, len(redacted), REDACTOR,
+                        f"{ctx.settings.s3_bucket_objects}/{redacted_sha}")
+                inserted = await conn.fetchval(
+                    "INSERT INTO pii_scans(sha256, status, findings, detector, redacted_sha256)"
+                    " VALUES ($1, $2, $3, $4, $5) ON CONFLICT (sha256) DO NOTHING RETURNING sha256",
+                    sha, scan_status, len(findings), DETECTOR, redacted_sha)
+                if inserted is None:
+                    raise _LostRace
+                await conn.executemany(
+                    "INSERT INTO pii_findings(sha256, type, page, bbox) VALUES ($1, $2, $3, $4::jsonb)",
+                    [(sha, f.type, f.page, _bbox_json(f)) for f in findings])
+                if redacted_sha is not None:
+                    await conn.execute(
+                        "INSERT INTO object_refs(record_id, sha256, role)"
+                        " SELECT record_id, $1::text::sha256_hex, 'redacted' FROM object_refs"
+                        " WHERE sha256 = $2::text::sha256_hex AND role = 'original' ON CONFLICT DO NOTHING",
+                        redacted_sha, sha)
+                if scan_status == "DONE":
+                    await append(conn, type="pii.detected", subject=sha, hmac_key=ctx.hmac_key,
+                                 body={"sha256": sha, "counts": dict(Counter(f.type for f in findings)),
+                                       "detector": DETECTOR})
+                await complete(conn, job.id)
+        except _LostRace:
+            await complete(conn, job.id)
 
 
 async def enqueue_missing_scans(conn: asyncpg.Connection, shas: Iterable[str], types: Collection[str]) -> int:

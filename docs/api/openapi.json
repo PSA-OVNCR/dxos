@@ -724,7 +724,7 @@
     },
     "/api/v1/apps/{app}/collections/{col}/records/{rid}/attachments": {
       "get": {
-        "description": "Tệp đính kèm của bản ghi, cũ trước. Quyền như ``GET`` bản ghi (chủ hoặc vai trò ``read``): không có\nquyền thì cùng một 404 và ``policy.denied``. Chỉ liệt kê trạng thái: không ghi ``field.revealed``.",
+        "description": "Tệp đính kèm của bản ghi, cũ trước. Quyền như ``GET`` bản ghi (chủ hoặc vai trò ``read``): không có\nquyền thì cùng một 404 và ``policy.denied``. Chỉ liệt kê trạng thái: không ghi ``field.revealed``.\nMỗi tệp CLEAN của collection có dò PII tài liệu mang thêm ``pii`` (xem ``list_uploads``).",
         "operationId": "list_attachments_api_v1_apps__app__collections__col__records__rid__attachments_get",
         "parameters": [
           {
@@ -1415,6 +1415,7 @@
     },
     "/api/v1/objects/{sha256}": {
       "get": {
+        "description": "Tải tệp CLEAN theo sha256 **của tệp gốc**.\n\n``variant=original``: cần ``read`` một bản ghi tham chiếu; nếu collection dò PII tài liệu thì còn cần\n``reveal_pii`` trừ khi tệp đã dò xong và không có phát hiện (``_original_locked``), không thì 404 và\n``policy.denied`` lý do ``pii_original``. ``variant=redacted``: chỉ cần ``read``; có khi tệp đã có bản che\n(dò xong có phát hiện), không thì 404. ``variant`` khác: 404.",
         "operationId": "get_object_api_v1_objects__sha256__get",
         "parameters": [
           {

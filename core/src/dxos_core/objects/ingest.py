@@ -120,6 +120,11 @@ async def process_scan_job(ctx: WorkerContext, job: Job) -> None:
                 "INSERT INTO object_refs(record_id, sha256, role) VALUES ($1, $2, 'original')"
                 " ON CONFLICT DO NOTHING",
                 up["record_id"], sha)
+            await conn.execute(      # tệp đã có bản che (CAS): bản ghi mới dùng chung bản che đó
+                "INSERT INTO object_refs(record_id, sha256, role)"
+                " SELECT $1, redacted_sha256, 'redacted' FROM pii_scans"
+                " WHERE sha256 = $2 AND redacted_sha256 IS NOT NULL ON CONFLICT DO NOTHING",
+                up["record_id"], sha)
             await conn.execute("UPDATE uploads SET status='CLEAN', sha256=$2, updated_at=now() WHERE id=$1",
                                upload_id, sha)
             await _enqueue_pii_scan(conn, up["app_id"], sha)
@@ -158,15 +163,27 @@ def upload_status(row: asyncpg.Record) -> dict:
     return out
 
 
-async def list_uploads(conn: asyncpg.Connection, record_id: uuid.UUID) -> list[dict]:
+async def list_uploads(conn: asyncpg.Connection, record_id: uuid.UUID, *,
+                       expect_pii: bool = False) -> list[dict]:
     """Mọi upload của một bản ghi, cũ trước. ``sha256`` chỉ có khi CLEAN, ``reason`` chỉ khi INFECTED/REJECTED
-    (đúng như ``upload_status``); không trả tên tệp (chỉ lưu hash), kích thước hay khóa lưu trữ."""
+    (đúng như ``upload_status``); không trả tên tệp (chỉ lưu hash), kích thước hay khóa lưu trữ.
+
+    ``pii`` (Plan 04 Task 5): ``{"status", "findings", "redacted"}`` cho upload CLEAN **khi collection đòi dò
+    PII tài liệu** (``expect_pii``); ``status`` là ``DONE``/``TOO_LARGE``/``FAILED`` theo ``pii_scans``, hoặc
+    ``PENDING`` khi chưa có hàng nào; ``redacted`` là có bản che để tải (``variant=redacted``). Mọi trường hợp
+    khác (chưa CLEAN, collection không dò) thì ``pii`` là ``null``."""
     rows = await conn.fetch(
-        "SELECT id, status, sha256, reason, created_at FROM uploads WHERE record_id=$1"
-        " ORDER BY created_at, id", record_id)
+        "SELECT u.id, u.status, u.sha256, u.reason, u.created_at, s.status AS scan_status, s.findings,"
+        " s.redacted_sha256 IS NOT NULL AS redacted"
+        " FROM uploads u LEFT JOIN pii_scans s ON s.sha256 = u.sha256 WHERE u.record_id=$1"
+        " ORDER BY u.created_at, u.id", record_id)
     out = []
     for row in rows:
         s = upload_status(row)
+        pii = None
+        if expect_pii and row["status"] == "CLEAN":
+            pii = ({"status": "PENDING", "findings": 0, "redacted": False} if row["scan_status"] is None else
+                   {"status": row["scan_status"], "findings": row["findings"], "redacted": row["redacted"]})
         out.append({"upload_id": str(row["id"]), "status": s["status"], "sha256": s.get("sha256"),
-                    "reason": s.get("reason"), "created_at": _ts(row["created_at"])})
+                    "reason": s.get("reason"), "created_at": _ts(row["created_at"]), "pii": pii})
     return out

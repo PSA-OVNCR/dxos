@@ -121,6 +121,16 @@ class ObjectStore:
         if delete_staging:
             self.delete_staging(upload_id)
 
+    def put_object(self, sha256: str, data: bytes) -> bool:
+        """Ghi thẳng một object vào CAS (bản che do lõi tự dựng, không qua staging). Idempotent: đã có object
+        cùng sha256 thì trả False và **không ghi đè**. ``data`` phải khớp ``sha256``."""
+        if hashlib.sha256(data).hexdigest() != sha256:
+            raise IntegrityError("data không khớp sha256")
+        if self.exists(self.objects, sha256):
+            return False
+        self.put_raw(self.objects, sha256, data)
+        return True
+
     def read_object(self, sha256: str) -> bytes:
         data = self.get_raw(self.objects, sha256)
         if hashlib.sha256(data).hexdigest() != sha256:

@@ -242,6 +242,7 @@ Ghi bởi `pdp.deny` (từ chối ngoài bảng quyền, Plan 02):
 | `not_pii_reviewer` | `pii_review` | người gọi không thuộc `pii.reveal_roles` | 404 |
 | `not_revoker` | `revoke` | người gọi không thuộc `seal.revoke_roles` của bản đã niêm phong | 404 |
 | `not_eraser` | `erase_pii` | người gọi không thuộc `pii.erase_roles` của bản ACTIVE | 404 |
+| `pii_original` | `reveal_pii` | `GET /api/v1/objects/{sha256}` (bản gốc) từ người đọc được bản ghi nhưng không thuộc `pii.reveal_roles`, khi collection dò PII tài liệu (`document_detect`) và tệp có phát hiện, quá lớn (`TOO_LARGE`), dò lỗi (`FAILED`) hoặc chưa dò xong | 404 `not-found` |
 | `self_approval` | `approve` | người duyệt app là người nộp (bốn mắt) | 403 `forbidden`, kèm `reason: self_approval` |
 | `no_app_role` | `list_tasks` | người gọi không có role nào của app | 403 `forbidden` |
 | `admin_no_data_access` | `list_tasks` | người gọi là `dxos-admin` nhưng không có role của app (admin không mặc nhiên đọc dữ liệu app) | 403 `forbidden` |
@@ -257,7 +258,7 @@ tại), `list`/`create` trả 403:
 | `unknown_collection` | `list`, `read`, `create`, `update` | collection không có trong manifest |
 | `not_in_access_list` | `list`, `read`, `create`, `update` | role của người gọi không có trong `access`, và không phải chủ bản ghi khi `owner` được phép |
 
-`reveal_pii` chỉ được hỏi (`decide`), không ghi `policy.denied`: người không thuộc `reveal_roles` nhận bản che.
+`reveal_pii` ở các chỗ khác chỉ được hỏi (`decide`) và không ghi `policy.denied`; riêng tải bản gốc của tệp bị khóa thì ghi `pii_original` (bảng trên). Người không thuộc `reveal_roles` nhận bản che (`variant=redacted`), không nhận bản gốc.
 
 ### Problem type (`type` của lỗi)
 

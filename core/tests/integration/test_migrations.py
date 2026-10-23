@@ -33,7 +33,7 @@ async def test_migrations_idempotent(owner_dsn):
     first = await apply_migrations(owner_dsn, MIGRATIONS)
     second = await apply_migrations(owner_dsn, MIGRATIONS)
     assert first == ["001_core.sql", "002_anchors.sql", "003_workflow_seal.sql", "004_harden_triggers.sql",
-                     "005_ots.sql", "006_pii_scans.sql"]
+                     "005_ots.sql", "006_pii_scans.sql", "007_pii_redacted.sql"]
     assert second == []
 
 
@@ -185,7 +185,7 @@ async def test_core_role_cannot_create_objects_in_schema(core_conn):
 
 
 async def test_core_role_cannot_touch_schema_migrations(core_conn):
-    assert await core_conn.fetchval("SELECT count(*) FROM schema_migrations") == 6
+    assert await core_conn.fetchval("SELECT count(*) FROM schema_migrations") == 7
     with pytest.raises(asyncpg.InsufficientPrivilegeError):
         await core_conn.execute("DELETE FROM schema_migrations")
 
@@ -232,7 +232,8 @@ async def test_failed_migration_rolls_back_and_is_not_recorded(owner_dsn, tmp_pa
         applied = await conn.fetchval(
             "SELECT array_agg(filename ORDER BY filename) FROM core.schema_migrations")
         assert applied == ["001_core.sql", "002_anchors.sql", "003_workflow_seal.sql",
-                           "004_harden_triggers.sql", "005_ots.sql", "006_pii_scans.sql"]
+                           "004_harden_triggers.sql", "005_ots.sql", "006_pii_scans.sql",
+                           "007_pii_redacted.sql"]
         assert await conn.fetchval("SELECT to_regclass('core.ok_then_fail')") is None
     finally:
         await conn.close()
@@ -257,7 +258,8 @@ async def test_apply_until_stops_at_prefix(owner_dsn):
     assert await apply_migrations(owner_dsn, MIGRATIONS, until="001") == ["001_core.sql"]
     assert await apply_migrations(owner_dsn, MIGRATIONS, until="002") == ["002_anchors.sql"]
     assert await apply_migrations(owner_dsn, MIGRATIONS) == [
-        "003_workflow_seal.sql", "004_harden_triggers.sql", "005_ots.sql", "006_pii_scans.sql"]
+        "003_workflow_seal.sql", "004_harden_triggers.sql", "005_ots.sql", "006_pii_scans.sql",
+        "007_pii_redacted.sql"]
 
 
 async def test_apply_until_unknown_prefix_rejected(owner_dsn):
@@ -751,3 +753,22 @@ async def test_pii_scans_grants_and_constraints(core_conn):
     for stmt in ("UPDATE pii_scans SET findings = 5", "DELETE FROM pii_scans"):
         with pytest.raises(asyncpg.InsufficientPrivilegeError):
             await core_conn.execute(stmt)
+
+
+async def test_pii_scans_redacted_link_constraints(core_conn):
+    """007: liên kết tới bản che chỉ hợp lệ với hàng DONE có phát hiện và phải trỏ tới object có thật."""
+    insert = ("INSERT INTO pii_scans(sha256, status, findings, detector, redacted_sha256)"
+              " VALUES ($1, $2, $3, 'd', $4)")
+    obj = ("INSERT INTO objects(sha256, size, mime_sniffed, status, storage_key)"
+           " VALUES ($1, 1, 'application/pdf', 'CLEAN', $2)")
+    for sha in ("a", "b", "c", "d"):
+        await core_conn.execute(obj, sha * 64, "k" + sha)
+    for status, findings in (("DONE", 0), ("TOO_LARGE", 0), ("FAILED", 0)):
+        with pytest.raises(asyncpg.CheckViolationError):
+            await core_conn.execute(insert, "a" * 64, status, findings, "b" * 64)
+    with pytest.raises(asyncpg.ForeignKeyViolationError):
+        await core_conn.execute(insert, "a" * 64, "DONE", 2, "e" * 64)
+    await core_conn.execute(insert, "a" * 64, "DONE", 2, "b" * 64)
+    await core_conn.execute(insert, "c" * 64, "DONE", 0, None)
+    linked = await core_conn.fetchval("SELECT redacted_sha256 FROM pii_scans WHERE sha256=$1", "a" * 64)
+    assert linked == "b" * 64

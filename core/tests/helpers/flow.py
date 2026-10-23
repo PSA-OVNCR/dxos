@@ -51,8 +51,8 @@ _GUARD_REASONS = ("same_actor", "role_not_allowed", "field_missing", "attachment
                   "pii_not_reviewed", "record_sealed", "not_assignee")
 _PLAIN_REASONS = ("not_task_role", "kms_unavailable", "seal_key_expired", "key_statement_invalid",
                   "org_not_configured",
-                  "not_pii_reviewer", "no_app_role", "admin_no_data_access", "not_in_access_list",
-                  "not_revoker", "not_eraser")
+                  "not_pii_reviewer", "pii_original", "no_app_role", "admin_no_data_access",
+                  "not_in_access_list", "not_revoker", "not_eraser")
 # Bảng không có cột record_id: đếm qua seals.
 _VIA_SEAL = frozenset({"seal_revocations", "seal_revocation_notes"})
 
