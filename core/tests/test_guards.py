@@ -159,3 +159,60 @@ def test_review_digest_matches_documented_formula():
     expected = sha256_hex(canonical_bytes({"data_digest": "d" * 64, "attachments": ["a" * 64, "b" * 64],
                                            "findings": [1, 2]}))
     assert review_digest("d" * 64, ["b" * 64, "a" * 64], [2, 1]) == expected
+
+
+# ---------------------------------------------------------------- chờ việc dò PII (Plan 04 Task 4, S1)
+def _scanning(**over) -> GuardInput:
+    return replace(BASE, pii_required=True, scan_expected=True, **over)
+
+
+def test_pii_reviewed_waits_for_scan_before_anything_else():
+    gi = _scanning(last_review_digest=review_digest(BASE.data_digest, BASE.clean_attachments, ()))
+    assert evaluate(["pii_reviewed"], gi) == GuardFailure("pii_reviewed", "pii_scan_pending", 409)
+    assert evaluate(["pii_reviewed"], _scanning()) == GuardFailure("pii_reviewed", "pii_scan_pending", 409)
+
+
+def test_pii_reviewed_waits_while_any_file_is_unscanned():
+    two = ("a" * 64, "b" * 64)
+    gi = _scanning(clean_attachments=two, scans=(("a" * 64, "DONE"),))
+    assert evaluate(["pii_reviewed"], gi).reason == "pii_scan_pending"
+    done = replace(gi, scans=(("a" * 64, "DONE"), ("b" * 64, "DONE")))
+    assert evaluate(["pii_reviewed"], done).reason == "pii_not_reviewed"
+
+
+def test_scan_pending_only_when_manifest_expects_a_scan():
+    gi = replace(BASE, pii_required=True, scan_expected=False)           # app không dò PII trong tệp
+    assert evaluate(["pii_reviewed"], gi).reason == "pii_not_reviewed"
+    # collection không có tệp CLEAN thì không có gì phải chờ
+    assert evaluate(["pii_reviewed"], _scanning(clean_attachments=())).reason == "pii_not_reviewed"
+
+
+@pytest.mark.parametrize("status", ["DONE", "TOO_LARGE", "FAILED"])
+def test_every_scan_status_still_needs_a_review_made_after_the_scan(status):
+    scans = (("a" * 64, status),)
+    before = review_digest(BASE.data_digest, BASE.clean_attachments, ())     # làm khi chưa có hàng pii_scans
+    after = review_digest(BASE.data_digest, BASE.clean_attachments, (), scans)
+    assert before != after
+    assert evaluate(["pii_reviewed"], _scanning(scans=scans, last_review_digest=before)).reason == (
+        "pii_not_reviewed")
+    assert evaluate(["pii_reviewed"], _scanning(scans=scans, last_review_digest=after)) is None
+
+
+def test_scan_status_change_invalidates_review():
+    done = review_digest("d" * 64, ["a" * 64], [], [("a" * 64, "DONE")])
+    assert review_digest("d" * 64, ["a" * 64], [], [("a" * 64, "FAILED")]) != done
+    assert review_digest("d" * 64, ["a" * 64], [], [("a" * 64, "TOO_LARGE")]) != done
+
+
+def test_review_digest_without_scans_keeps_the_original_formula():
+    from dxos_proof.canonical import canonical_bytes, sha256_hex
+    expected = sha256_hex(canonical_bytes(
+        {"data_digest": "d" * 64, "attachments": ["a" * 64], "findings": [1]}))
+    assert review_digest("d" * 64, ["a" * 64], [1], ()) == expected
+    assert review_digest("d" * 64, ["a" * 64], [1]) == expected
+
+
+def test_review_digest_scans_order_insensitive():
+    a, b = ("a" * 64, "DONE"), ("b" * 64, "FAILED")
+    assert review_digest("d" * 64, ["a" * 64, "b" * 64], [], [a, b]) == review_digest(
+        "d" * 64, ["b" * 64, "a" * 64], [], [b, a])

@@ -22,6 +22,7 @@ import asyncpg
 from dxos_proof.canonical import canonical_bytes, sha256_hex
 
 from dxos_core.identity.jwt import Principal, app_roles
+from dxos_core.pii.job import detectable
 from dxos_core.records.digest import data_digest, ensure_salt
 from dxos_core.registry.model import CollectionSpec, Manifest
 from dxos_core.registry.validator import GUARD_CATALOG, parse_role_list, split_guard
@@ -43,6 +44,9 @@ class GuardInput:
     finding_ids: tuple[int, ...]            # id pii_findings của các tệp CLEAN hiện tại, đã sắp xếp
     last_review_digest: str | None          # review_digest của pii_reviews mới nhất của bản ghi
     data_digest: str                        # data_digest(data, salt của bản ghi), có salt (P2-D22)
+    # Plan 04 Task 4 (S1): chờ việc nền pii_detect. Có giá trị mặc định để GuardInput dựng tay vẫn hợp lệ.
+    scan_expected: bool = False             # manifest có document_detect với loại bộ dò hỗ trợ
+    scans: tuple[tuple[str, str], ...] = ()  # (sha256, status) của pii_scans cho các tệp CLEAN, đã sắp xếp
 
 
 @dataclass(frozen=True)
@@ -52,17 +56,26 @@ class GuardFailure:
     status: int                             # 403 hoặc 409
 
 
-def review_digest(data_digest: str, clean_attachments: Sequence[str], finding_ids: Sequence[int]) -> str:
-    """Cam kết của lần rà PII: dữ liệu + tệp CLEAN + phát hiện, không phụ thuộc thứ tự đầu vào.
+def review_digest(data_digest: str, clean_attachments: Sequence[str], finding_ids: Sequence[int],
+                  scans: Sequence[tuple[str, str]] = ()) -> str:
+    """Cam kết của lần rà PII: dữ liệu + tệp CLEAN + phát hiện (+ trạng thái dò), không phụ thuộc thứ tự.
 
     ``data_digest`` là bản có salt (P2-D22): ``pii_reviews`` là bảng chỉ thêm, không được giữ cam kết
     không salt.
+
+    ``scans`` là ``(sha256, status)`` của ``pii_scans`` (Plan 04 Task 4). Khóa ``scans`` chỉ có mặt khi có ít
+    nhất một lần dò, nên công thức cũ không đổi với app không dò PII trong tệp. Nhờ đó xác nhận làm khi việc
+    dò chưa xong (chưa có hàng) không thể khớp sau khi dò xong, kể cả khi kết quả là ``TOO_LARGE``, ``FAILED``
+    hay ``DONE`` không phát hiện nào (``finding_ids`` không đổi trong các trường hợp ấy).
     """
-    return sha256_hex(canonical_bytes({
+    body: dict[str, Any] = {
         "data_digest": data_digest,
         "attachments": sorted(clean_attachments),
         "findings": sorted(finding_ids),
-    }))
+    }
+    if scans:
+        body["scans"] = sorted(f"{sha}:{status}" for sha, status in scans)
+    return sha256_hex(canonical_bytes(body))
 
 
 def _fail(guard: str, reason: str, status: int) -> GuardFailure:
@@ -100,7 +113,10 @@ def _check(guard: str, gi: GuardInput) -> GuardFailure | None:
     if name == "pii_reviewed":
         if not gi.pii_required:
             return None
-        want = review_digest(gi.data_digest, gi.clean_attachments, gi.finding_ids)
+        # Việc dò chưa xong thì chưa rà được: báo chờ, không báo "chưa rà" (người rà làm lại sau).
+        if gi.scan_expected and not {sha for sha, _ in gi.scans} >= set(gi.clean_attachments):
+            return _fail(guard, "pii_scan_pending", 409)
+        want = review_digest(gi.data_digest, gi.clean_attachments, gi.finding_ids, gi.scans)
         return None if gi.last_review_digest == want else _fail(guard, "pii_not_reviewed", 409)
     if name == "record_not_sealed":
         return None if gi.seal_state == "NONE" else _fail(guard, "record_sealed", 409)
@@ -141,6 +157,12 @@ async def load_guard_input(conn: asyncpg.Connection, *, record: asyncpg.Record, 
     clean = tuple(r["sha256"] for r in await conn.fetch(
         "SELECT r.sha256 FROM core.object_refs r JOIN core.objects o ON o.sha256 = r.sha256"
         " WHERE r.record_id=$1 AND r.role='original' AND o.status='CLEAN' ORDER BY r.sha256", record_id))
+    # Đọc pii_scans TRƯỚC pii_findings: việc nền ghi cả hai trong một transaction, nên thấy hàng scans thì
+    # chắc chắn thấy đủ findings của nó. Chiều ngược lại (thấy findings, chưa thấy scans) chỉ làm guard báo
+    # chờ hoặc đòi rà lại, không bao giờ cho qua nhầm.
+    scans = tuple((r["sha256"], r["status"]) for r in await conn.fetch(
+        "SELECT sha256::text AS sha256, status FROM core.pii_scans WHERE sha256::text = ANY($1::text[])"
+        " ORDER BY sha256", list(clean)))
     findings = tuple(r["id"] for r in await conn.fetch(
         "SELECT id FROM core.pii_findings WHERE sha256::text = ANY($1::text[]) ORDER BY id", list(clean)))
     last_review = await conn.fetchval(
@@ -168,4 +190,6 @@ async def load_guard_input(conn: asyncpg.Connection, *, record: asyncpg.Record, 
         finding_ids=findings,
         last_review_digest=last_review,
         data_digest=data_digest(data, salt),
+        scan_expected=bool(detectable(m.policies.pii.document_detect)),
+        scans=scans,
     )

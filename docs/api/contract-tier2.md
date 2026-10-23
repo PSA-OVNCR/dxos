@@ -265,7 +265,7 @@ Workflow engine absent/unreachable -> 503 `workflow-unavailable` on all of these
   - 422 `invalid-decision` / `invalid-comment`.
   - 403 or 409 `guard-failed` with extensions `{"guard": "<guard string from manifest, e.g. not_same_actor:creator>", "reason": "<code>"}` (service.py:77-78). Guard->(reason,status) table (guards.py:72-110):
     `not_same_actor:<creator|task_key>` -> same_actor 403; `role_in:[..]` -> role_not_allowed 403; `assignee_is_caller` -> not_assignee 403; `field_required:<f>` -> field_missing 409;
-    `attachments_clean` -> attachments_not_clean 409; `pii_reviewed` -> pii_not_reviewed 409; `record_not_sealed` -> record_sealed 409. Guards are evaluated for `reject` too.
+    `attachments_clean` -> attachments_not_clean 409; `pii_reviewed` -> pii_scan_pending 409 (a CLEAN file has no `pii_scans` row yet; retry after the background scan) or pii_not_reviewed 409; `record_not_sealed` -> record_sealed 409. Guards are evaluated for `reject` too.
     App A guards: duyet_noi_dung=[attachments_clean, not_same_actor:creator]; ban_hanh=[attachments_clean, pii_reviewed, not_same_actor:creator, not_same_actor:duyet_noi_dung]. App B: phe_duyet=[not_same_actor:creator].
     A guard that fails only after Flowable ran returns 409 `guard-failed` and the record ends in `wf_state "ended:guard_failed"` (reconcile.py:313).
   - 503 `kms-unavailable` | `key-statement-invalid` | `seal-key-expired` | `org-not-configured` (R-1 pre-check before the sealing task; wf/service.py:217-241).
@@ -273,9 +273,10 @@ Workflow engine absent/unreachable -> 503 `workflow-unavailable` on all of these
 
 ### 4.4 POST :pii-review  `POST .../collections/{col}/records/{rid}:pii-review`  (wf/router.py:59-62; wf/service.py:397-428)
 - Role: can `read` the record AND role in `policies.pii.reveal_roles` (App A: giam_doc, van_thu); else ledger denied `not_pii_reviewer` + 404. If-Match required, no body.
-- Records a review digest over (data digest, CLEAN attachment shas, PII findings). Works while the workflow is running (version+1, data unchanged). 200 + new ETag + Record (masked).
+- Records a review digest over (data digest, CLEAN attachment shas, PII findings, and the `pii_scans` state `sha256:status` of those files when any exists). Works while the workflow is running (version+1, data unchanged), also while a scan is still pending. 200 + new ETag + Record (masked).
 - Errors: 409 `record-sealed`, 409 `version-conflict`, 404. After ANY data/attachment change the review is stale and `pii_reviewed` guard fails again (guards.py:100-104).
 - Required before App A `ban_hanh` completes (guard `pii_reviewed`); only applies when the collection has `pii` fields or `policies.pii.document_detect` (guards.py:154).
+- Scan wait (Plan 04 Task 4): when the active manifest has `policies.pii.document_detect` with a supported type (CCCD, PHONE, BANK_ACCOUNT; EMAIL and NAME have no detector yet), every CLEAN upload queues a background `pii_detect` job in the same transaction as `object.clean`. Until that job has written the file's `pii_scans` row the guard `pii_reviewed` fails with 409 `guard-failed`, `reason: "pii_scan_pending"` (before `pii_not_reviewed`). A review made while the scan was pending is stale once the scan finishes: the reviewer must call `:pii-review` again. `pii_scans.status` is `DONE`, `TOO_LARGE` (over 200 pages, not scanned) or `FAILED` (PDFium or detector error); the last two count as "has findings, review required" and also change the review digest. Findings (`pii_findings`: type, 1-based page, boxes in displayed-page points, no value and no hash) and the ledger event `pii.detected` (`sha256`, counts by type, `detector`) are written in the same transaction as the `pii_scans` row.
 
 ---------------------------------------------------------------------------------------------------
 ## 5. Seal (authenticated)  (S/seal/router.py, service.py)

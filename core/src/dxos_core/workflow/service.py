@@ -416,7 +416,7 @@ async def pii_review(ctx: Ctx, app: str, col: str, rid: str, if_match: str | Non
         check(row)
         gi = await guards.load_guard_input(ctx.conn, record=row, spec=spec, m=m, p=ctx.principal,
                                            task_assignee=None)
-        digest = guards.review_digest(gi.data_digest, gi.clean_attachments, gi.finding_ids)
+        digest = guards.review_digest(gi.data_digest, gi.clean_attachments, gi.finding_ids, gi.scans)
         await ctx.conn.execute(
             "INSERT INTO core.pii_reviews(record_id, review_digest, reviewed_by) VALUES ($1, $2, $3)",
             row["id"], digest, ctx.principal.sub)

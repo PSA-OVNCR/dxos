@@ -21,6 +21,7 @@ from dxos_core.jobs.queue import Job, complete, enqueue, retry_later
 from dxos_core.ledger.log import append
 from dxos_core.objects.clamd import ScannerUnavailable, clamd_version, instream_scan
 from dxos_core.objects.pdfcheck import check_pdf
+from dxos_core.pii.job import PII_JOB, detectable
 from dxos_core.records.service import _ts
 from dxos_core.registry.store import get_active
 
@@ -121,12 +122,23 @@ async def process_scan_job(ctx: WorkerContext, job: Job) -> None:
                 up["record_id"], sha)
             await conn.execute("UPDATE uploads SET status='CLEAN', sha256=$2, updated_at=now() WHERE id=$1",
                                upload_id, sha)
+            await _enqueue_pii_scan(conn, up["app_id"], sha)
             await append(conn, type="object.clean", subject=str(upload_id),
                          body={"upload_id": str(upload_id), "sha256": sha, "size": len(data),
                                "record_id": str(up["record_id"])},
                          hmac_key=ctx.hmac_key, app_id=up["app_id"])
             await complete(conn, job.id)
         await _drop_staging(ctx, upload_id)
+
+
+async def _enqueue_pii_scan(conn: asyncpg.Connection, app_id: str, sha: str) -> None:
+    """Xếp việc ``pii_detect`` cùng transaction với ``object.clean`` (S1), nếu manifest đang hoạt động của app
+    khai ``policies.pii.document_detect`` có loại bộ dò hỗ trợ và tệp này chưa được dò (CAS: cùng nội dung
+    đến từ upload khác thì không dò lại)."""
+    m = await get_active(conn, app_id)
+    types = detectable(m.policies.pii.document_detect) if m else []
+    if types and not await conn.fetchval("SELECT 1 FROM pii_scans WHERE sha256=$1", sha):
+        await enqueue(conn, PII_JOB, {"sha256": sha, "types": types})
 
 
 async def _drop_staging(ctx: WorkerContext, upload_id: uuid.UUID) -> None:

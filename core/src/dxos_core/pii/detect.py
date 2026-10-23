@@ -57,7 +57,8 @@ from typing import Literal
 
 # Khác ``registry.model.PiiType`` (có thêm EMAIL, NAME): bộ dò chỉ hỗ trợ ba loại số này.
 PiiType = Literal["CCCD", "PHONE", "BANK_ACCOUNT"]
-_SUPPORTED: frozenset[str] = frozenset({"CCCD", "PHONE", "BANK_ACCOUNT"})
+DETECTABLE: tuple[PiiType, ...] = ("CCCD", "PHONE", "BANK_ACCOUNT")
+_SUPPORTED: frozenset[str] = frozenset(DETECTABLE)
 
 _KEYWORD_MAX_GAP = 30
 _KEYWORD_LOOKBACK = _KEYWORD_MAX_GAP + 40

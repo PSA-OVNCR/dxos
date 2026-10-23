@@ -69,7 +69,7 @@ Guard là kiểm tra **chung** do lõi cài sẵn (spec 9.3); manifest chỉ tha
 | Guard | Tham số | Đạt khi | Lý do khi trượt | Mã |
 |---|---|---|---|---|
 | `attachments_clean` | không | không còn upload `STAGING` của bản ghi, và số tệp `CLEAN` ≥ `attachments.min` | `attachments_not_clean` | 409 (AT-08) |
-| `pii_reviewed` | không | collection không có trường `pii` và không có `document_detect`, hoặc xác nhận rà PII mới nhất khớp đúng tập hiện tại (dữ liệu, tệp `CLEAN`, `pii_findings`) | `pii_not_reviewed` | 409 |
+| `pii_reviewed` | không | collection không có trường `pii` và không có `document_detect`, hoặc xác nhận rà PII mới nhất khớp đúng tập hiện tại (dữ liệu, tệp `CLEAN`, `pii_findings`, trạng thái dò `pii_scans`) | `pii_scan_pending` khi tệp `CLEAN` chưa dò xong (hãy thử lại sau); `pii_not_reviewed` khi chưa rà hoặc xác nhận đã cũ | 409 |
 | `not_same_actor:creator` | `creator` | người gọi khác chủ bản ghi | `same_actor` | 403 (AT-07) |
 | `not_same_actor:<task>` | một task trong `workflow.tasks` | người gọi chưa từng hoàn thành `<task>` trong instance hiện tại | `same_actor` | 403 |
 | `role_in:<r1>,<r2>` | các role đã khai (có hoặc không có `[...]`) | người gọi có ít nhất một role trong danh sách | `role_not_allowed` | 403 |
@@ -233,7 +233,7 @@ Ghi bởi `pdp.deny` (từ chối ngoài bảng quyền, Plan 02):
 
 | Lý do | `action` | Ý nghĩa | HTTP |
 |---|---|---|---|
-| `guard:<guard>:<lý do>` | `complete` | guard của task trượt; `<lý do>` là một trong `attachments_not_clean`, `pii_not_reviewed`, `same_actor`, `role_not_allowed`, `field_missing`, `record_sealed`, `not_assignee` (bảng [Danh mục guard](#danh-mục-guard)) | 403 hoặc 409 theo guard (`guard-failed`); guard sai **sau** khi Flowable đã chạy thì 409 và instance bị hủy |
+| `guard:<guard>:<lý do>` | `complete` | guard của task trượt; `<lý do>` là một trong `attachments_not_clean`, `pii_not_reviewed`, `pii_scan_pending`, `same_actor`, `role_not_allowed`, `field_missing`, `record_sealed`, `not_assignee` (bảng [Danh mục guard](#danh-mục-guard)) | 403 hoặc 409 theo guard (`guard-failed`); guard sai **sau** khi Flowable đã chạy thì 409 và instance bị hủy |
 | `not_task_role` | `complete` | người gọi không giữ role của task theo bản manifest đã ghim | 404 |
 | `kms_unavailable` | `complete` | R-1: OpenBao không ký được trước task niêm phong; Flowable chưa bị gọi | 503 `kms-unavailable` |
 | `seal_key_expired` | `complete` | R-1: tuyên bố khóa `seal-key` hết hạn | 503 `seal-key-expired` |

@@ -64,6 +64,24 @@ async def test_pii_required_from_document_detect_alone(core_conn, flow_record_wi
     assert (await _load(core_conn, kw, spec=spec, m=m)).pii_required is True
 
 
+async def test_scans_loaded_for_clean_files_only_and_scan_expected_follows_manifest(
+        core_conn, flow_record_with_uploads):
+    kw = flow_record_with_uploads
+    base = await _load(core_conn, kw)
+    assert base.scans == () and base.scan_expected is False  # test-flow: không khai document_detect
+    await core_conn.execute(
+        "INSERT INTO pii_scans(sha256, status, findings, detector) VALUES ($1, 'TOO_LARGE', 0, 'dxos-pii/1')",
+        "c" * 64)
+    await core_conn.execute(                                                  # tệp INFECTED: bỏ
+        "INSERT INTO pii_scans(sha256, status, findings, detector) VALUES ($1, 'DONE', 0, 'dxos-pii/1')",
+        "f" * 64)
+    assert (await _load(core_conn, kw)).scans == (("c" * 64, "TOO_LARGE"),)
+    for detect, expected in ((["CCCD"], True), (["EMAIL", "NAME"], False)):   # EMAIL/NAME: chưa có bộ dò
+        pol = kw["m"].policies.pii.model_copy(update={"document_detect": detect})
+        m = kw["m"].model_copy(update={"policies": kw["m"].policies.model_copy(update={"pii": pol})})
+        assert (await _load(core_conn, kw, m=m)).scan_expected is expected
+
+
 async def test_completions_limited_to_current_instance(core_conn, flow_record_with_uploads):
     kw = flow_record_with_uploads
     rid = kw["record"]["id"]
