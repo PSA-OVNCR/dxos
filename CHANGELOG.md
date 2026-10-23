@@ -4,11 +4,10 @@ Mọi thay đổi đáng kể được ghi tại đây, theo định dạng [Kee
 
 ## [Unreleased]
 
-## [0.3.0] - Chưa phát hành
+## [0.3.0] - 2026-10-23
 Mốc M3 (Tầng 1 hoàn tất cho client: SDK, hai ứng dụng Tầng 2 có giao diện, cổng đối soát Vue, triển khai theo tag).
-Mã đã xong và đã qua test đơn vị, integration và Playwright với API giả ở cloud; **chưa chạy trên stack thật** (mục
-"Known limitations"). Trưởng nhóm thay "Chưa phát hành" bằng ngày khi gắn tag `v0.3.0` (sau `v0.2.0`, V18 rồi V33); workflow
-`release` từ chối mục chưa có ngày.
+Mã đã qua test đơn vị, integration và Playwright với API giả ở cloud, và đã chạy trên stack dev ở máy trưởng nhóm
+(Docker Desktop); **chưa chạy trên VPS** (mục "Known limitations"). Gắn tag `v0.3.0` sau `v0.2.0` (V18 rồi V33).
 
 ### Added
 - **Ba endpoint chung cho client Tầng 2** (không chứa định danh app nào): `GET /api/v1/apps/{app}/manifest` (phần
@@ -66,6 +65,14 @@ Mã đã xong và đã qua test đơn vị, integration và Playwright với API
 - `core/tests/helpers/at14.py` (helper test, không nằm trong image lõi) lấy thêm định danh từ `examples/*/manifest.yaml`;
   AT-14 vẫn không cho phép định danh app, kể cả của ví dụ, trong mã lõi phát hành.
 
+### Fixed
+- Lỗi chỉ lộ khi chạy thật trên Docker Desktop + Git Bash (22/10): `ops/web_build_docker.sh` lấy commit build bằng
+  `git rev-parse` trong repo; `ops/web_live.sh` cài phụ thuộc test dù image Playwright kèm Node 24
+  (`npm_config_engine_strict=false`); hai test live của App A chờ đúng URL văn bản và chọn tệp PDF trước khi đòi "Hợp lệ".
+- Neo: worker từ chối đẩy STH qua bản clone đang trỏ remote khác `DXOS_ANCHOR_REMOTE` (`PUSH_FAILED`), thay vì lặng lẽ
+  đẩy vào repo neo cũ; đổi repo neo thì đặt `DXOS_ANCHOR_REPO_DIR` mới (`docs/runbook-anchor.md`).
+- `NODE_IMAGE` và `PLAYWRIGHT_IMAGE` ghim theo digest (V35).
+
 ### Security
 - Caddy gắn cho `/apps/*` CSP `default-src 'self'` (không `unsafe-inline`), `X-Content-Type-Options: nosniff`,
   `Referrer-Policy: no-referrer`; HTML `no-cache`, `assets/` cache một năm. `/apps/verify/` và `/apps/verify-lite/` giữ CSP
@@ -85,15 +92,17 @@ Mã đã xong và đã qua test đơn vị, integration và Playwright với API
   `ops/deploy.sh` chỉ bỏ xác minh TLS (`curl -k`) khi `DXOS_DOMAIN` là `localhost`/`*.localhost`.
 
 ### Known limitations
-Đã chạy trên stack dev (Docker Desktop, máy trưởng nhóm, 22/10/2026; `docs/progress/2026-10-22-web-live.md`): `make web-build`, bộ Playwright live 10/10
-(V27), `ops/vuot_rao.py` 10/10 (V28), AT-20 (V36), E2E M1 + M2 13 passed trên mã M3. Các mục dưới đây **chưa chạy**; việc cần làm
-ghi ở `docs/progress/2026-10-21-tong-ket-tien-do.md` mục 13.
-- `ops/deploy.sh` mới được kiểm bằng `git`, `docker`, `curl` giả, chưa chạy trên VPS (V29); `release.yml` bước dựng SPA chưa chạy
-  trên Actions (V33).
-- Biên nhận OpenTimestamps: client calendar mới kiểm với calendar giả; chưa gọi calendar thật, chưa `ots verify` (V32). Test
-  đối chiếu với client chính thức (`DXOS_OTS_CLIENT=ots`) chưa chạy.
-- Cổng đối soát chỉ đối chiếu repo neo khi build có `VITE_ANCHOR_RAW_BASE` và `.env` có `DXOS_ANCHOR_RAW_ORIGIN` khớp nhau; repo neo
-  thật chưa có (V34). AT-26 (người ngoài đội làm theo hướng dẫn) chưa tổ chức (V31).
+Đã chạy trên stack dev (Docker Desktop, máy trưởng nhóm, 22–23/10/2026): `make web-build`, bộ Playwright live 10/10
+(V27), `ops/vuot_rao.py` 10/10 (V28), AT-20 (V36), E2E M1 + M2 13 passed trên mã M3 (`docs/progress/2026-10-22-web-live.md`);
+hồ sơ p8 đỉnh 5 080 MiB (`docs/progress/2026-10-22-p8-ram-laptop.md`); biên nhận OpenTimestamps với calendar thật, `ots verify`
+tới khối Bitcoin 972609 (`docs/progress/2026-10-22-ots-laptop.md`); neo lên repo GitHub thử, AT-18 và AT-17 đạt
+(`docs/progress/2026-10-23-anchor-lab-github.md`). Workflow `release` đã dựng `dxos-web-X.Y.Z.tar.gz` trên Actions khi gắn
+`v0.2.0`. Các mục dưới đây **chưa chạy**; việc cần làm ghi ở `docs/progress/2026-10-21-tong-ket-tien-do.md` mục 13.
+- `ops/deploy.sh` mới được kiểm bằng `git`, `docker`, `curl` giả, chưa chạy trên VPS (V29).
+- Biên nhận OpenTimestamps: chưa bật trên VPS (V32). Test đối chiếu với client chính thức (`DXOS_OTS_CLIENT=ots`) chưa chạy.
+- Cổng đối soát chỉ đối chiếu repo neo khi build có `VITE_ANCHOR_RAW_BASE` và `.env` có `DXOS_ANCHOR_RAW_ORIGIN` khớp nhau. Với
+  repo neo GitHub thử, bộ trình duyệt mới đạt 8/10 vì chạy cùng phút với lần neo đầu; chưa chạy lại, repo neo chính trên VPS
+  chưa nối (V34). AT-26 (người ngoài đội làm theo hướng dẫn) chưa tổ chức (V31).
 - Phần mềm build có giấy phép MPL-2.0, BlueOak-1.0.0,
   MIT-0, CC0-1.0 (`mdn-data`) chỉ nằm trong công cụ build, không vào bundle; chờ trưởng nhóm xác nhận (V30).
 - `verifyBundle` (JS) và `dxos-witness verify-bundle` (Python) dùng chung bộ vector nhưng còn hai khác biệt đã biết: JS chỉ nhận tối đa 2 dấu `=` đệm

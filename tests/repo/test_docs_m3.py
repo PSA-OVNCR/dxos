@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 PSA_OVNCR
 # SPDX-License-Identifier: Apache-2.0
 """Tài liệu M3 (Plan 03 Task 15): README trỏ tới hướng dẫn và cổng đối soát, BUILD.md nêu đúng bộ công cụ web,
-CHANGELOG có mục 0.3.0 chưa phát hành, README của SDK chỉ nhắc tên có thật trong mã, bản tổng kết tiến độ
+CHANGELOG có mục 0.3.0 đã ghi ngày, README của SDK chỉ nhắc tên có thật trong mã, bản tổng kết tiến độ
 liệt kê việc V27..V36 và không khẳng định điều chưa chạy."""
 
 import json
@@ -74,15 +74,17 @@ def test_build_md_toolchain():
     assert pkg["engines"]["npm"] == "11.6.2"
 
 
-def test_changelog_has_unreleased_030_above_020():
+def test_changelog_030_is_dated_above_020():
+    """v0.3.0 phát hành 23/10/2026 (V33): workflow `release` đòi mục có ngày YYYY-MM-DD."""
     text = _doc("CHANGELOG.md")
-    i030 = text.index("## [0.3.0] - Chưa phát hành")
+    i030 = text.index("\n## [0.3.0] - 2026-10-23\n")
     i020 = text.index("## [0.2.0] - ")
     assert i030 < i020
     sec = text[i030:i020]
-    for h in ("### Added", "### Changed", "### Security", "### Known limitations"):
+    for h in ("### Added", "### Changed", "### Fixed", "### Security", "### Known limitations"):
         assert h in sec, h
-    for v in ("V27", "V28", "V29", "V32"):
+    assert "Chưa phát hành" not in sec
+    for v in ("V27", "V28", "V29", "V32", "V34"):
         assert v in sec, v
     # Plan 03 đã chuyển khỏi [Unreleased]
     unreleased = text[text.index("## [Unreleased]"):i030]
