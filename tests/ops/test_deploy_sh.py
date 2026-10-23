@@ -20,6 +20,8 @@ DIGEST = "a" * 64
 COMMIT = "0123456789abcdef0123456789abcdef01234567"
 DOMAIN = "dxos.example.test"
 ENV = f"DXOS_DOMAIN={DOMAIN}\nDXOS_ANCHOR_REMOTE=\n"
+# Khóa hư cấu: fake git không đọc nội dung, script chỉ cần thấy ít nhất một dòng không phải chú thích.
+SIGNERS = "# chú thích\n\nrelease@example.test namespaces=\"git\" ssh-ed25519 AAAAFAKEKEYFORTESTS\n"
 RESULT_FAILED = "\tresult=failed\t"
 # Đúng nội dung release.yml ghi vào dist/trust-core-image-<X.Y.Z>.txt (có test đối chiếu bên dưới).
 RELEASE_TXT = "ghcr.io/psa-ovncr/trust-core:{v}\nghcr.io/psa-ovncr/trust-core@sha256:{d}\n"
@@ -30,9 +32,24 @@ case "$*" in
   *verify-tag*)
     echo "$PWD" >> "$FAKE_LOG.pwd"
     for last; do :; done                    # FAKE_VERIFY_TAG_FAIL: "1" = mọi tag, hoặc danh sách tag
+    last=${last#refs/tags/}
     case " ${FAKE_VERIFY_TAG_FAIL:-} " in
       *" 1 "* | *" $last "*) echo "error: no signature found" >&2; exit 1 ;;
     esac ;;
+  "cat-file tag refs/tags/"*)
+    t=${3#refs/tags/}; v=$(printf '%s' "$t" | tr . _)
+    [ -z "${FAKE_LIGHTWEIGHT:-}" ] || { echo "fatal: bad object type" >&2; exit 128; }
+    name=$(printenv "FAKE_TAG_NAME_$v" || true)      # FAKE_TAG_NAME_vX_Y_Z: tên trong thân tag
+    printf 'object %s\ntype commit\ntag %s\ntagger x <x@e.test> 1 +0000\n\nm\n' \
+      "$FAKE_COMMIT" "${name:-$t}" ;;
+  "rev-parse -q --verify refs/tags/"*)
+    v=$(printf '%s' "${4#refs/tags/}" | tr . _)
+    had=$(printenv "FAKE_HAD_REF_$v" || true)
+    [ -n "$had" ] && echo "$had" || exit 1 ;;
+  "rev-parse refs/tags/"*"^{commit}")
+    t=${2#refs/tags/}; t=${t%^\{commit\}}; v=$(printf '%s' "$t" | tr . _)
+    c=$(printenv "FAKE_COMMIT_$v" || true)
+    echo "${c:-$FAKE_COMMIT}" ;;
   "status --porcelain") printf '%s' "${FAKE_GIT_STATUS:-}" ;;
   fetch*) [ -z "${FAKE_FETCH_FAIL:-}" ] || { echo "! [rejected] would clobber existing tag" >&2; exit 1; } ;;
   "rev-parse HEAD") echo "${FAKE_COMMIT}" ;;
@@ -119,6 +136,8 @@ class Stubs:
         self.previous_ok_tag: str | None = None      # dòng KIỂU CŨ (cột 5 = OK, không có cột signed)
         self.digests: dict[str, str] = {}            # digest riêng theo tag (mặc định DIGEST)
         self.cwd: Path | None = None                 # thư mục gọi script (mặc định: gốc repo tạm)
+        self.commits: dict[str, str] = {}            # commit riêng theo tag (mặc định COMMIT)
+        self.signers: str | None = SIGNERS           # nội dung deploy/allowed_signers (None = không có tệp)
         self.readyz = "200"
         self.extra: dict[str, str] = {}
 
@@ -126,6 +145,8 @@ class Stubs:
         body = self.digest_body if self.digest_body is not None else RELEASE_TXT.format(v=tag[1:], d=DIGEST)
         env = {"FAKE_GIT_STATUS": self.git_status, "FAKE_COMMIT": COMMIT, "FAKE_DIGEST_BODY": body,
                "FAKE_READYZ": self.readyz}
+        for t, c in self.commits.items():
+            env["FAKE_COMMIT_" + t.replace(".", "_")] = c
         for t, d in self.digests.items():
             env["FAKE_DIGEST_" + t.replace(".", "_")] = RELEASE_TXT.format(v=t[1:], d=d)
         return {**env, **self.extra}
@@ -155,6 +176,10 @@ def run(tmp_path, stubs):
     def _run(*args: str) -> Result:
         if stubs.env is not None:
             (repo / ".env").write_text(stubs.env, encoding="utf-8")
+        signers = repo / "deploy/allowed_signers"
+        signers.unlink(missing_ok=True)
+        if stubs.signers is not None:
+            signers.write_text(stubs.signers, encoding="utf-8")
         log.unlink(missing_ok=True)
         entries = stubs.log_before
         if stubs.previous_ok_tag:
@@ -219,10 +244,12 @@ def test_happy_path_order(run):
     assert r.order([
         "git status --porcelain",
         "git fetch origin refs/tags/v0.3.0:refs/tags/v0.3.0",
-        "git -c advice.detachedHead=false checkout --detach v0.3.0",
+        "verify-tag refs/tags/v0.3.0",
+        "git rev-parse refs/tags/v0.3.0^{commit}",
+        f"git -c advice.detachedHead=false checkout --detach {COMMIT}",
         "curl -fsSL https://github.com/PSA-OVNCR/dxos/releases/download/v0.3.0/trust-core-image-0.3.0.txt",
-        "web_build_docker.sh",
         " pull --ignore-buildable",
+        "web_build_docker.sh",
         " up -d --wait --wait-timeout 600",
         "exec -T trust-core-api",
         "/verify/v1/keys",
@@ -265,10 +292,11 @@ def test_pull_precedes_up_with_the_same_compose_files(run, stubs):
     assert "compose.anchor.yaml" in pull and "compose.release.yaml" in pull
 
 
-def test_pull_failure_exits_3_logs_failed_and_does_not_run_up(run, stubs):
+def test_pull_failure_exits_3_logs_failed_and_changes_nothing_that_runs(run, stubs):
     stubs.extra["FAKE_PULL_FAIL"] = "1"
     r = run("v0.3.0")
     assert r.returncode == 3 and not any(" up " in c for c in r.calls)
+    assert "web_build" not in r.text                            # SPA chưa bị dựng lại vào volume đang phục vụ
     assert RESULT_FAILED in r.log_last() and "Triển khai v0.3.0 hỏng." in r.stdout
 
 
@@ -387,7 +415,7 @@ def test_release_yml_writes_what_the_parser_expects():
 def test_web_build_exit_3_is_surfaced_and_stops_before_compose(run, stubs):
     stubs.extra["FAKE_WEB_RC"] = "3"
     r = run("v0.3.0")
-    assert r.returncode == 3 and "docker compose" not in r.text
+    assert r.returncode == 3 and not any(" up " in c for c in r.calls)
     assert "make pin-images" in r.stdout + r.stderr and "chưa ghim" in r.stdout + r.stderr
     assert RESULT_FAILED in r.log_last() and "Triển khai v0.3.0 hỏng." in r.stdout
 
@@ -395,7 +423,7 @@ def test_web_build_exit_3_is_surfaced_and_stops_before_compose(run, stubs):
 def test_web_build_other_failure_stops_before_compose(run, stubs):
     stubs.extra["FAKE_WEB_RC"] = "1"
     r = run("v0.3.0")
-    assert r.returncode == 3 and "docker compose" not in r.text
+    assert r.returncode == 3 and not any(" up " in c for c in r.calls)
 
 
 # ---------- chuẩn bị trước khi chuyển: thoát 3, không quay lui ----------
@@ -423,21 +451,22 @@ def test_health_fail_rolls_back_to_last_ok(run, stubs):
     stubs.readyz = "503"
     stubs.extra["FAKE_BAD_TAGS"] = "v1.0.0"
     stubs.digests = {"v0.9.0": "9" * 64, "v1.0.0": "1" * 64}
+    stubs.commits = {"v0.9.0": "9" * 40, "v1.0.0": "1" * 40}
     r = run("v1.0.0")
     assert r.returncode == 4, r.stdout + r.stderr
     # chuỗi triển khai chạy lại đầy đủ cho v0.9.0, sau khi v1.0.0 đã hỏng
     assert r.order([
-        "git fetch origin refs/tags/v1.0.0:refs/tags/v1.0.0", "checkout --detach v1.0.0",
+        "git fetch origin refs/tags/v1.0.0:refs/tags/v1.0.0", f"checkout --detach {'1' * 40}",
         "web_build_docker.sh", " up -d --wait", "exec -T trust-core-api",
-        "git fetch origin refs/tags/v0.9.0:refs/tags/v0.9.0", "checkout --detach v0.9.0",
+        "git fetch origin refs/tags/v0.9.0:refs/tags/v0.9.0", f"checkout --detach {'9' * 40}",
         "releases/download/v0.9.0/trust-core-image-0.9.0.txt",
-        "web_build_docker.sh", " pull --ignore-buildable", " up -d --wait", "exec -T trust-core-api",
+        " pull --ignore-buildable", "web_build_docker.sh", " up -d --wait", "exec -T trust-core-api",
         "/verify/v1/keys",
     ]), r.text
     assert r.file("deploy/release.env") == f"DXOS_TRUST_CORE_DIGEST={'9' * 64}\nDXOS_RELEASE_TAG=v0.9.0\n"
     seen = r.log_lines()
-    assert seen[-1].split("\t")[1:] == ["v1.0.0", COMMIT, "1" * 64, "result=rolled-back", "signed=yes"]
-    assert seen[-2].split("\t")[1:] == ["v0.9.0", COMMIT, "9" * 64, "result=ok", "signed=yes"]
+    assert seen[-1].split("\t")[1:] == ["v1.0.0", "1" * 40, "1" * 64, "result=rolled-back", "signed=yes"]
+    assert seen[-2].split("\t")[1:] == ["v0.9.0", "9" * 40, "9" * 64, "result=ok", "signed=yes"]
     assert "quay lui về v0.9.0" in r.stdout and "Đã quay lui về v0.9.0" in r.stdout
 
 
@@ -449,7 +478,7 @@ def test_rollback_does_not_recurse(run, stubs):
     assert r.returncode == 5
     ups = [c for c in r.calls if " up " in c]
     assert len(ups) == 2                                       # v1.0.0 rồi v0.9.0; không thử v0.8.0
-    assert not any("checkout --detach v0.8.0" in c for c in r.calls)
+    assert not any("refs/tags/v0.8.0" in c for c in r.calls)
 
 
 def test_first_deploy_health_fail_no_previous(run, stubs):
@@ -459,7 +488,7 @@ def test_first_deploy_health_fail_no_previous(run, stubs):
     assert "Khôi phục tay" in r.stdout and "docker compose -p dxos ps" in r.stdout
     assert "ops/deploy.sh <tag>" in r.stdout and "runbook-deploy.md" in r.stdout
     assert len([c for c in r.calls if " up " in c]) == 1       # không có gì để quay lui
-    assert not any("checkout" in c and "v0" in c for c in r.calls)
+    assert not any("refs/tags/v0" in c for c in r.calls)
     assert RESULT_FAILED in r.log_last() and r.log_last().split("\t")[1] == "v1.0.0"
     assert len(r.log_lines()) == 1
 
@@ -521,9 +550,10 @@ def test_previous_is_last_ok_line_not_a_failed_one_nor_the_tag_itself(run, stubs
                         + row("05", "v0.3.0", "result=ok\tsigned=yes") + row("06", "v0.1.5", "FAIL"))
     stubs.readyz = "503"
     stubs.extra["FAKE_BAD_TAGS"] = "v0.3.0"
+    stubs.commits = {"v0.2.0": "2" * 40, "v0.1.5": "5" * 40}
     r = run("v0.3.0")                       # redeploy v0.3.0: chính nó không được là đích quay lui
     assert r.returncode == 4
-    assert "checkout --detach v0.2.0" in r.text and "checkout --detach v0.1.5" not in r.text
+    assert f"checkout --detach {'2' * 40}" in r.text and f"checkout --detach {'5' * 40}" not in r.text
 
 
 def test_old_format_log_lines_still_parse_for_last_ok(run, stubs):
@@ -548,7 +578,7 @@ def test_log_with_garbage_previous_tag_is_ignored(run, stubs):
 
 # ---------- chữ ký tag (S4) ----------
 
-VERIFY = "git -c gpg.format=ssh -c gpg.ssh.allowedSignersFile=deploy/allowed_signers verify-tag"
+VERIFY = "git -c gpg.format=ssh -c gpg.ssh.allowedSignersFile=deploy/allowed_signers verify-tag refs/tags/"
 
 
 def test_unsigned_tag_refused_before_any_change(run, stubs):
@@ -565,10 +595,11 @@ def test_unsigned_tag_refused_before_any_change(run, stubs):
 def test_signed_tag_verified_with_allowed_signers(run):
     r = run("v0.3.0")
     assert r.returncode == 0, r.stdout + r.stderr
-    assert f"{VERIFY} v0.3.0" in r.calls
-    assert r.order([f"{VERIFY} v0.3.0", "checkout --detach v0.3.0"])
-    assert r.order(["git fetch", f"{VERIFY} v0.3.0"])           # tag phải có ở máy trước khi kiểm
-    assert r.calls.index(f"{VERIFY} v0.3.0") < min(i for i, c in enumerate(r.calls) if c.startswith("docker"))
+    assert f"{VERIFY}v0.3.0" in r.calls
+    assert r.order([f"{VERIFY}v0.3.0", f"checkout --detach {COMMIT}"])
+    assert not any("checkout --detach v" in c for c in r.calls)   # checkout theo OID, không theo tên
+    assert r.order(["git fetch", f"{VERIFY}v0.3.0"])           # tag phải có ở máy trước khi kiểm
+    assert r.calls.index(f"{VERIFY}v0.3.0") < min(i for i, c in enumerate(r.calls) if c.startswith("docker"))
     assert r.log_last().endswith("\tresult=ok\tsigned=yes")
 
 
@@ -603,7 +634,7 @@ def test_rollback_keeps_the_signature_policy(run, stubs):
     stubs.extra["FAKE_BAD_TAGS"] = "v1.0.0"
     r = run("v1.0.0")
     assert r.returncode == 4
-    assert f"{VERIFY} v1.0.0" in r.calls and f"{VERIFY} v0.9.0" in r.calls
+    assert f"{VERIFY}v1.0.0" in r.calls and f"{VERIFY}v0.9.0" in r.calls
     r = run("v1.0.0", "--allow-unsigned")
     assert r.returncode == 4 and not any("verify-tag" in c for c in r.calls)
     assert r.log_lines()[-1].endswith("\tresult=rolled-back\tsigned=no")
@@ -613,9 +644,73 @@ def test_rollback_target_failing_signature_is_exit_5(run, stubs):
     stubs.previous_ok_tag = "v0.9.0"
     stubs.readyz = "503"
     stubs.extra.update({"FAKE_BAD_TAGS": "v1.0.0", "FAKE_VERIFY_TAG_FAIL": "v0.9.0"})
+    stubs.commits = {"v0.9.0": "9" * 40}
     r = run("v1.0.0")
     assert r.returncode == 5 and "Khôi phục tay" in r.stdout
-    assert not any("checkout --detach v0.9.0" in c for c in r.calls)   # không checkout tag không đạt chữ ký
+    assert not any("checkout --detach " + "9" * 40 in c for c in r.calls)   # tag không đạt chữ ký
+
+
+# ---------- tên tag bị đổi (replay), tag nhẹ, allowed_signers rỗng ----------
+
+def test_renamed_signed_tag_is_refused_before_any_change(run, stubs):
+    stubs.extra["FAKE_TAG_NAME_v1_1_0"] = "v1.0.0"      # thân tag ký của v1.0.0 đẩy lên dưới tên v1.1.0
+    r = run("v1.1.0")
+    assert r.returncode == 2, r.stdout + r.stderr
+    assert f"{VERIFY}v1.1.0" in r.calls                         # chữ ký thì hợp lệ: chính tên mới là vấn đề
+    assert not any(c.startswith(("docker", "curl", "web_build")) for c in r.calls)
+    assert not any("checkout" in c for c in r.calls)
+    assert "không khớp" in r.stderr and "v1.0.0" in r.stderr
+    assert not (r.repo / "deploy/release.env").exists() and r.log_lines() == []
+
+
+def test_refused_tag_drops_the_ref_it_fetched_but_keeps_a_preexisting_one(run, stubs):
+    stubs.extra["FAKE_TAG_NAME_v1_1_0"] = "v1.0.0"
+    r = run("v1.1.0")
+    assert "git update-ref -d refs/tags/v1.1.0" in r.calls
+    stubs.extra["FAKE_HAD_REF_v1_1_0"] = "d" * 40               # tag cục bộ đã có từ trước: không đụng
+    r = run("v1.1.0")
+    assert r.returncode == 2 and not any("update-ref" in c for c in r.calls)
+    stubs.extra.pop("FAKE_HAD_REF_v1_1_0")
+    stubs.extra["FAKE_VERIFY_TAG_FAIL"] = "1"                   # chữ ký hỏng cũng dọn ref vừa fetch
+    assert "git update-ref -d refs/tags/v1.1.0" in run("v1.1.0").calls
+
+
+def test_lightweight_tag_without_a_tag_object_is_refused(run, stubs):
+    stubs.extra["FAKE_LIGHTWEIGHT"] = "1"
+    r = run("v0.3.0")
+    assert r.returncode == 2 and not any(c.startswith("docker") or "checkout" in c for c in r.calls)
+
+
+def test_rollback_target_with_renamed_tag_is_exit_5(run, stubs):
+    stubs.previous_ok_tag = "v0.9.0"
+    stubs.readyz = "503"
+    stubs.extra.update({"FAKE_BAD_TAGS": "v1.0.0", "FAKE_TAG_NAME_v0_9_0": "v0.8.0"})
+    stubs.commits = {"v0.9.0": "9" * 40}
+    r = run("v1.0.0")
+    assert r.returncode == 5 and "Khôi phục tay" in r.stdout
+    assert not any("checkout --detach " + "9" * 40 in c for c in r.calls)
+
+
+def test_empty_or_missing_allowed_signers_refuses_before_fetch(run, stubs):
+    for content in ("", "# chỉ chú thích\n\n   \n# V42\n", None):
+        stubs.signers = content
+        r = run("v0.3.0")
+        assert r.returncode == 2, content
+        assert r.calls == ["git status --porcelain"], r.calls      # chưa fetch, chưa verify
+        assert "V42" in r.stderr and "không có khóa nào" in r.stderr
+        assert r.log_lines() == []
+
+
+def test_allow_unsigned_does_not_need_allowed_signers(run, stubs):
+    stubs.signers = None
+    r = run("v0.3.0", "--allow-unsigned")
+    assert r.returncode == 0, r.stdout + r.stderr
+
+
+def test_fetch_failure_message_tells_how_to_drop_a_stale_local_tag(run, stubs):
+    stubs.extra["FAKE_FETCH_FAIL"] = "1"
+    r = run("v0.3.0")
+    assert r.returncode == 3 and "git tag -d v0.3.0" in r.stderr
 
 
 def test_success_prints_no_failure_message(run):

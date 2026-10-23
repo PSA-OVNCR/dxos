@@ -35,7 +35,7 @@ giả, xem `tests/ops/test_deploy_sh.py`).
 |---|---|---|
 | 0 | Đạt: bản mới chạy khỏe. | Không. |
 | 2 | **Từ chối trước khi đổi gì**: tham số sai, thiếu `.env`/`DXOS_DOMAIN`, thiếu `git`/`docker`/`curl`, cây làm việc bẩn, tag chưa ký hoặc ký bằng khóa không có trong `deploy/allowed_signers`. Không ghi vào `deployments.log`. | Sửa theo thông báo trên stderr (ký tag đúng khóa, mục 2.2) rồi chạy lại. |
-| 3 | **Thiếu điều kiện trước khi chuyển bản**: `git fetch` bị từ chối (tag cục bộ khác remote), Release thiếu tệp hoặc digest sai, dựng SPA hỏng (kể cả image Node chưa ghim), `docker compose pull` hỏng. Ghi `result=failed`, in "Quay lại bằng: ops/deploy.sh <tag trước>". Stack đang chạy chưa bị chuyển sang bản mới (riêng SPA có thể đã dựng lại vào volume `apps-static`). | Sửa điều kiện rồi chạy lại cùng tag; hoặc chạy lệnh quay lại đã in. |
+| 3 | **Thiếu điều kiện trước khi chuyển bản**: `git fetch` bị từ chối (tag cục bộ khác remote), Release thiếu tệp hoặc digest sai, `docker compose pull` hỏng, dựng SPA hỏng (kể cả image Node chưa ghim). Ghi `result=failed`, in "Quay lại bằng: ops/deploy.sh <tag trước>". Container đang chạy chưa bị đổi; cây làm việc đã `HEAD` tách rời tại tag mới, và nếu lỗi đến từ bước dựng SPA thì volume `apps-static` có thể đã bị ghi dở. | Sửa điều kiện rồi chạy lại cùng tag; hoặc chạy lệnh quay lại đã in. |
 | 4 | **Health hỏng sau khi chuyển, đã tự quay lui về bản tốt gần nhất và bản đó khỏe.** Log có `result=ok` cho bản tốt và `result=rolled-back` cho bản hỏng. | Điều tra bản hỏng (`docker compose -p dxos logs`), phát hành tag sửa. Máy đang ở bản cũ. |
 | 5 | **Health hỏng và không quay lui được**: chưa có bản tốt nào trong log, hoặc quay lui cũng hỏng (kể cả tag cũ không qua được kiểm chữ ký). Script in hướng dẫn khôi phục tay. | Làm theo hướng dẫn in ra và mục 4. Stack đang ở trạng thái không khỏe. |
 
@@ -64,24 +64,52 @@ Ký và đẩy tag (tag ký là tag có chú thích, `-s` thay cho `-a`; tag nh�
 
 ```bash
 git tag -s v0.4.0 -m "v0.4.0"
-git -c gpg.format=ssh -c gpg.ssh.allowedSignersFile=deploy/allowed_signers verify-tag v0.4.0   # "Good ... signature"
+git -c gpg.format=ssh -c gpg.ssh.allowedSignersFile=deploy/allowed_signers verify-tag refs/tags/v0.4.0
 git push origin v0.4.0
 ```
 
+Lệnh kiểm phải in dòng dạng `Good "git" signature for <principal> with ED25519 key SHA256:...`. **Phải có `for <principal>`**
+(tên khớp một dòng trong `allowed_signers`); chỉ thấy `Good "git" signature with ...` mà không có `for ...` hoặc có
+`No principal matched` thì chữ ký đúng về mặt toán học nhưng khóa chưa được phép: chưa coi là đạt.
+
 Lưu ý:
 - `deploy.sh` đọc `deploy/allowed_signers` từ bản **đang checkout** trên VPS (không từ tag sắp triển khai: neo tin cậy
-  không nằm trong thứ cần kiểm). Sau khi thêm hay thu hồi khóa, `git pull` bản chứa tệp đó trên VPS trước khi triển khai.
-- Tệp rỗng (chỉ chú thích) thì mọi tag bị từ chối: hệ thống đóng mặc định. Thu hồi khóa = xóa dòng đó rồi commit.
+  không nằm trong thứ cần kiểm). Sau mỗi lần triển khai VPS ở trạng thái `HEAD` tách rời tại tag, nên `git pull` sẽ lỗi.
+  Để nhận khóa mới hay thu hồi khóa: `git checkout main && git pull` trên VPS **trước** khi triển khai tag đầu tiên ký bằng
+  khóa mới (tag mới không tự đưa khóa của nó vào: khóa phải có sẵn trên VPS trước khi kiểm tag đó).
+- Khi tự quay lui, cây làm việc đã ở tag vừa triển khai (tag này vừa qua kiểm chữ ký), nên bản cũ được kiểm bằng
+  `allowed_signers` của tag đó. Hệ quả khi xoay khóa: nếu tag mới đã bỏ khóa cũ khỏi tệp thì quay lui về bản được ký bằng
+  khóa cũ sẽ thoát 5. Muốn quay lui được thì giữ khóa cũ trong tệp cho tới khi không còn cần quay về các bản đó.
+- Tệp không có dòng khóa nào (thiếu, rỗng, hoặc chỉ chú thích như hiện nay): `deploy.sh` thoát 2 ngay, trước cả `git fetch`,
+  với thông báo trỏ tới V42. Hệ thống đóng mặc định. Thu hồi khóa = xóa dòng đó rồi commit.
+- `verify-tag` **không** kiểm tên tag: một tag ký của bản cũ (`v1.0.0`) đẩy lên dưới tên mới (`refs/tags/v1.1.0`) vẫn có chữ
+  ký hợp lệ. Vì vậy sau `verify-tag`, script đọc dòng `tag` trong thân tag đã ký (`git cat-file tag refs/tags/<tag>`) và thoát 2
+  nếu khác `<tag>`; rồi giải `refs/tags/<tag>^{commit}` ra OID đúng một lần và `checkout --detach <OID>`. Tag nhẹ (không có
+  thân tag) cũng bị từ chối.
+- Tag bị từ chối (thoát 2): script xóa ref `refs/tags/<tag>` do chính lần fetch đó tạo ra (ref đã có từ trước thì giữ), để lần
+  sau phát hành lại tag đã ký đúng không vướng. Nếu `git fetch` vẫn báo tag cục bộ khác remote (thoát 3) và bạn đã kiểm
+  rằng tag trên remote được ký lại có chủ đích: `git tag -d <tag>` rồi chạy lại.
 - Đường dẫn `deploy/allowed_signers` tính từ gốc repo; script tự `cd` về đó nên chạy từ thư mục nào cũng được.
 
 ### 2.3. `--allow-unsigned` (cấp cứu)
 
 `ops/deploy.sh <tag> --allow-unsigned` **bỏ qua** kiểm chữ ký, in cảnh báo ra stderr và ghi `signed=no` vào log. Chỉ dùng
 khi chưa có khóa trong `allowed_signers` mà phải triển khai ngay, và bạn tự xác nhận tag đến từ nguồn tin cậy. Cờ này tắt
-cơ chế chống tag giả mạo, nên không dùng làm thói quen và không đưa vào cron/CI. Quay lui tự động cũng theo cùng chính
-sách: có cờ thì không kiểm chữ ký của bản cũ, không có cờ thì bản cũ cũng phải qua `verify-tag`.
+cơ chế chống tag giả mạo (và cả kiểm tên tag, kiểm `allowed_signers` có khóa), nên không dùng làm thói quen và không
+đưa vào cron/CI. Quay lui tự động cũng theo cùng chính sách: có cờ thì không kiểm chữ ký của bản cũ, không có cờ thì bản
+cũ cũng phải qua `verify-tag`.
 
-### 2.4. Các bước
+### 2.4. S4 bảo vệ gì và không bảo vệ gì
+
+- Chữ ký tag đảm bảo **mã nguồn** (commit mà tag trỏ tới, nên cả `deploy/`, `ops/`, SPA dựng từ đó) do khóa trong
+  `allowed_signers` phát hành.
+- Chữ ký **không phủ digest image lõi**: digest lấy từ tệp `trust-core-image-<X.Y.Z>.txt` của GitHub Release, tệp này không
+  nằm trong tag và không được ký. Ai có quyền sửa Release có thể trỏ `trust-core` sang image khác dù tag vẫn hợp lệ. Nên
+  giới hạn quyền sửa Release/Package và đối chiếu digest với lần phát hành (CHANGELOG, `release.yml`). Ký digest là việc
+  chưa làm (hạn chế đã biết của S4).
+- Script không kiểm tag nằm trên nhánh `main`, chỉ kiểm khóa ký, tên tag và định dạng `vX.Y.Z`.
+
+### 2.5. Các bước
 
 Theo đúng thứ tự, dừng ở bước đầu tiên hỏng:
 
@@ -90,18 +118,20 @@ Theo đúng thứ tự, dừng ở bước đầu tiên hỏng:
 3. Ghi nhớ **bản tốt gần nhất**: tag ở dòng `result=ok` cuối của `deploy/deployments.log` khác tag đang triển khai (cũng nhận
    dòng `OK` kiểu cũ), hoặc `none`. Đây là đích quay lui.
 4. `git fetch origin refs/tags/<tag>:refs/tags/<tag>` **không** `--force`: nếu tag cục bộ khác tag trên remote, git từ chối
-   và script thoát 3 (tag đã bị di chuyển; điều tra trước khi làm gì tiếp).
+   và script thoát 3 (tag đã bị di chuyển; điều tra trước khi làm gì tiếp, xem `git tag -d` ở mục 2.2).
+   Trước bước này, nếu `allowed_signers` không có khóa nào (và không có `--allow-unsigned`): thoát 2.
 5. **Kiểm chữ ký**, trước mọi lệnh `docker` và trước `checkout`:
-   `git -c gpg.format=ssh -c gpg.ssh.allowedSignersFile=deploy/allowed_signers verify-tag <tag>`. Không đạt: thoát 2.
-6. `git checkout --detach <tag>`.
+   `git -c gpg.format=ssh -c gpg.ssh.allowedSignersFile=deploy/allowed_signers verify-tag refs/tags/<tag>`, rồi tên trong
+   thân tag phải đúng `<tag>`. Không đạt: thoát 2 và bỏ ref vừa fetch.
+6. `git rev-parse refs/tags/<tag>^{commit}` (một lần), rồi `git checkout --detach <OID>`.
 7. Tải `trust-core-image-<X.Y.Z>.txt`, lấy digest. `release.yml` ghi hai dòng: `ghcr.io/psa-ovncr/trust-core:<X.Y.Z>`
    và `ghcr.io/psa-ovncr/trust-core@sha256:<64 hex>`; script lấy phần sau `@sha256:` (cũng nhận tệp chỉ có 64 hex).
    Digest phải khớp `^[0-9a-f]{64}$`, nếu không thoát 3 **trước** khi gọi compose. Ghi `deploy/release.env`.
-8. `ops/web_build_docker.sh`: dựng SPA từ mã nguồn của tag vào volume `apps-static`.
-9. Với cùng một bộ tệp: `docker compose -p dxos --env-file .env --env-file deploy/release.env -f deploy/compose.yaml
-   -f deploy/compose.<profile>.yaml [-f deploy/compose.anchor.yaml] -f deploy/compose.release.yaml` rồi chạy lần lượt
-   `pull --ignore-buildable` (hỏng: thoát 3) và `up -d --wait --wait-timeout 600` (spec 16.3: `compose pull && up -d`).
-   Script bỏ `DXOS_TRUST_CORE_DIGEST` và `DXOS_RELEASE_TAG` khỏi môi trường của tiến trình ngay từ đầu: compose ưu tiên
+8. Với cùng một bộ tệp: `docker compose -p dxos --env-file .env --env-file deploy/release.env -f deploy/compose.yaml
+   -f deploy/compose.<profile>.yaml [-f deploy/compose.anchor.yaml] -f deploy/compose.release.yaml`, chạy
+   `pull --ignore-buildable` **trước** (hỏng: thoát 3, chưa có gì đang chạy bị đổi, kể cả SPA).
+9. `ops/web_build_docker.sh`: dựng SPA từ mã nguồn của tag vào volume `apps-static`; rồi `up -d --wait --wait-timeout 600`
+   (spec 16.3: `compose pull && up -d`). Script bỏ `DXOS_TRUST_CORE_DIGEST` và `DXOS_RELEASE_TAG` khỏi môi trường của tiến trình ngay từ đầu: compose ưu tiên
    biến môi trường hơn `--env-file`, nên giá trị đã `export` trong shell sẽ lấn digest đã kiểm.
 10. Kiểm sức khỏe: `/readyz` của `trust-core-api` (trong container) in `200`, và `https://$DXOS_DOMAIN/verify/v1/keys`
     trả 200. `curl` xác minh chứng chỉ TLS; chỉ khi `DXOS_DOMAIN` là `localhost` hoặc `*.localhost` (CA nội bộ của Caddy)
@@ -148,7 +178,8 @@ dòng `result=ok` nào trong log (triển khai đầu tiên) thì thoát 5 ngay 
 Triển khai <tag> hỏng. Quay lại bằng: ops/deploy.sh <tag trước>
 ```
 
-Chạy lệnh đó. Nếu `<tag trước>` là `none` thì chưa có bản nào từng chạy tốt qua script này.
+Chạy lệnh đó: sau thoát 3 cây làm việc đang tách rời tại tag mới, chạy `ops/deploy.sh <tag trước>` cũng dựng lại SPA của tag
+cũ vào `apps-static` (khôi phục SPA nếu nó đã bị ghi dở). Nếu `<tag trước>` là `none` thì chưa có bản nào từng chạy tốt qua script này.
 
 Lưu ý: migration cơ sở dữ liệu của bản mới không tự hoàn tác; quay lui chỉ an toàn với bản có lược đồ tương thích (xem
 ghi chú nâng cấp trong CHANGELOG). Sau thoát 4 hoặc 5 cây làm việc đang ở `HEAD` tách rời tại tag cuối cùng script đã checkout.

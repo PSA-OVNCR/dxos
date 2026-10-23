@@ -9,9 +9,9 @@
 #
 # Mã thoát:
 #   0  đạt.
-#   2  từ chối TRƯỚC khi đổi gì: tham số sai, thiếu .env/DXOS_DOMAIN, thiếu công cụ, cây làm việc bẩn, tag chưa ký hoặc
-#      ký bằng khóa không có trong deploy/allowed_signers.
-#   3  thiếu điều kiện trước khi chuyển bản (không lấy được tag, Release thiếu/sai digest, dựng SPA hỏng, compose pull hỏng).
+#   2  từ chối TRƯỚC khi đổi gì: tham số sai, thiếu .env/DXOS_DOMAIN, thiếu công cụ, cây làm việc bẩn, tag chưa ký, ký bằng khóa không
+#      có trong deploy/allowed_signers hoặc có tên trong thân tag khác tên ref, allowed_signers không có khóa nào.
+#   3  thiếu điều kiện trước khi chuyển bản (không lấy được tag, Release thiếu/sai digest, compose pull hỏng, dựng SPA hỏng).
 #   4  health hỏng sau khi chuyển, đã tự quay lui về bản tốt gần nhất và bản đó khỏe.
 #   5  health hỏng và KHÔNG quay lui được (chưa có bản tốt nào, hoặc quay lui cũng hỏng); in hướng dẫn khôi phục tay.
 #
@@ -22,16 +22,19 @@
 #      tag đang triển khai; hoặc "none".
 #   4. git fetch origin refs/tags/<tag>:refs/tags/<tag> (KHÔNG --force: tag cục bộ khác tag trên remote thì git từ chối).
 #   5. Kiểm chữ ký TRƯỚC mọi lệnh docker và trước khi checkout:
-#      git -c gpg.format=ssh -c gpg.ssh.allowedSignersFile=deploy/allowed_signers verify-tag <tag>
-#      Không đạt thì thoát 2. Tệp allowed_signers lấy từ bản đang checkout (neo tin cậy không nằm trong thứ cần kiểm).
-#      --allow-unsigned bỏ qua bước này, in cảnh báo và ghi signed=no.
-#   6. git checkout --detach <tag>.
+#      git -c gpg.format=ssh -c gpg.ssh.allowedSignersFile=deploy/allowed_signers verify-tag refs/tags/<tag>
+#      rồi tên trong thân tag (dòng "tag " của git cat-file tag) phải đúng <tag> (verify-tag không kiểm tên: chặn việc
+#      đẩy tag ký của bản cũ dưới tên mới). Không đạt, hoặc allowed_signers không có khóa nào, thì thoát 2 và bỏ ref
+#      vừa fetch (nếu trước đó chưa có). Tệp allowed_signers lấy từ bản đang checkout (neo tin cậy không nằm trong thứ
+#      cần kiểm). --allow-unsigned bỏ qua bước này, in cảnh báo và ghi signed=no.
+#   6. Giải refs/tags/<tag>^{commit} MỘT lần ra OID và git checkout --detach <OID> (không checkout theo tên).
 #   7. Tải trust-core-image-<X.Y.Z>.txt từ Release của tag; lấy digest 64 hex (dạng release.yml ghi: dòng
 #      ghcr.io/psa-ovncr/trust-core@sha256:<64 hex>, hoặc chỉ 64 hex). Sai định dạng thì thoát 3 TRƯỚC khi gọi compose.
 #      Ghi deploy/release.env (DXOS_TRUST_CORE_DIGEST, DXOS_RELEASE_TAG).
-#   8. ops/web_build_docker.sh: dựng SPA từ mã nguồn của tag vào volume apps-static (thoát 3 nếu image Node chưa ghim).
-#   9. docker compose pull --ignore-buildable (hỏng thì thoát 3) rồi up -d --wait (spec 16.3: pull && up -d): lõi chạy
-#      đúng image theo digest (compose.release.yaml); thêm compose.anchor.yaml chỉ khi .env có DXOS_ANCHOR_REMOTE khác rỗng.
+#   8. docker compose pull --ignore-buildable (hỏng thì thoát 3, chưa có gì đang chạy bị đổi).
+#   9. ops/web_build_docker.sh: dựng SPA từ mã nguồn của tag vào volume apps-static (thoát 3 nếu image Node chưa ghim),
+#      rồi up -d --wait (spec 16.3: pull && up -d): lõi chạy đúng image theo digest (compose.release.yaml); thêm
+#      compose.anchor.yaml chỉ khi .env có DXOS_ANCHOR_REMOTE khác rỗng.
 #  10. Kiểm sức khỏe: /readyz của trust-core-api trả 200 và https://$DXOS_DOMAIN/verify/v1/keys trả 200. `up --wait` hỏng
 #      (container không khỏe) hoặc kiểm sức khỏe hỏng nghĩa là đã chuyển nhưng bản mới không khỏe: tự quay lui (S4).
 #  11. Quay lui: chạy lại đúng chuỗi trên (bước 4 đến 10) cho bản tốt gần nhất, MỘT lần, không đệ quy. Khỏe thì thoát 4,
@@ -157,22 +160,43 @@ MANUAL
         local t=$1 version=${1#v} body line rc=0 ready curl_tls=-fs
         cur=$t commit=- digest=- signed=no
 
+        local signers=deploy/allowed_signers
+        if [ "$allow_unsigned" != 1 ] && ! grep -Eqv '^[[:space:]]*(#|$)' "$signers" 2> /dev/null; then
+            echo "deploy.sh: $signers không có khóa nào (thiếu hoặc chỉ có chú thích): mọi tag bị từ chối cho tới khi thêm khóa công khai (việc V42, docs/runbook-deploy.md mục 2.2)" >&2
+            return 2
+        fi
+
         echo "deploy.sh: lấy tag $t"
+        # Nhớ tag cục bộ đã có trước đó: nếu tag bị từ chối thì chỉ xóa ref do chính lần fetch này tạo ra.
+        local had_ref
+        had_ref=$(git rev-parse -q --verify "refs/tags/$t" 2> /dev/null || true)
         git fetch origin "refs/tags/$t:refs/tags/$t" || {
-            echo "deploy.sh: git fetch từ chối tag $t (tag cục bộ khác remote?); không dùng --force" >&2
+            echo "deploy.sh: git fetch từ chối tag $t (tag cục bộ khác remote?); không dùng --force." >&2
+            echo "deploy.sh: nếu tag đã được ký lại và di chuyển có chủ đích, kiểm rồi xóa bản cục bộ: git tag -d $t" >&2
             return 3
+        }
+        # refuse: bỏ ref vừa fetch (nếu trước đó chưa có) để lần chạy sau không vướng, rồi từ chối (mã 2).
+        refuse() {
+            [ -n "$had_ref" ] || git update-ref -d "refs/tags/$t" > /dev/null 2>&1 || true
+            echo "deploy.sh: $1; từ chối, chưa đổi gì" >&2
+            return 2
         }
         if [ "$allow_unsigned" = 1 ]; then
             echo "deploy.sh: CẢNH BÁO: --allow-unsigned, KHÔNG kiểm chữ ký của tag $t (ghi signed=no vào $log_file)" >&2
         else
-            git -c gpg.format=ssh -c gpg.ssh.allowedSignersFile=deploy/allowed_signers verify-tag "$t" || {
-                echo "deploy.sh: tag $t chưa ký hoặc ký bằng khóa không có trong deploy/allowed_signers; từ chối, chưa đổi gì" >&2
-                return 2
-            }
+            git -c gpg.format=ssh -c gpg.ssh.allowedSignersFile=deploy/allowed_signers verify-tag "refs/tags/$t" ||
+                { refuse "tag $t chưa ký hoặc ký bằng khóa không có trong deploy/allowed_signers"; return 2; }
+            # verify-tag không kiểm tên: một tag ký của bản cũ đẩy lên dưới tên mới vẫn qua. Tên trong thân tag phải là $t.
+            local named
+            named=$(git cat-file tag "refs/tags/$t" 2> /dev/null | sed -n '/^$/q;s/^tag //p') || named=""
+            [ "$named" = "$t" ] ||
+                { refuse "tên trong thân tag đã ký ('${named:-không có}') không khớp refs/tags/$t (tag ký bị đổi tên?)"; return 2; }
             signed=yes
         fi
-        git -c advice.detachedHead=false checkout --detach "$t" || return 3
-        commit=$(git rev-parse HEAD) || return 3
+        # Giải một lần ra OID rồi checkout đúng OID đó (không để tên tag được giải lần hai).
+        commit=$(git rev-parse "refs/tags/$t^{commit}") || return 3
+        [[ $commit =~ ^[0-9a-f]{40}$ ]] || { echo "deploy.sh: không giải được commit của tag $t" >&2; commit=-; return 3; }
+        git -c advice.detachedHead=false checkout --detach "$commit" || return 3
 
         body=$(curl -fsSL "$repo_url/releases/download/$t/trust-core-image-$version.txt" --max-time 60) || {
             echo "deploy.sh: không tải được trust-core-image-$version.txt từ Release $t" >&2
@@ -191,27 +215,30 @@ MANUAL
         fi
         printf 'DXOS_TRUST_CORE_DIGEST=%s\nDXOS_RELEASE_TAG=%s\n' "$digest" "$t" > "$release_env" || return 3
 
-        echo "deploy.sh: dựng SPA từ mã nguồn của $t"
-        bash ops/web_build_docker.sh || rc=$?
-        if [ "$rc" -eq 3 ]; then
-            echo "deploy.sh: ops/web_build_docker.sh thoát 3: image Node chưa ghim digest. Chạy 'make pin-images' (cần Docker có buildx)," \
-                "commit rồi phát hành tag mới; chưa gọi compose" >&2
-            return 3
-        elif [ "$rc" -ne 0 ]; then
-            echo "deploy.sh: ops/web_build_docker.sh thoát $rc; chưa gọi compose" >&2
-            return 3
-        fi
-
         local compose=(docker compose -p dxos --env-file "$env_file" --env-file "$release_env"
             -f deploy/compose.yaml -f "deploy/compose.$profile.yaml")
         [ -z "$anchor_remote" ] || compose+=(-f deploy/compose.anchor.yaml)
         compose+=(-f deploy/compose.release.yaml)
 
-        echo "deploy.sh: docker compose pull + up (hồ sơ $profile, digest $digest)"
+        # Kéo image trước khi đụng tới SPA: pull hỏng (mã 3) thì chưa có gì đang chạy bị đổi.
+        echo "deploy.sh: docker compose pull (hồ sơ $profile, digest $digest)"
         "${compose[@]}" pull --ignore-buildable || {
-            echo "deploy.sh: docker compose pull hỏng; chưa chuyển bản đang chạy" >&2
+            echo "deploy.sh: docker compose pull hỏng; chưa đổi gì đang chạy" >&2
             return 3
         }
+
+        echo "deploy.sh: dựng SPA từ mã nguồn của $t"
+        bash ops/web_build_docker.sh || rc=$?
+        if [ "$rc" -eq 3 ]; then
+            echo "deploy.sh: ops/web_build_docker.sh thoát 3: image Node chưa ghim digest. Chạy 'make pin-images' (cần Docker có buildx)," \
+                "commit rồi phát hành tag mới; chưa chạy compose up" >&2
+            return 3
+        elif [ "$rc" -ne 0 ]; then
+            echo "deploy.sh: ops/web_build_docker.sh thoát $rc; chưa chạy compose up" >&2
+            return 3
+        fi
+
+        echo "deploy.sh: docker compose up"
         # Từ đây bản đang chạy bị thay: hỏng nghĩa là cần quay lui (return 10).
         "${compose[@]}" up -d --wait --wait-timeout 600 || {
             echo "deploy.sh: docker compose up --wait hỏng (có container không khỏe)" >&2

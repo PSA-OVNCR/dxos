@@ -7,7 +7,8 @@ Mọi thay đổi đáng kể được ghi tại đây, theo định dạng [Kee
 ### Added
 - `ops/deploy.sh` chỉ triển khai **tag đã ký SSH** (`git -c gpg.format=ssh -c gpg.ssh.allowedSignersFile=deploy/allowed_signers
   verify-tag`, kiểm trước mọi lệnh `docker` và trước `checkout`; `--allow-unsigned` cho cấp cứu, ghi `signed=no`) và **tự quay
-  lui** về bản tốt gần nhất khi health hỏng (S4). Mã thoát 0/2/3/4/5; `deploy/deployments.log` thêm cột `result`
+  lui** về bản tốt gần nhất khi health hỏng (S4); tên trong thân tag ký phải khớp tên ref (chặn đổi tên tag ký cũ), checkout theo OID
+  đã giải, `compose pull` chạy trước bước dựng SPA. Mã thoát 0/2/3/4/5; `deploy/deployments.log` thêm cột `result`
   (`ok|rolled-back|failed`) và `signed`, dòng kiểu cũ vẫn đọc được. `deploy/allowed_signers` mới chỉ có chú thích, khóa thật
   là việc V42 nên cho tới đó mọi tag bị từ chối nếu không dùng `--allow-unsigned`. Mới kiểm bằng `git`, `docker`, `curl` giả.
 - `ARCHITECTURE.md` (tóm tắt kiến trúc, trỏ về spec), trang tài liệu GitHub Pages (`docs/index.md`, `docs/_config.yml`; chưa bật, V38),
