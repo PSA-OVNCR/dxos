@@ -16,6 +16,15 @@ export function countsText(counts: Record<string, number> | undefined): string {
   return entries.map(([t, n]) => `${TYPE_LABEL[t] ?? t} ${n}`).join(', ')
 }
 
+/**
+ * Bản gốc của tệp có đang bị khóa sau `reveal_pii` không (contract-tier2.md 3.4, P4-D4): chỉ tệp đã dò xong và không
+ * có phát hiện nào mới mở cho mọi người có quyền đọc; chưa dò xong, hỏng, quá lớn hay có phát hiện đều khóa. `null` (collection
+ * không dò PII) thì không khóa. Chỉ để ẩn nút cho tiện, máy chủ mới quyết định.
+ */
+export function originalLocked(p: AttachmentPii | null | undefined): boolean {
+  return !!p && (p.status !== 'DONE' || p.findings > 0)
+}
+
 export function piiLabel(p: AttachmentPii): string {
   switch (p.status) {
     case 'PENDING': return 'Đang dò dữ liệu cá nhân…'

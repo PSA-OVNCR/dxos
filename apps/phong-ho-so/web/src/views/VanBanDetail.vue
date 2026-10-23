@@ -7,8 +7,8 @@ SPDX-License-Identifier: Apache-2.0
 // (bản gốc hoặc bản che), xem từng trang bằng Viewer (nút "Xem" chỉ hiện khi Viewer sống), gửi duyệt.
 // Ẩn nút theo chủ sở hữu/trạng thái chỉ là tiện dụng; lõi quyết định và mọi lỗi của lõi hiện bằng ProblemMessage.
 // Không có yêu cầu ghi nào được tự thử lại; lỗi 409/412 thì báo và gợi ý tải lại.
-import { ApiError, type AttachmentItem, type DxRecord, type ObjectVariant, type UploadStatus } from 'dxos-sdk-js'
-import { PiiFileStatus, PiiPanel, ProblemMessage, QuarantineStatus, RecordForm, SealPanel, usePoll } from 'dxos-sdk-js/vue'
+import { ApiError, hasRole, type AttachmentItem, type DxRecord, type ObjectVariant, type UploadStatus } from 'dxos-sdk-js'
+import { originalLocked, PiiFileStatus, PiiPanel, ProblemMessage, QuarantineStatus, RecordForm, SealPanel, usePoll } from 'dxos-sdk-js/vue'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import ViewerDialog from '../components/ViewerDialog.vue'
 import { pdfFileName, saveBlob } from '../download'
@@ -16,7 +16,7 @@ import { APP, COL, useSession } from '../session'
 import { formatVn, statusLabel } from '../status'
 
 const props = defineProps<{ id: string }>()
-const { client, view } = useSession()
+const { client, roles, view } = useSession()
 
 const collection = computed(() => view.value?.collections[COL])
 const maxMb = computed(() => collection.value?.attachments?.max_mb ?? 0)
@@ -45,6 +45,13 @@ onMounted(() => {
   // viewerAvailable không ném lỗi; catch chỉ để chắc chắn: Viewer vắng mặt không bao giờ là lỗi của màn hình này.
   client.viewerAvailable().then((ok) => { if (alive) viewerOn.value = ok }, () => {})
 })
+
+/**
+ * Người dùng có thuộc `policies.pii.reveal_roles` không. Không thuộc thì bản gốc của tệp còn khóa (chưa dò xong, hỏng, quá lớn
+ * hoặc có phát hiện) chắc chắn bị máy chủ từ chối: ẩn nút tải/xem bản gốc và dẫn sang bản che (R34). Máy chủ vẫn là bên quyết định.
+ */
+const canReveal = computed(() => hasRole(roles.value, view.value?.policies.pii.reveal_roles))
+const lockedFor = (f: AttachmentItem): boolean => !canReveal.value && originalLocked(f.pii)
 
 /** Chủ bản ghi, chưa vào quy trình, chưa niêm phong: điều kiện để hiện nút ghi (tiện dụng, lõi vẫn kiểm lại). */
 const canWrite = computed(() => {
@@ -189,10 +196,12 @@ function sealedFiles(sealed: boolean): AttachmentItem[] {
 }
 
 /** `run` là hàm chạy-một-lần của SealPanel: chung trạng thái bận và khung báo lỗi với các nút của nó. */
-function download(run: (fn: () => Promise<void>) => Promise<boolean>, f: AttachmentItem, index: number, count: number): Promise<boolean> {
+function download(
+  run: (fn: () => Promise<void>) => Promise<boolean>, f: AttachmentItem, index: number, count: number, variant: ObjectVariant = 'original',
+): Promise<boolean> {
   return run(async () => {
-    const blob = await client.downloadObject(f.sha256 ?? '', 'original')
-    saveBlob(blob, pdfFileName(record.value?.data.so_hieu, props.id, count > 1 ? index + 1 : undefined))
+    const blob = await client.downloadObject(f.sha256 ?? '', variant)
+    saveBlob(blob, pdfFileName(record.value?.data.so_hieu, props.id, count > 1 ? index + 1 : undefined, variant))
   })
 }
 
@@ -292,15 +301,30 @@ async function onFile(ev: Event): Promise<void> {
 
     <SealPanel :app="APP" :col="COL" :record="record" @changed="refresh()">
       <template #actions="{ sealed, busy: sealBusy, run }">
-        <button
-          v-for="(f, i) in sealedFiles(sealed)"
-          :key="f.upload_id"
-          type="button"
-          :disabled="sealBusy"
-          @click="download(run, f, i, sealedFiles(sealed).length)"
-        >
-          Tải bản PDF đã ban hành{{ sealedFiles(sealed).length > 1 ? ` (tệp ${i + 1})` : '' }}
-        </button>
+        <template v-for="(f, i) in sealedFiles(sealed)" :key="f.upload_id">
+          <button v-if="!lockedFor(f)" type="button" :disabled="sealBusy" @click="download(run, f, i, sealedFiles(sealed).length)">
+            Tải bản PDF đã ban hành{{ sealedFiles(sealed).length > 1 ? ` (tệp ${i + 1})` : '' }}
+          </button>
+          <template v-else>
+            <button
+              v-if="f.pii?.redacted"
+              type="button"
+              class="dx-secondary"
+              :disabled="sealBusy"
+              @click="download(run, f, i, sealedFiles(sealed).length, 'redacted')"
+            >
+              Tải bản che (không dùng để đối soát niêm phong){{ sealedFiles(sealed).length > 1 ? ` (tệp ${i + 1})` : '' }}
+            </button>
+            <p class="dx-meta" data-sealed-note>
+              <template v-if="f.pii?.redacted">
+                Niêm phong bao phủ bản gốc, nên muốn đối soát cần bản gốc từ văn thư hoặc giám đốc.
+              </template>
+              <template v-else>
+                Tệp {{ i + 1 }} có dữ liệu cá nhân (hoặc chưa dò xong) và chưa có bản che: chỉ giám đốc hoặc văn thư mới tải được bản gốc đã ban hành.
+              </template>
+            </p>
+          </template>
+        </template>
       </template>
     </SealPanel>
     <PiiPanel :app="APP" :col="COL" :record="record" :collection="collection" :files="files" @changed="refresh()" />
@@ -320,9 +344,9 @@ async function onFile(ev: Event): Promise<void> {
             :initial="statusOf(a)"
             @settled="reloadFiles()"
           />
-          <PiiFileStatus :item="a" :busy="downloading" :timed-out="pollTimedOut" @download="(v) => downloadFile(a, i, v)" />
+          <PiiFileStatus :item="a" :busy="downloading" :timed-out="pollTimedOut" :can-reveal="canReveal" @download="(v) => downloadFile(a, i, v)" />
           <div v-if="viewerOn && a.status === 'CLEAN' && a.sha256" class="dx-actions">
-            <button type="button" class="dx-secondary" @click="openViewer(a, i, 'original')">Xem</button>
+            <button v-if="!lockedFor(a)" type="button" class="dx-secondary" @click="openViewer(a, i, 'original')">Xem</button>
             <button v-if="a.pii?.redacted" type="button" class="dx-secondary" @click="openViewer(a, i, 'redacted')">Xem bản che</button>
           </div>
           <ViewerDialog

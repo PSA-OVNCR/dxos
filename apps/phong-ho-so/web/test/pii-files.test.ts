@@ -125,7 +125,7 @@ describe('PII findings in the attachment list', () => {
 
   test('original download 404 shows ProblemMessage, never a blank, and is not retried', async () => {
     const c = detailClient({ attachments: [file(pii())], downloadObject: problem('not-found') })
-    const w = await mountWith(VanBanDetail, c, ID, { roleStrings: CV })
+    const w = await mountWith(VanBanDetail, c, ID, { roleStrings: GD })     // GD: nút hiện, máy chủ vẫn có quyền từ chối
     await click(w, 'Tải bản gốc')
     expect(c.downloadObject).toHaveBeenCalledTimes(1)
     expect(c.downloadObject).toHaveBeenCalledWith(SHA, 'original')
@@ -140,7 +140,7 @@ describe('PII findings in the attachment list', () => {
   test('a failed download clears on the next download and can be redacted instead', async () => {
     const blob = new Blob(['%PDF-che'])
     const c = detailClient({ attachments: [file(pii())], downloadObject: [problem('not-found'), blob] })
-    const w = await mountWith(VanBanDetail, c, ID, { roleStrings: CV })
+    const w = await mountWith(VanBanDetail, c, ID, { roleStrings: GD })
     await click(w, 'Tải bản gốc')
     expect(w.find('[role=alert]').exists()).toBe(true)
     await click(w, 'Tải bản che')
@@ -195,6 +195,36 @@ describe('PII findings in the attachment list', () => {
     await vi.advanceTimersByTimeAsync(3100)
     expect(w.text()).toContain('Phát hiện 3 dữ liệu cá nhân')
     w.unmount()
+  })
+})
+
+describe('who sees "Tải bản gốc" (R34)', () => {
+  const buttons = (w: { findAll: (s: string) => { text: () => string }[] }) => w.findAll('button').map((b) => b.text())
+
+  test.each([
+    ['chuyen_vien', CV], ['nhan_vien', ['app:phong-ho-so:nhan_vien']],
+  ])('%s does not get the original of a file with findings, only the redacted copy', async (_n, roles) => {
+    const w = await mountWith(VanBanDetail, detailClient({ attachments: [file(pii())] }), ID, { roleStrings: roles })
+    expect(buttons(w)).toContain('Tải bản che')
+    expect(buttons(w)).not.toContain('Tải bản gốc')
+  })
+
+  test.each([['TOO_LARGE'], ['FAILED']] as const)('without reveal_pii a %s file offers no original at all', async (status) => {
+    const p = pii({ status, findings: 0, counts: {}, redacted: false })
+    const w = await mountWith(VanBanDetail, detailClient({ attachments: [file(p)] }), ID, { roleStrings: CV })
+    expect(buttons(w)).not.toContain('Tải bản gốc')
+    expect(w.find('.dx-pii-file .dx-actions').exists()).toBe(false)
+  })
+
+  test('without reveal_pii a file with no findings keeps its original download', async () => {
+    const p = pii({ findings: 0, counts: {}, redacted: false })
+    const w = await mountWith(VanBanDetail, detailClient({ attachments: [file(p)] }), ID, { roleStrings: CV })
+    expect(buttons(w)).toContain('Tải bản gốc')
+  })
+
+  test.each([['giam_doc', GD], ['van_thu', ['app:phong-ho-so:van_thu']]])('%s (reveal_pii) keeps both buttons', async (_n, roles) => {
+    const w = await mountWith(VanBanDetail, detailClient({ attachments: [file(pii())] }), ID, { roleStrings: roles })
+    expect(buttons(w)).toEqual(expect.arrayContaining(['Tải bản che', 'Tải bản gốc']))
   })
 })
 

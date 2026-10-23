@@ -204,7 +204,7 @@ describe('"Xem" in the attachment list of VanBanDetail', () => {
     const pii = { status: 'DONE' as const, findings: 3, counts: { CCCD: 1, PHONE: 1, BANK_ACCOUNT: 1 }, redacted: true }
     const c = detailClient({ attachments: [clean({ pii })], viewerAvailable: true,
       viewInfo: { pages: 1 }, viewPage: PNG() })
-    const w = await mountWith(VanBanDetail, c, ID)
+    const w = await mountWith(VanBanDetail, c, ID, { roleStrings: ['app:phong-ho-so:giam_doc'] })
     expect(buttons(w)).toEqual(expect.arrayContaining(['Xem', 'Xem bản che']))
     await click(w, 'Xem bản che')
     expect(c.viewInfo).toHaveBeenCalledWith(SHA, 'redacted')
@@ -215,6 +215,27 @@ describe('"Xem" in the attachment list of VanBanDetail', () => {
     expect(revoked).toEqual(['blob:dxos-1'])
     await click(w, 'Xem')
     expect(c.viewInfo).toHaveBeenLastCalledWith(SHA, 'original')
+  })
+
+  test('without reveal_pii the original of a PII-locked file has no "Xem", only the redacted copy', async () => {
+    const pii = { status: 'DONE' as const, findings: 3, counts: { CCCD: 3 }, redacted: true }
+    const w = await mountWith(VanBanDetail, detailClient({ attachments: [clean({ pii })], viewerAvailable: true }), ID)
+    expect(buttons(w).filter((b) => b.startsWith('Xem'))).toEqual(['Xem bản che'])
+  })
+
+  test.each([
+    ['scan pending', { status: 'PENDING' as const, findings: 0, counts: {}, redacted: false }],
+    ['scan failed', { status: 'FAILED' as const, findings: 0, counts: {}, redacted: false }],
+    ['findings but no copy', { status: 'DONE' as const, findings: 1, counts: { CCCD: 1 }, redacted: false }],
+  ])('without reveal_pii a locked file (%s) has no "Xem" at all', async (_n, pii) => {
+    const w = await mountWith(VanBanDetail, detailClient({ attachments: [clean({ pii })], viewerAvailable: true }), ID)
+    expect(buttons(w).filter((b) => b.startsWith('Xem'))).toEqual([])
+  })
+
+  test('without reveal_pii a file with no findings keeps "Xem"', async () => {
+    const pii = { status: 'DONE' as const, findings: 0, counts: {}, redacted: false }
+    const w = await mountWith(VanBanDetail, detailClient({ attachments: [clean({ pii })], viewerAvailable: true }), ID)
+    expect(buttons(w)).toContain('Xem')
   })
 
   test('a 404 from the viewer on the original (no right to read PII) shows ProblemMessage inside the dialog', async () => {

@@ -8,6 +8,7 @@ import { defineComponent, h, ref } from 'vue'
 import type { AttachmentPii, ManifestView } from '../src/types'
 import { att, apiErr, fakeClient, problem } from '../src/testing'
 import { messageFor } from '../src/vue/messages'
+import { originalLocked } from '../src/vue/piiText'
 import PiiFileStatus from '../src/vue/PiiFileStatus.vue'
 import PiiPanel from '../src/vue/PiiPanel.vue'
 import { SESSION_KEY } from '../src/vue/session'
@@ -104,6 +105,42 @@ describe('PiiFileStatus', () => {
   test('a file without a hash (not CLEAN) offers nothing to download', () => {
     const w = mount(PiiFileStatus, { props: { item: att({ sha256: null, pii: pii() }) } })
     expect(buttons(w as never)).toEqual([])
+  })
+
+  describe('canReveal=false (the user lacks reveal_pii)', () => {
+    const noReveal = { canReveal: false }
+
+    test('a file with findings offers only the redacted copy', () => {
+      expect(buttons(show(pii(), noReveal))).toEqual(['Tải bản che'])
+    })
+
+    test.each([
+      ['PENDING', { status: 'PENDING', findings: 0, counts: {}, redacted: false }],
+      ['TOO_LARGE', { status: 'TOO_LARGE', findings: 0, counts: {}, redacted: false }],
+      ['FAILED', { status: 'FAILED', findings: 0, counts: {}, redacted: false }],
+      ['findings without a copy', { redacted: false }],
+    ] as const)('%s: no original and no actions at all', (_n, over) => {
+      const w = show(pii(over), noReveal)
+      expect(buttons(w)).toEqual([])
+    })
+
+    test('a file with no findings keeps the original download', () => {
+      expect(buttons(show(pii({ findings: 0, counts: {}, redacted: false }), noReveal))).toEqual(['Tải bản gốc'])
+    })
+
+    test('canReveal defaults to true (the server still decides)', () => {
+      expect(buttons(show(pii()))).toEqual(['Tải bản che', 'Tải bản gốc'])
+    })
+  })
+
+  describe('originalLocked', () => {
+    test('locked unless the scan is DONE with zero findings', () => {
+      expect(originalLocked(pii())).toBe(true)
+      expect(originalLocked(pii({ findings: 0, counts: {} }))).toBe(false)
+      for (const status of ['PENDING', 'TOO_LARGE', 'FAILED'] as const) expect(originalLocked(pii({ status, findings: 0 }))).toBe(true)
+      expect(originalLocked(null)).toBe(false)
+      expect(originalLocked(undefined)).toBe(false)
+    })
   })
 
   test('busy disables the buttons', () => {

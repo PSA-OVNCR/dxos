@@ -114,6 +114,85 @@ describe('SealPanel', () => {
     expect(saveBlob).not.toHaveBeenCalled()
   })
 
+  // R34 (final review F3): người không có reveal_pii không tải được bản gốc của tệp còn khóa; máy chủ vẫn quyết định.
+  describe('sealed download for roles without reveal_pii', () => {
+    const CV = ['app:phong-ho-so:chuyen_vien']
+    const NV = ['app:phong-ho-so:nhan_vien']
+    const piiOf = (over = {}) => ({ status: 'DONE' as const, findings: 3, counts: { CCCD: 3 }, redacted: true, ...over })
+    const sealedWith = (pii: unknown, over = {}) => detailClient({
+      get: rec({ seal_state: 'SEALED', data: { so_hieu: '02/QĐ-SM' } }), seal: sealInfo(), downloadObject: new Blob(['x']),
+      attachments: [att({ upload_id: 'u1', sha256: SHA, pii: pii as never })], ...over,
+    })
+    const dlLabels = (w: { findAll: (s: string) => { text: () => string }[] }) =>
+      w.findAll('button').map((b) => b.text()).filter((t) => t.startsWith('Tải bản'))
+
+    test.each([[CV], [NV]])('%j: a locked file offers the redacted copy, labelled, never the original', async (roles) => {
+      const c = sealedWith(piiOf())
+      const w = await mountWith(VanBanDetail, c, { id: 'r1' }, { roleStrings: roles })
+      expect(w.text()).not.toContain('Tải bản PDF đã ban hành')
+      expect(dlLabels(w).filter((t) => t !== 'Tải bản che')).toEqual(['Tải bản che (không dùng để đối soát niêm phong)'])
+      expect(w.find('[data-sealed-note]').text()).toContain('Niêm phong bao phủ bản gốc')
+      expect(w.find('[data-sealed-note]').text()).toContain('văn thư hoặc giám đốc')
+      await click(w, 'Tải bản che (không dùng để đối soát niêm phong)')
+      expect(c.downloadObject).toHaveBeenCalledTimes(1)
+      expect(c.downloadObject).toHaveBeenCalledWith(SHA, 'redacted')
+      expect(vi.mocked(saveBlob).mock.calls[0]?.[1]).toBe('02-QĐ-SM-che.pdf')
+    })
+
+    test.each([
+      ['no redacted copy yet', piiOf({ redacted: false })],
+      ['scan pending', piiOf({ status: 'PENDING', findings: 0, counts: {}, redacted: false })],
+      ['scan failed', piiOf({ status: 'FAILED', findings: 0, counts: {}, redacted: false })],
+    ])('%s: only an explanation, no sealed download button', async (_n, pii) => {
+      const w = await mountWith(VanBanDetail, sealedWith(pii), { id: 'r1' }, { roleStrings: CV })
+      expect(dlLabels(w).filter((t) => !['Tải bản che', 'Tải bản gốc'].includes(t))).toEqual([])
+      expect(w.text()).not.toContain('Tải bản PDF đã ban hành')
+      expect(w.find('[data-sealed-note]').text()).toContain('chỉ giám đốc hoặc văn thư mới tải được bản gốc')
+    })
+
+    test('a file with no findings is not locked: everyone gets the sealed original', async () => {
+      const c = sealedWith(piiOf({ findings: 0, counts: {}, redacted: false }))
+      const w = await mountWith(VanBanDetail, c, { id: 'r1' }, { roleStrings: CV })
+      await click(w, 'Tải bản PDF đã ban hành')
+      expect(c.downloadObject).toHaveBeenCalledWith(SHA, 'original')
+      expect(w.find('[data-sealed-note]').exists()).toBe(false)
+    })
+
+    test('a collection without PII detection (pii null) is not locked either', async () => {
+      const c = sealedWith(null)
+      const w = await mountWith(VanBanDetail, c, { id: 'r1' }, { roleStrings: CV })
+      await click(w, 'Tải bản PDF đã ban hành')
+      expect(c.downloadObject).toHaveBeenCalledWith(SHA, 'original')
+    })
+
+    test.each([[GD], [VT]])('%j (reveal_pii) still downloads the original of a locked file', async (roles) => {
+      const c = sealedWith(piiOf())
+      const w = await mountWith(VanBanDetail, c, { id: 'r1' }, { roleStrings: roles })
+      expect(dlLabels(w)).toContain('Tải bản PDF đã ban hành')
+      expect(w.find('[data-sealed-note]').exists()).toBe(false)
+      await click(w, 'Tải bản PDF đã ban hành')
+      expect(c.downloadObject).toHaveBeenCalledWith(SHA, 'original')
+    })
+
+    test('a 404 from the server still shows ProblemMessage (the server decides)', async () => {
+      const c = sealedWith(piiOf(), { downloadObject: problem('not-found') })
+      const w = await mountWith(VanBanDetail, c, { id: 'r1' }, { roleStrings: GD })
+      await click(w, 'Tải bản PDF đã ban hành')
+      expect(w.find('[role=alert]').text()).toBe('Không tìm thấy dữ liệu hoặc bạn không có quyền xem')
+      expect(c.downloadObject).toHaveBeenCalledTimes(1)
+    })
+
+    test('several files: each locked file gets its own numbered redacted button', async () => {
+      const c = detailClient({
+        get: rec({ seal_state: 'SEALED', data: { so_hieu: '02/QĐ-SM' } }), seal: sealInfo(), downloadObject: new Blob(['x']),
+        attachments: [att({ upload_id: 'u1', sha256: SHA, pii: piiOf() }), att({ upload_id: 'u2', sha256: 'c'.repeat(64), pii: piiOf({ findings: 0, counts: {}, redacted: false }) })],
+      })
+      const w = await mountWith(VanBanDetail, c, { id: 'r1' }, { roleStrings: CV })
+      expect(dlLabels(w).filter((t) => t.includes('đã ban hành') || t.includes('đối soát')))
+        .toEqual(['Tải bản che (không dùng để đối soát niêm phong) (tệp 1)', 'Tải bản PDF đã ban hành (tệp 2)'])
+    })
+  })
+
   test('revoke requires a reason code from the fixed list', async () => {
     const c = detailClient({ get: rec({ seal_state: 'SEALED' }), seal: sealInfo() })
     const w = await mountWith(VanBanDetail, c, { id: 'r1' }, { roleStrings: GD })
