@@ -14,6 +14,14 @@
   lui về bản tốt gần nhất. Mã thoát: 0 đạt; 2 từ chối trước khi đổi gì; 3 thiếu điều kiện (digest, compose, fetch); 4 hỏng
   đã quay lui; 5 hỏng và không quay lui được. Xem `docs/runbook-deploy.md` (Plan 03 Task 12, Plan 04 Task 11, S4). Chạy
   thật là việc V29 và V42
+- `backup.sh`, `restore.sh`, `at21_drill.sh` (và `backup_lib.sh`, chỉ để `source`): sao lưu mã hóa, khôi phục có chốt chặn, diễn tập
+  AT-21 (Plan 04 Task 12, S4, P4-D9). `ops/backup.sh <thư mục ra>` ghi `dxos-backup-<UTC>.tar.enc` (`openssl enc -aes-256-cbc
+  -pbkdf2 -iter 600000 -salt`, mật khẩu ở `.secrets/backup-passphrase`) và `.sha256`: `pg_dump -Fc` ba DB và tar hai volume
+  (SeaweedFS, OpenBao) qua busybox ghim digest, chỉ đọc; thoát 0/2/3. `ops/restore.sh <gói> --project <tên>` kiểm sha256, giải
+  mã và kiểm gói TRƯỚC khi gọi docker, chỉ tạo tài nguyên của project đó và **từ chối `--project dxos`** (thoát 2). `ops/at21_drill.sh`:
+  sao lưu, khôi phục vào `dxos-restore`, dựng lõi ở `restore.localhost` (không dựng caddy nên không tranh cổng), mở khóa
+  OpenBao, `dxos-witness verify-bundle` một niêm phong chọn trước rồi so `tree_size` và root. Xem `docs/runbook-backup.md`. Chạy
+  thật là việc V43
 - `seed_manifests.py`: nạp manifest thẳng vào DB, **chỉ dùng cho test lõi** (Plan 01 Task 17); cài app thật dùng
   `e2e/install_apps.sh` (CLI `dxos`, bốn mắt)
 - `e2e/install_apps.sh`: cài App A/B bằng CLI `dxos`, người nộp và người duyệt khác nhau; `e2e/run_e2e.sh`: chạy E2E

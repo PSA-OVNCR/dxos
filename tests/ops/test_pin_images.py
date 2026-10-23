@@ -79,6 +79,14 @@ def test_script_image_variables_are_pinned_too(tmp_path):
     assert "OTHER_IMAGE=busybox:1.37\n" in text                     # biến khác không bị đụng
 
 
+def test_busybox_image_of_the_backup_scripts_is_pinned_too(tmp_path):
+    (tmp_path / "backup_lib.sh").write_text("BUSYBOX_IMAGE=busybox:1.37  # tar volume\n", encoding="utf-8")
+    assert [r for _, r in pin_images.find_refs(tmp_path)] == ["busybox:1.37"]
+    pin_images.pin(tmp_path, lambda ref: D1)
+    text = (tmp_path / "backup_lib.sh").read_text(encoding="utf-8")
+    assert text == f"BUSYBOX_IMAGE=busybox:1.37@{D1}  # tar volume\n"
+
+
 def test_repo_script_images_are_found_by_default_roots():
     found = {r for sub in ("ops", "deploy") for _, r in pin_images.find_refs(ROOT / sub)}
     # Chưa ghim: có trong danh sách chờ ghim; đã ghim: không còn. Cả hai trạng thái đều hợp lệ, nhưng mọi ref

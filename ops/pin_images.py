@@ -3,8 +3,9 @@
 """Ghim mọi image trong deploy/ bằng digest `@sha256:` (Plan 01 Global Constraints).
 
 Tìm `image: <ref>` và `probe_image: <ref>` trong deploy/**/*.yaml và `FROM <ref>`
-trong deploy/**/Dockerfile, và dòng `NODE_IMAGE=<ref>` / `PLAYWRIGHT_IMAGE=<ref>` trong ops/*.sh (image của
-`make web-build` và `make web-live`, Plan 03 Task 10), và image `anchore/syft`, `zricethezav/gitleaks`
+trong deploy/**/Dockerfile, và dòng `NODE_IMAGE=<ref>` / `PLAYWRIGHT_IMAGE=<ref>` / `BUSYBOX_IMAGE=<ref>`
+trong ops/*.sh (image của `make web-build` và `make web-live`, Plan 03 Task 10; của sao lưu/khôi phục volume ở
+ops/backup_lib.sh, Plan 04 Task 12), và image `anchore/syft`, `zricethezav/gitleaks`
 trong lệnh `docker run` của .github/workflows/*.yml (Plan 04 Task 1); tham chiếu nào chưa có digest thì hỏi
 registry rồi ghi lại thành `<ref>@sha256:...`. Cần Docker có buildx (Docker Desktop có sẵn).
 
@@ -28,7 +29,7 @@ DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 PATTERNS = [
     ("*.yaml", re.compile(r"^(?P<lead>\s*(?:image|probe_image):\s*)(?P<ref>[^\s#!][^\s#]*)", re.M)),
     ("Dockerfile", re.compile(r"^(?P<lead>FROM\s+)(?P<ref>[^\s#]+)", re.M | re.I)),
-    ("*.sh", re.compile(r"^(?P<lead>(?:NODE|PLAYWRIGHT)_IMAGE=)(?P<ref>[^\s#]+)", re.M)),
+    ("*.sh", re.compile(r"^(?P<lead>(?:NODE|PLAYWRIGHT|BUSYBOX)_IMAGE=)(?P<ref>[^\s#]+)", re.M)),
     # .github/workflows/*.yml: chỉ hai image công cụ chạy bằng `docker run ... <image>:<tag>` (Plan 04).
     ("*.yml", re.compile(
         r"^(?P<lead>.*?\bdocker run\b[^\n]*?[ \t])"

@@ -34,6 +34,7 @@ nằm ở README và `docs/progress/` trong kho.
 
 - [Triển khai lên VPS theo tag](runbook-deploy.md).
 - [Mở khóa và quản lý OpenBao](runbook-openbao.md).
+- [Sao lưu mã hóa, khôi phục, diễn tập AT-21](runbook-backup.md).
 - [Neo sổ cái ra repo công khai và witness](runbook-anchor.md).
 - [Xóa dữ liệu cá nhân](runbook-pii-erasure.md).
 - [Năng lực và RAM theo hồ sơ](capacity.md).

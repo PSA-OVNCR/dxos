@@ -122,10 +122,11 @@ dữ liệu cá nhân 2025 (spec 25.2). Mẫu (đối chiếu toàn văn hai đi
 
 ## 5. Backup
 
-Hiện stack **chưa có backup tự động**: spec 16.3 xếp `pg_dump` hằng đêm và snapshot volume là SHOULD (hạng mục S4).
-Khi bật backup, dữ liệu đã xóa còn trong các bản backup cũ tới khi bản đó hết hạn và bị hủy. Vì vậy:
+Đã có `ops/backup.sh` (gói mã hóa, [`docs/runbook-backup.md`](runbook-backup.md)) nhưng **chưa bật lịch tự động nào** và chưa
+có bước xóa gói cũ: spec 16.3 xếp `pg_dump` hằng đêm và snapshot volume là SHOULD (hạng mục S4). Dữ liệu đã xóa còn trong
+các gói backup cũ tới khi gói đó hết hạn và bị hủy. Vì vậy:
 
-- Thời hạn giữ backup: trưởng nhóm chốt khi bật backup; [ĐX] tối đa 30 ngày. Đã chốt: ……… ngày (người chốt, ngày).
+- Thời hạn giữ backup: trưởng nhóm chốt khi bật backup (việc V21); [ĐX] tối đa 30 ngày. Đã chốt: ……… ngày (người chốt, ngày).
 - Khi khôi phục từ backup cũ hơn một lần xóa, chạy lại các lần xóa có ngày sau thời điểm của bản backup trước khi mở
   hệ thống cho người dùng. Lấy danh sách từ sổ tiếp nhận (mục 1), **không** từ `core.pii_erasures`: bảng đó nằm trong
   chính DB vừa khôi phục nên đã mất các lần xóa sau backup.

@@ -11,6 +11,13 @@ Mọi thay đổi đáng kể được ghi tại đây, theo định dạng [Kee
   đã giải, `compose pull` chạy trước bước dựng SPA. Mã thoát 0/2/3/4/5; `deploy/deployments.log` thêm cột `result`
   (`ok|rolled-back|failed`) và `signed`, dòng kiểu cũ vẫn đọc được. `deploy/allowed_signers` mới chỉ có chú thích, khóa thật
   là việc V42 nên cho tới đó mọi tag bị từ chối nếu không dùng `--allow-unsigned`. Mới kiểm bằng `git`, `docker`, `curl` giả.
+- **Sao lưu mã hóa, khôi phục có chốt chặn, diễn tập AT-21 (S4, P4-D9)**: `ops/backup.sh <thư mục ra>` (`pg_dump -Fc` ba DB, tar hai
+  volume qua busybox ghim digest chỉ đọc, mã hóa `openssl enc -aes-256-cbc -pbkdf2 -iter 600000 -salt` với `.secrets/backup-passphrase`,
+  ghi kèm `.sha256`; không có tệp chưa mã hóa ở thư mục ra), `ops/restore.sh <gói> --project <tên>` (kiểm sha256, giải mã và kiểm
+  gói trước mọi lệnh docker; từ chối `--project dxos`; chỉ tạo tài nguyên của project được chỉ định) và `ops/at21_drill.sh`
+  (sao lưu, khôi phục vào `dxos-restore`, dựng lõi ở `restore.localhost`, `dxos-witness verify-bundle` rồi so `tree_size` và root).
+  `docs/runbook-backup.md` có mẫu systemd timer (không bật mặc định). Không có xác thực MAC riêng (sha256 ghi kèm bù một phần);
+  thời hạn giữ gói chờ V21; mới kiểm bằng `docker` và `dxos-witness` giả với `openssl` thật, diễn tập thật là V43.
 - `ARCHITECTURE.md` (tóm tắt kiến trúc, trỏ về spec), trang tài liệu GitHub Pages (`docs/index.md`, `docs/_config.yml`; chưa bật, V38),
   `docs/capacity.md` (chỉ số có nguồn đo), `.github/ISSUE_TEMPLATE/config.yml` (tắt issue trống, trỏ Discussions), mục
   "Thành viên đóng góp" trong `CONTRIBUTING.md`.
