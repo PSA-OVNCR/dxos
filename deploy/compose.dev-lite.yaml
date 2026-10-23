@@ -26,3 +26,6 @@ services:
   flowable:
     environment:
       JAVA_TOOL_OPTIONS: "-Xmx384m"
+  # dev-lite không có Viewer (spec 16.1): đổi profile để COMPOSE_PROFILES=viewer trong .env không dựng nó.
+  viewer:
+    profiles: !override ["khong-dung-o-hoso-nay"]

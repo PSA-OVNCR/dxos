@@ -3,7 +3,7 @@
 | Tệp | Vai trò |
 |---|---|
 | `compose.yaml` | Dịch vụ, **9 mạng** phân vùng (spec 6.2), healthcheck, volume |
-| `compose.p16.yaml`, `compose.p8.yaml` | Hồ sơ tài nguyên (spec 16.1) |
+| `compose.p16.yaml`, `compose.p8.yaml` | Hồ sơ tài nguyên (spec 16.1). Dịch vụ `viewer` (profile `viewer`) chỉ chạy ở p16: `.env.example` đặt `COMPOSE_PROFILES=viewer`, p8 và dev-lite đổi profile của nó nên không dựng; `profile_only` trong `network-matrix.yaml` ghi quy tắc này cho test |
 | `compose.dev-lite.yaml` | Chỉ dùng khi phát triển: ClamAV → `fake-av` (nhãn `dxos.dev-only`) |
 | `compose.test.yaml` | Dự án riêng `dxos-test` cho integration test: core-db, OpenBao (dev), fake-av, SeaweedFS; cổng chỉ trên 127.0.0.1 |
 | `network-matrix.yaml` | **Nguồn sự thật** cho phân vùng mạng; test tĩnh và `ops/netcheck.py` đọc tệp này |

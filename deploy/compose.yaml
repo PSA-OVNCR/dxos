@@ -196,7 +196,42 @@ services:
       retries: 5
       start_period: 30s
 
-  # Đứng thay viewer / backend Tầng 2 trong vùng API, để AT-01 có điểm xuất phát thật.
+  # ---------- Viewer (Plan 04 Task 8, S2; chỉ hồ sơ p16, spec 16.1) ----------
+  # Xem từng trang PDF qua ảnh PNG có watermark (chỉ để răn đe). Không trạng thái, chỉ RAM, không bí mật; đi vào lõi
+  # duy nhất qua APISIX (net-app). Bật bằng COMPOSE_PROFILES=viewer trong .env; compose.p8.yaml và compose.dev-lite.yaml
+  # đổi profile của dịch vụ này nên hai hồ sơ đó không bao giờ dựng nó.
+  # Không có đĩa ghi được: `read_only` mà không có tmpfs hay volume là bảo đảm thật của "không ghi đĩa" (các test Python
+  # chỉ bắt lỗi trong mã Python của Viewer, không thấy mã gốc của PDFium).
+  # Giới hạn tài nguyên vì PDFium không hủy được giữa chừng: một PDF bệnh lý chỉ làm nghẹt container này (và bị cổng cắt
+  # ở route /view/* của APISIX), không kéo cả máy. Tính: tối đa 2 trang dựng cùng lúc, mỗi trang tới ~160 MB và 2 tệp
+  # tới 64 MiB trong RAM, cộng nền Python.
+  viewer:
+    <<: *common
+    profiles: ["viewer"]
+    build:
+      context: ..
+      dockerfile: viewer/Dockerfile
+    environment:
+      DXOS_VIEWER_API_BASE: http://apisix:9080
+      DXOS_VIEWER_TIMEOUT_S: "10"
+      DXOS_VIEWER_MAX_BYTES: "67108864"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 768m
+    memswap_limit: 768m
+    cpus: 1.0
+    pids_limit: 128
+    networks: [net-app]
+    healthcheck:
+      # Image python:slim không có curl/wget: dùng urllib. Điểm /view/v1/healthz của chính Viewer không cần token.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/view/v1/healthz', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # Đứng thay backend Tầng 2 trong vùng API (và viewer ở hồ sơ không dựng nó), để AT-01 có điểm xuất phát thật.
   net-probe-app:
     <<: *common
     image: busybox:1.37@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e

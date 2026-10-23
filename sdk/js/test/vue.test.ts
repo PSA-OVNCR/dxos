@@ -28,6 +28,16 @@ describe('messageFor', () => {
     }
   })
 
+  test('every problem the viewer raises has a Vietnamese message, never the English title of the service', () => {
+    for (const slug of ['busy', 'file-too-large', 'too-many-pages', 'unreadable-document', 'upstream-error',
+      'upstream-timeout', 'unauthorized', 'not-found', 'invalid-request', 'unsupported-media-type']) {
+      const m = messageFor(apiErr(slug, { title: 'English Title' }))
+      expect(m, slug).not.toBe('')
+      expect(m, slug).not.toBe('English Title')
+    }
+    expect(messageFor(apiErr('busy'))).toMatch(/thử lại/)
+  })
+
   test('guard reason drives the message', () => {
     expect(messageFor(apiErr('guard-failed', { reason: 'same_actor' }))).toMatch(/không được duyệt/)
     expect(messageFor(apiErr('guard-failed', { reason: 'attachments_not_clean' })))

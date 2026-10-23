@@ -9,7 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 CADDYFILE = (ROOT / "deploy/caddy/Caddyfile").read_text(encoding="utf-8")
-APPS_CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
+APPS_CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; "
             "connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; "
             "frame-ancestors 'none'")
 SHA = r"@sha256:[0-9a-f]{64}"
@@ -38,6 +38,20 @@ def test_generic_apps_handle_sets_csp_and_hardening_headers():
     assert f'Content-Security-Policy "{APPS_CSP}"' in block
     assert "X-Content-Type-Options nosniff" in block and "Referrer-Policy no-referrer" in block
     assert CADDYFILE.count("handle /apps/* {") == 1
+
+
+def test_apps_csp_allows_blob_images_for_the_viewer_and_nothing_inline():
+    """Viewer (Plan 04 Task 8): ViewerDialog hiện trang PNG bằng blob: URL, nên /apps/* thêm `blob:` vào
+    img-src (chỉ img-src), vẫn không `unsafe-inline`; hai route đối soát giữ CSP chặt hơn, không có blob:."""
+    csp = re.search(r'Content-Security-Policy "([^"]+)"', _generic()).group(1)
+    directives = {d.split()[0]: d.split()[1:] for d in csp.split("; ")}
+    assert directives["img-src"] == ["'self'", "data:", "blob:"]
+    assert [k for k, v in directives.items() if "blob:" in v] == ["img-src"]
+    assert "'unsafe-inline'" not in CADDYFILE and "'unsafe-eval'" not in CADDYFILE
+    assert directives["script-src"] == ["'self'"] and directives["style-src"] == ["'self'"]
+    assert directives["connect-src"] == ["'self'"]                    # trang PNG lấy từ cùng origin (/view/*)
+    for opener in ("handle_path /apps/verify/*", "handle_path /apps/verify-lite/*"):
+        assert "blob:" not in _block(CADDYFILE, opener)
 
 
 def test_generic_apps_handle_cache_rules():

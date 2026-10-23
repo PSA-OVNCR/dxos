@@ -64,3 +64,23 @@ def test_docker_command_shape():
         "docker", "run", "--rm", "--network", "dxos_net-app",
         "busybox:1.37@sha256:ab", "nc", "-z", "-w", "2", "core-db", "5432",
     ]
+
+
+def test_real_matrix_has_the_viewer_rows_and_a_membership_model_passes_them():
+    """Plan 04 Task 8: viewer (net-app) tới APISIX, không tới kho dữ liệu, Flowable, OpenBao, ClamAV."""
+    import yaml
+
+    matrix_path = ROOT / "deploy/network-matrix.yaml"
+    matrix = yaml.safe_load(matrix_path.read_text(encoding="utf-8"))
+    membership = matrix["membership"]
+    assert membership["viewer"] == ["net-app"]
+
+    def runner(network, host, port, image):          # mô hình đúng: mở khi đích nằm trong mạng xuất phát
+        return network.removeprefix("dxos_") in membership[host]
+
+    res = netcheck.run_probes(matrix_path, "dxos", runner=runner)
+    assert all(r.ok for r in res), [r for r in res if not r.ok]
+    seen = {(r.src_net, r.target): r.expect for r in res}
+    assert seen[("net-app", "apisix:9080")] == "open"
+    for target in ("core-db:5432", "seaweedfs:8333", "openbao:8200", "flowable:8080", "clamav:3310"):
+        assert seen[("net-app", target)] == "closed", target

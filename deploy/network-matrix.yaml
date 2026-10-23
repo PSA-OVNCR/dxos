@@ -9,7 +9,7 @@
 networks:
   net-edge:   {internal: false}   # publish 80/443 (chỉ caddy)
   net-front:  {internal: true}    # caddy <-> apisix, keycloak
-  net-app:    {internal: true}    # apisix <-> trust-core-api, viewer, backend Tầng 2
+  net-app:    {internal: true}    # apisix <-> trust-core-api, viewer, backend Tầng 2 (viewer gọi API qua apisix)
   net-idp:    {internal: true}    # trust-core-api -> keycloak (JWKS, admin REST)
   net-kcdb:   {internal: true}    # keycloak -> kc-db
   net-wf:     {internal: true}    # trust-core-api <-> flowable
@@ -24,13 +24,19 @@ membership:
   kc-db:             [net-kcdb]
   trust-core-api:    [net-app, net-idp, net-wf, net-data]
   trust-core-worker: [net-data, net-egress]
-  net-probe-app:     [net-app]          # đứng thay viewer / backend Tầng 2 cho tới khi có
+  viewer:            [net-app]          # Plan 04 Task 8; chỉ p16 (xem profile_only)
+  net-probe-app:     [net-app]          # đứng thay backend Tầng 2 (và viewer ở hồ sơ không dựng nó) cho tới khi có
   flowable:          [net-wf, net-fldb]
   flowable-db:       [net-fldb]
   core-db:           [net-data]
   seaweedfs:         [net-data]
   clamav:            [net-data, net-egress]
   openbao:           [net-data]
+
+# Dịch vụ chỉ có ở một số hồ sơ (tests/infra/test_compose_static.py): ngoài các hồ sơ liệt kê thì compose KHÔNG được
+# có dịch vụ đó, kể cả khi .env bật profile của nó. Dịch vụ không khai ở đây có mặt ở mọi hồ sơ.
+profile_only:
+  viewer: [p16]
 
 # Image busybox dùng để thăm dò (ops/pin_images.py ghim digest).
 probe_image: busybox:1.37@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e
@@ -43,7 +49,10 @@ probes:
   - {from: net-front,  to: "trust-core-api:8000",    expect: closed}   # không vòng qua APISIX
   - {from: net-front,  to: "core-db:5432",           expect: closed}
   - {from: net-front,  to: "seaweedfs:8333",         expect: closed}
-  # Vùng API (APISIX, viewer, backend Tầng 2): chỉ tới được API
+  # Vùng API (APISIX, viewer, backend Tầng 2): chỉ tới được API. Mọi hàng `net-app` dưới đây cũng là hàng của viewer
+  # (nó chỉ nằm ở net-app): viewer tới được apisix (đường duy nhất vào lõi) nhưng không thấy kho dữ liệu, Flowable,
+  # OpenBao, ClamAV (I1, AT-01).
+  - {from: net-app,    to: "apisix:9080",            expect: open}     # viewer -> apisix -> API
   - {from: net-app,    to: "trust-core-api:8000",    expect: open}
   - {from: net-app,    to: "core-db:5432",           expect: closed}
   - {from: net-app,    to: "seaweedfs:8333",         expect: closed}

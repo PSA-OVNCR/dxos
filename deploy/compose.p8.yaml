@@ -18,3 +18,6 @@ services:
     # ConcurrentDatabaseReload no + 1 luồng quét: tránh nhân đôi RAM khi nạp lại chữ ký.
     volumes:
       - ./clamav/clamd.p8.conf:/etc/clamav/clamd.conf:ro
+  # Hồ sơ p8 không có Viewer (spec 16.1): đổi profile để COMPOSE_PROFILES=viewer trong .env không dựng nó.
+  viewer:
+    profiles: !override ["khong-dung-o-hoso-nay"]

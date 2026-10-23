@@ -194,6 +194,76 @@ describe('attachments', () => {
   })
 })
 
+describe('viewer (Plan 04 Task 8)', () => {
+  const SHA = 'ab'.repeat(32)
+  const png = () => new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], { type: 'image/png' })
+
+  test('viewerAvailable is true only for a 200 on /view/v1/healthz, sent with the bearer token', async () => {
+    const f = fakeFetch([{ json: { status: 'ok' } }])
+    expect(await client(f).viewerAvailable()).toBe(true)
+    expect(f.calls[0]!.url).toBe('/view/v1/healthz')
+    expect(f.calls[0]!.method).toBe('GET')
+    expect(f.calls[0]!.headers.get('Authorization')).toBe('Bearer tok')
+  })
+
+  test.each([[502], [503], [404], [500]])('viewerAvailable is false for a %i and never retries', async (status) => {
+    const f = fakeFetch([{ status, text: 'bad gateway' }])
+    expect(await client(f).viewerAvailable()).toBe(false)
+    expect(f.calls).toHaveLength(1)
+  })
+
+  test('viewerAvailable is false (not an exception) when the network fails', async () => {
+    const f = (async () => { throw new TypeError('Failed to fetch') }) as unknown as typeof fetch
+    expect(await client(f).viewerAvailable()).toBe(false)
+  })
+
+  test('viewerAvailable calls onUnauthorized on 401 like every other call, and answers false', async () => {
+    const onUnauthorized = vi.fn()
+    const f = fakeFetch([{ status: 401, text: '' }])
+    expect(await client(f, { onUnauthorized }).viewerAvailable()).toBe(false)
+    expect(onUnauthorized).toHaveBeenCalledTimes(1)
+  })
+
+  test('viewInfo passes the variant through and returns the page count', async () => {
+    const f = fakeFetch([{ json: { pages: 7 } }, { json: { pages: 2 } }])
+    const c = client(f)
+    expect(await c.viewInfo(SHA)).toEqual({ pages: 7 })
+    expect(await c.viewInfo(SHA, 'redacted')).toEqual({ pages: 2 })
+    expect(f.calls.map((x) => x.url)).toEqual([
+      `/view/v1/objects/${SHA}/info?variant=original`, `/view/v1/objects/${SHA}/info?variant=redacted`,
+    ])
+  })
+
+  test('viewPage fetches one PNG as a blob with the bearer token and the variant', async () => {
+    const f = fakeFetch([{ blob: png(), contentType: 'image/png' }])
+    const b = await client(f).viewPage(SHA, 3, 'redacted')
+    expect(b).toBeInstanceOf(Blob)
+    expect(b.size).toBe(4)
+    expect(f.calls).toHaveLength(1)
+    expect(f.calls[0]!.url).toBe(`/view/v1/objects/${SHA}/pages/3.png?variant=redacted`)
+    expect(f.calls[0]!.method).toBe('GET')
+    expect(f.calls[0]!.headers.get('Authorization')).toBe('Bearer tok')
+  })
+
+  test('viewPage encodes the hash as one path segment and refuses a page number that is not a positive integer', async () => {
+    const f = fakeFetch([{ blob: png(), contentType: 'image/png' }])
+    await client(f).viewPage('../x?y=1', 1)
+    expect(f.calls[0]!.url).toBe('/view/v1/objects/%2E%2E%2Fx%3Fy%3D1/pages/1.png?variant=original')
+    for (const bad of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      await expect(client(fakeFetch([])).viewPage(SHA, bad)).rejects.toThrow(/trang/)
+    }
+  })
+
+  test.each([[404, 'not-found'], [503, 'busy'], [502, 'upstream-error'], [504, 'upstream-timeout']])(
+    'viewPage turns a %i problem+json into an ApiError and never retries', async (status, slug) => {
+      const f = fakeFetch([{ status, problem: { type: `https://dxos.dev/problems/${slug}`, title: 't', status } }])
+      const e = await client(f).viewPage(SHA, 1).catch((x) => x)
+      expect(e).toBeInstanceOf(ApiError)
+      expect(e.slug).toBe(slug)
+      expect(f.calls).toHaveLength(1)
+    })
+})
+
 describe('workflow and seal', () => {
   test('tasks asks for assigned=me', async () => {
     const f = fakeFetch([{ json: { items: [task()] } }])

@@ -40,8 +40,19 @@ def matrix() -> dict:
 
 
 @pytest.fixture(scope="module", params=PRODUCTION_PROFILES)
-def compose_cfg(request) -> dict:
-    return _compose_config("compose.yaml", f"compose.{request.param}.yaml")
+def compose_profile(request) -> str:
+    return request.param
+
+
+@pytest.fixture(scope="module")
+def compose_cfg(compose_profile) -> dict:
+    return _compose_config("compose.yaml", f"compose.{compose_profile}.yaml")
+
+
+def _expected_services(matrix: dict, profile: str) -> dict[str, list[str]]:
+    """Dịch vụ của ma trận có mặt ở hồ sơ `profile`; dịch vụ khai ở `profile_only` chỉ có ở hồ sơ ghi ở đó."""
+    only = matrix.get("profile_only", {})
+    return {s: n for s, n in matrix["membership"].items() if profile in only.get(s, [profile])}
 
 
 @pytest.fixture(scope="module")
@@ -49,12 +60,12 @@ def dev_lite_cfg() -> dict:
     return _compose_config("compose.yaml", "compose.dev-lite.yaml")
 
 
-def test_every_service_is_in_matrix(compose_cfg, matrix):
-    assert set(compose_cfg["services"]) == set(matrix["membership"])
+def test_every_service_is_in_matrix(compose_cfg, compose_profile, matrix):
+    assert set(compose_cfg["services"]) == set(_expected_services(matrix, compose_profile))
 
 
-def test_membership_matches_matrix(compose_cfg, matrix):
-    for svc, nets in matrix["membership"].items():
+def test_membership_matches_matrix(compose_cfg, compose_profile, matrix):
+    for svc, nets in _expected_services(matrix, compose_profile).items():
         assert set(compose_cfg["services"][svc]["networks"]) == set(nets), svc
 
 
@@ -91,7 +102,9 @@ def test_dev_lite_replaces_clamav_with_labelled_fake_av(dev_lite_cfg, matrix):
     assert clamav["labels"]["dxos.dev-only"] == "true"
     assert "build" in clamav and "image" not in clamav
     # dev-lite vẫn giữ nguyên phân vùng mạng
-    for svc, nets in matrix["membership"].items():
+    expected = _expected_services(matrix, "dev-lite")
+    assert set(dev_lite_cfg["services"]) == set(expected)
+    for svc, nets in expected.items():
         assert set(dev_lite_cfg["services"][svc]["networks"]) == set(nets), svc
 
 
@@ -227,3 +240,99 @@ def test_keycloak_gets_every_variable_the_realm_files_use(compose_cfg, dev_lite_
 
 def test_dev_lite_imports_dev_realm(dev_lite_cfg):
     assert _kc_import_sources(dev_lite_cfg) == {"realm-dxos-dev.json"}
+
+
+# ---------------------------------------------------------------- Viewer (Plan 04 Task 8, S2)
+VIEWER_FORBIDDEN_TARGETS = ["core-db:5432", "seaweedfs:8333", "openbao:8200", "flowable:8080", "clamav:3310"]
+
+
+def _raw_compose() -> dict:
+    return yaml.safe_load((DEPLOY / "compose.yaml").read_text(encoding="utf-8"))
+
+
+def _routes() -> dict[str, dict]:
+    text = (DEPLOY / "apisix/apisix.yaml").read_text(encoding="utf-8").replace("#END", "")
+    return {r["id"]: r for r in yaml.safe_load(text)["routes"]}
+
+
+def test_viewer_service_is_profile_gated_and_only_on_net_app():
+    v = _raw_compose()["services"]["viewer"]
+    assert v["profiles"] == ["viewer"]
+    assert v["networks"] == ["net-app"]
+    assert "ports" not in v and "expose" not in v
+    assert v["build"]["dockerfile"] == "viewer/Dockerfile" and v["build"]["context"] == ".."
+
+
+def test_viewer_container_is_locked_down_and_has_no_disk_nor_secrets():
+    v = _raw_compose()["services"]["viewer"]
+    assert v["read_only"] is True
+    assert "tmpfs" not in v and "volumes" not in v      # không đĩa ghi được: bảo đảm thật của "không ghi đĩa"
+    assert v["cap_drop"] == ["ALL"] and "cap_add" not in v
+    assert "no-new-privileges:true" in v["security_opt"]
+    assert "secrets" not in v and "env_file" not in v
+    data_zone = {"core-db", "seaweedfs", "openbao", "flowable", "clamav"}
+    assert "depends_on" not in v or not set(v["depends_on"]) & data_zone
+    assert set(v["environment"]) == {"DXOS_VIEWER_API_BASE", "DXOS_VIEWER_TIMEOUT_S", "DXOS_VIEWER_MAX_BYTES"}
+    assert v["environment"]["DXOS_VIEWER_API_BASE"] == "http://apisix:9080"    # qua cổng, không gọi thẳng lõi
+    assert v["healthcheck"]["test"][:2] == ["CMD", "python"]       # image python:slim không có curl/wget
+
+
+def test_viewer_has_resource_limits_because_pdfium_cannot_be_cancelled():
+    v = _raw_compose()["services"]["viewer"]
+    assert v["mem_limit"] and v["memswap_limit"] == v["mem_limit"]  # không swap: trần RAM là trần thật
+    assert 0 < float(v["cpus"]) <= 2
+    assert 0 < v["pids_limit"] <= 256
+
+
+def test_viewer_runs_only_in_p16(matrix):
+    assert matrix["membership"]["viewer"] == ["net-app"]
+    assert matrix["profile_only"] == {"viewer": ["p16"]}
+    lines = (ROOT / ".env.example").read_text(encoding="utf-8").splitlines()
+    assert "COMPOSE_PROFILES=viewer" in lines                       # p16 bật qua COMPOSE_PROFILES
+    i = lines.index("COMPOSE_PROFILES=viewer")
+    assert any("p16" in ln and ln.startswith("#") for ln in lines[max(0, i - 4):i])    # có giải thích
+
+
+def test_p16_starts_viewer_with_the_example_env_while_p8_and_dev_lite_never_do(dev_lite_cfg):
+    p16 = _compose_config("compose.yaml", "compose.p16.yaml")["services"]
+    assert "viewer" in p16
+    assert p16["viewer"]["networks"].keys() == {"net-app"}
+    assert not p16["viewer"].get("ports")
+    # .env.example bật profile `viewer`; p8 và dev-lite vẫn không dựng Viewer (spec 16.1)
+    assert "viewer" not in _compose_config("compose.yaml", "compose.p8.yaml")["services"]
+    assert "viewer" not in dev_lite_cfg["services"]
+
+
+def test_viewer_probes_in_matrix(matrix):
+    probes = {(p["from"], p["to"]): p["expect"] for p in matrix["probes"]}
+    # viewer đứng trong net-app: tới được APISIX và API, không tới được kho dữ liệu, Flowable, OpenBao, ClamAV
+    assert probes[("net-app", "apisix:9080")] == "open"
+    assert "apisix" in {s for s, n in matrix["membership"].items() if "net-app" in n}
+    for target in VIEWER_FORBIDDEN_TARGETS:
+        assert probes[("net-app", target)] == "closed", target
+        host = target.split(":")[0]
+        assert not set(matrix["membership"][host]) & set(matrix["membership"]["viewer"]), host
+
+
+def test_apisix_view_route_has_the_same_jwt_chain_as_api_and_a_proxy_timeout():
+    routes = _routes()
+    view, api = routes["view"], routes["api-v1"]
+    assert view["uri"] == "/view/*" and view.get("status", 1) != 0
+    for plugin in ("openid-connect", "limit-req", "request-id"):
+        assert view["plugins"][plugin] == api["plugins"][plugin], plugin
+    assert view["plugins"]["openid-connect"]["bearer_only"] is True
+    upstream = view.get("upstream") or {}
+    if "upstream_id" in view:
+        upstream = next(u for u in yaml.safe_load(
+            (DEPLOY / "apisix/apisix.yaml").read_text(encoding="utf-8").replace("#END", ""))["upstreams"]
+            if u["id"] == view["upstream_id"])
+    assert upstream["nodes"] == {"viewer:8000": 1}
+    t = upstream["timeout"]                                  # PDFium không hủy được: cổng cắt thay Viewer
+    assert 0 < t["connect"] <= 5 and 0 < t["send"] <= 30 and 0 < t["read"] <= 60
+
+
+def test_view_is_reachable_only_through_the_gateway_not_directly(matrix):
+    caddy = (DEPLOY / "caddy/Caddyfile").read_text(encoding="utf-8")
+    assert "/view/*" in caddy and "reverse_proxy viewer" not in caddy
+    assert "viewer" not in matrix["membership"]["caddy"]
+    assert not set(matrix["membership"]["viewer"]) & set(matrix["membership"]["caddy"])

@@ -89,6 +89,24 @@ const BY_SLUG: Record<(typeof CORE_SLUGS)[number], string> = {
   'seal-key-expired': 'Khoá niêm phong đã hết hạn, hãy báo quản trị viên',
 }
 
+/**
+ * Lỗi riêng của Viewer (viewer/src/dxos_viewer/app.py). Các slug trùng tên với lõi (`unauthorized`, `not-found`,
+ * `invalid-request`, `unsupported-media-type`, `internal`) dùng chung câu ở BY_SLUG. Viewer không bao giờ nói lý do
+ * thật của một 404 (không lộ tệp có tồn tại hay không), nên câu 404 giữ nguyên "không tìm thấy hoặc không có quyền".
+ */
+const VIEWER_SLUGS = [
+  'busy', 'file-too-large', 'too-many-pages', 'unreadable-document', 'upstream-error', 'upstream-timeout',
+] as const
+
+const BY_VIEWER_SLUG: Record<(typeof VIEWER_SLUGS)[number], string> = {
+  busy: `Đang có quá nhiều trang được dựng, ${TRY_LATER}`,
+  'file-too-large': 'Tệp quá lớn để xem trực tiếp, hãy tải về để xem',
+  'too-many-pages': 'Tệp có quá nhiều trang để xem trực tiếp, hãy tải về để xem',
+  'unreadable-document': 'Không đọc được tệp PDF này để hiển thị, hãy tải về để xem',
+  'upstream-error': `Chưa lấy được tệp để hiển thị, ${TRY_LATER}`,
+  'upstream-timeout': `Lấy tệp để hiển thị mất quá lâu, ${TRY_LATER}`,
+}
+
 /** `reason` của `guard-failed` (contract-tier2.md mục 4.3). */
 const BY_GUARD_REASON: Record<string, string> = {
   same_actor: 'Người tạo hoặc người đã duyệt bước trước không được duyệt bước này',
@@ -136,6 +154,7 @@ export function messageFor(e: unknown): string {
   }
   if (e.slug === 'schema') return schemaMessage(e)
   if (Object.hasOwn(BY_SLUG, e.slug)) return BY_SLUG[e.slug as (typeof CORE_SLUGS)[number]]
+  if (Object.hasOwn(BY_VIEWER_SLUG, e.slug)) return BY_VIEWER_SLUG[e.slug as (typeof VIEWER_SLUGS)[number]]
   const gateway = /^http-(\d{3})$/.exec(e.slug)
   const g = gateway ? byGatewayStatus(Number(gateway[1])) : null
   if (g) return g

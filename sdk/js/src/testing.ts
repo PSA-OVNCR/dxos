@@ -10,7 +10,11 @@ import type { AttachmentItem, DxRecord, SealInfo, TaskItem } from './types'
 // ---- fetch giả -----------------------------------------------------------------------------
 
 export interface Call { url: string; method: string; headers: Headers; body: BodyInit | null | undefined }
-export interface Reply { status?: number; json?: unknown; text?: string; problem?: Record<string, unknown>; blob?: Blob }
+export interface Reply {
+  status?: number; json?: unknown; text?: string; problem?: Record<string, unknown>; blob?: Blob
+  /** Content-Type của `blob` (mặc định application/pdf). */
+  contentType?: string
+}
 export type FakeFetch = typeof fetch & { calls: Call[] }
 
 export function fakeFetch(replies: Reply[]): FakeFetch {
@@ -32,7 +36,7 @@ export function fakeFetch(replies: Reply[]): FakeFetch {
     if (r.json !== undefined) {
       return new Response(JSON.stringify(r.json), { status, headers: { 'Content-Type': 'application/json' } })
     }
-    if (r.blob) return new Response(r.blob, { status, headers: { 'Content-Type': 'application/pdf' } })
+    if (r.blob) return new Response(r.blob, { status, headers: { 'Content-Type': r.contentType ?? 'application/pdf' } })
     return new Response(r.text ?? '', { status, headers: { 'Content-Type': 'text/html' } })
   }) as FakeFetch
   f.calls = calls
@@ -113,7 +117,7 @@ export const apiErr = problem
 export const CLIENT_METHODS = [
   'whoami', 'manifest', 'list', 'listAll', 'get', 'create', 'bulk', 'patch', 'upload', 'uploadStatus',
   'attachments', 'downloadObject', 'start', 'tasks', 'complete', 'piiReview', 'revoke', 'erasePii', 'seal',
-  'publicSeal', 'checkHash', 'bundle',
+  'publicSeal', 'checkHash', 'bundle', 'viewerAvailable', 'viewInfo', 'viewPage',
 ] as const satisfies readonly (keyof DxosClient)[]
 
 type Method = (typeof CLIENT_METHODS)[number]

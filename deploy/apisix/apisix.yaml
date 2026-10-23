@@ -11,6 +11,17 @@ upstreams:
     nodes:
       "trust-core-api:8000": 1
 
+  # PDFium trong viewer không hủy được giữa chừng và Viewer không có giới hạn thời gian dựng: cổng cắt thay nó.
+  # Tối đa chờ 30 giây cho một trang (Viewer tự giới hạn 10 giây mỗi lần gọi API, tối đa 2 lần gọi + chờ chỗ dựng).
+  - id: viewer
+    type: roundrobin
+    nodes:
+      "viewer:8000": 1
+    timeout:
+      connect: 3
+      send: 10
+      read: 30
+
 routes:
   - id: api-v1
     uri: /api/v1/*
@@ -66,15 +77,21 @@ routes:
         key: http_x_forwarded_for
         rejected_code: 429
 
-  # Viewer (SHOULD) chưa có: route tắt (status 0) cho tới khi có dịch vụ viewer.
+  # Viewer (Plan 04 Task 8, S2; chỉ p16): cùng chuỗi xác thực và giới hạn tốc độ với /api/v1/*. Ở hồ sơ không dựng
+  # viewer (p8) route vẫn có nhưng upstream không phân giải được nên cổng trả 502/503 và App A ẩn nút "Xem".
+  # Viewer tự kiểm lại token bằng cách chuyển nó cho API (không tin gì từ cổng ngoài `Authorization`).
   - id: view
     uri: /view/*
-    status: 0
-    upstream:
-      type: roundrobin
-      nodes:
-        "viewer:8000": 1
+    upstream_id: viewer
     plugins:
+      request-id:
+        include_in_response: true
+      limit-req:
+        rate: 50
+        burst: 100
+        key_type: var
+        key: http_x_forwarded_for
+        rejected_code: 429
       openid-connect:
         client_id: apisix
         client_secret: ${{APISIX_OIDC_CLIENT_SECRET}}

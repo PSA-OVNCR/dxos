@@ -5,8 +5,8 @@ SPDX-License-Identifier: Apache-2.0
 # viewer/: Secure Viewer (Tầng 2 [P], SHOULD)
 
 Gói `dxos-viewer` 0.9.0 (S2, Plan 04 Task 7; S10.2). Dịch vụ **không trạng thái, chỉ trong RAM**: lấy tệp PDF từ API
-của Trust Core, vẽ **một trang** thành ảnh PNG, đóng watermark rồi trả ảnh. Task 8 đấu nối vào compose p16, APISIX
-`/view/*` và App A.
+của Trust Core, vẽ **một trang** thành ảnh PNG, đóng watermark rồi trả ảnh. Task 8 đã đấu nối vào compose
+p16 (service `viewer`, profile `viewer`, chỉ hồ sơ p16), APISIX `/view/*` và App A (nút "Xem" chỉ hiện khi `healthz` trả 200).
 
 ## Watermark chỉ để răn đe
 
@@ -17,7 +17,8 @@ răn đe**: không ngăn được chụp màn hình, chụp ảnh màn hình b�
 
 ## Điểm vào
 
-Đặt sau APISIX, tiền tố `/view`. Mọi điểm (trừ `healthz`) cần `Authorization: Bearer <token>` của người gọi.
+Đặt sau APISIX, tiền tố `/view`. Mọi điểm (trừ `healthz`) cần `Authorization: Bearer <token>` của người gọi. Qua cổng thì
+**cả `healthz`** cũng cần token (route `/view/*` dùng chuỗi OIDC bearer như `/api/v1/*`); App A gửi token khi hỏi `healthz`.
 
 | Yêu cầu | Trả về |
 |---|---|
@@ -51,6 +52,11 @@ xem bản gốc (chặn theo `reveal_pii` với bộ sưu tập có PII). Lỗi 
 | `DXOS_VIEWER_MAX_BYTES` | `67108864` (64 MiB) | trần dung lượng tệp tải về (giữ trong RAM) |
 
 Viewer không có khóa hay bí mật nào, chỉ nằm trên mạng `net-app`, không chạm kho lưu trữ, Flowable hay OpenBao.
+
+Trong compose (`deploy/compose.yaml`): `read_only: true` không tmpfs/volume (chạy uvicorn và dựng trang không cần đường ghi
+nào: đã kiểm bằng `strace` trên tiến trình thật, không có lần mở tệp để ghi), `cap_drop: [ALL]`, `no-new-privileges`,
+`mem_limit`/`memswap_limit` 768 MiB, `cpus: 1.0`, `pids_limit: 128`. Viewer **không có giới hạn thời gian dựng** (PDFium không
+hủy được); cổng APISIX cắt sau 30 giây, còn giới hạn tài nguyên giữ một PDF bệnh lý trong container này.
 
 ## Giới hạn
 

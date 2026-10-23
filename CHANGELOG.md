@@ -5,6 +5,14 @@ Mọi thay đổi đáng kể được ghi tại đây, theo định dạng [Kee
 ## [Unreleased]
 
 ### Added
+- **Nối Viewer vào p16 và App A (S2, Plan 04 Task 8)**: dịch vụ `viewer` trong compose (profile `viewer`, bật bằng
+  `COMPOSE_PROFILES=viewer` trong `.env.example`; p8 và dev-lite không bao giờ dựng), chỉ `net-app`, không cổng, `read_only`
+  không tmpfs/volume, `cap_drop: [ALL]`, `no-new-privileges`, giới hạn 768 MiB RAM không swap, 1 CPU, 128 tiến trình
+  (PDFium không hủy được giữa chừng); route APISIX `/view/*` bật với cùng chuỗi OIDC bearer và `limit-req` như `/api/v1/*`,
+  cắt sau 30 giây; ma trận mạng thêm `viewer` và `profile_only`. App A có nút "Xem" (chỉ hiện khi `GET /view/v1/healthz`
+  trả 200) và `ViewerDialog` (ảnh PNG qua blob: URL, thu hồi khi đổi trang/đóng); SDK thêm `viewerAvailable`, `viewInfo`,
+  `viewPage`; CSP của `/apps/*` thêm `blob:` vào `img-src`, vẫn không `unsafe-inline`. Watermark chỉ để răn đe.
+  Chưa chạy thật trong container (V40).
 - `ops/deploy.sh` chỉ triển khai **tag đã ký SSH** (`git -c gpg.format=ssh -c gpg.ssh.allowedSignersFile=deploy/allowed_signers
   verify-tag`, kiểm trước mọi lệnh `docker` và trước `checkout`; `--allow-unsigned` cho cấp cứu, ghi `signed=no`) và **tự quay
   lui** về bản tốt gần nhất khi health hỏng (S4); tên trong thân tag ký phải khớp tên ref (chặn đổi tên tag ký cũ), checkout theo OID

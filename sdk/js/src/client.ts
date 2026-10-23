@@ -181,6 +181,32 @@ export class DxosClient {
     return (await this.ok('GET', `/api/v1/objects/${seg(sha256)}?variant=${variant}`)).blob()
   }
 
+  // ---- xem trang (Viewer, Plan 04 Task 8) -------------------------------------------------
+
+  /**
+   * Viewer có bật và sống không: đúng khi `GET /view/v1/healthz` trả 200. Mọi trường hợp khác (route vắng ở p8, 502/503
+   * của cổng, mất mạng) là `false`, không ném lỗi: Viewer là tính năng tùy chọn nên vắng mặt không phải lỗi. Một lần
+   * gọi, không thử lại. Như mọi lời gọi có token, 401 kích hoạt `onUnauthorized`.
+   */
+  async viewerAvailable(): Promise<boolean> {
+    try {
+      return (await this.send('GET', '/view/v1/healthz')).status === 200
+    } catch {
+      return false
+    }
+  }
+
+  /** Số trang của một tệp CLEAN. `variant` chuyển nguyên cho Viewer (rồi tới API): quyền xem bản gốc do máy chủ quyết định. */
+  viewInfo(sha256: string, variant: ObjectVariant = 'original'): Promise<{ pages: number }> {
+    return this.json('GET', `/view/v1/objects/${seg(sha256)}/info?variant=${variant}`)
+  }
+
+  /** Ảnh PNG (có watermark) của MỘT trang, đánh số từ 1. GET một lần, không tự thử lại; lỗi là `ApiError`. */
+  async viewPage(sha256: string, page: number, variant: ObjectVariant = 'original'): Promise<Blob> {
+    if (!Number.isInteger(page) || page < 1) throw new Error(`viewPage: số trang phải là số nguyên từ 1, nhận ${page}`)
+    return (await this.ok('GET', `/view/v1/objects/${seg(sha256)}/pages/${page}.png?variant=${variant}`)).blob()
+  }
+
   // ---- quy trình -------------------------------------------------------------------------
 
   start(app: string, col: string, id: string): Promise<DxRecord> {

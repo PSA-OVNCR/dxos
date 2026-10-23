@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Helper test riêng của App A: dữ liệu mẫu và các thao tác giống người dùng (mountWith, fill, click, pickFile).
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
-import type { DxosAuth, FieldView, ManifestView } from 'dxos-sdk-js'
+import type { DxosAuth, DxosClient, FieldView, ManifestView } from 'dxos-sdk-js'
 import { att, fakeClient, rec, sealInfo, task, type FakeClient, type FakeClientOptions } from 'dxos-sdk-js/testing'
 import { vi } from 'vitest'
 import { createMemoryHistory } from 'vue-router'
@@ -82,7 +82,7 @@ export type Mounted = VueWrapper & { session: Session }
 
 /** Gắn một view với phiên giả (manifest đã nạp sẵn) và router bộ nhớ thật. Đợi mọi lời gọi ban đầu xong. */
 export async function mountWith(
-  component: Component, client: FakeClient, props: Record<string, unknown> = {}, o: MountOptions = {},
+  component: Component, client: DxosClient, props: Record<string, unknown> = {}, o: MountOptions = {},
 ): Promise<Mounted> {
   const auth = o.auth ?? fakeAuth({ roleStrings: o.roleStrings ?? ['app:phong-ho-so:chuyen_vien'] })
   const guard = o.guard ?? createLoginGuard(auth, { storage: new MemoryStorage() })

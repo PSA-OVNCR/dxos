@@ -84,7 +84,7 @@ Nguyên tắc (mục 6.2): **mỗi kho dữ liệu chỉ nằm trong mạng củ
 | kc-db | `net-kcdb` |
 | **trust-core-api** | `net-app`, `net-idp`, `net-wf`, `net-data` |
 | **trust-core-worker** | `net-data`, `net-egress` |
-| viewer, backend Tầng 2 (tương lai) | `net-app` |
+| viewer (chỉ hồ sơ p16), backend Tầng 2 (tương lai) | `net-app` |
 | flowable (flowable-rest) | `net-wf`, `net-fldb` |
 | flowable-db | `net-fldb` |
 | core-db, seaweedfs, openbao | `net-data` |
@@ -98,7 +98,7 @@ Hệ quả kiểm chứng được:
 
 Route tĩnh (không đổi khi cài app): `/auth/*` Keycloak; `/api/v1/*` API app (JWT kiểm ở APISIX **và** ở lõi);
 `/admin/v1/*` quản trị (vai trò `dxos-admin`, chỉ host admin); `/verify/v1/*` công khai, ẩn danh, rate-limit chặt;
-`/view/*` viewer; `/apps/<id>/` tệp tĩnh do Caddy phục vụ.
+`/view/*` viewer (chỉ p16; cùng chuỗi JWT và giới hạn tốc độ với `/api/v1/*`, cổng cắt sau 30 giây); `/apps/<id>/` tệp tĩnh do Caddy phục vụ.
 
 ## Luồng tải tệp
 

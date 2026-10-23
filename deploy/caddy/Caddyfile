@@ -48,6 +48,8 @@
 	handle @admin_ui_copy {
 		respond "Not Found" 404
 	}
+	# `blob:` ở img-src (chỉ img-src): App A hiện trang PNG của Viewer (/view/*, cùng origin) bằng blob: URL (Plan 04 Task 8);
+	# vẫn không `unsafe-inline`.
 	# Ứng dụng Tầng 2 (App A, App B, ví dụ): bản build do `make web-build` ghi vào volume apps-static (/srv/apps/<tên>).
 	# Không cắt tiền tố (root * /srv): /apps/phong-ho-so/ đọc /srv/apps/phong-ho-so/index.html, khớp `base` của Vite.
 	# Hai route /apps/verify/* và /apps/verify-lite/* ở trên có CSP riêng và thắng handle này (đường dẫn cụ thể hơn).
@@ -55,7 +57,7 @@
 	handle /apps/* {
 		root * /srv
 		header {
-			Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+			Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
 			X-Content-Type-Options nosniff
 			Referrer-Policy no-referrer
 		}

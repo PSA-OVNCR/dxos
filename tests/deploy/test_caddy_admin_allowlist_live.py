@@ -175,7 +175,7 @@ def test_vue_portal_csp_allows_only_the_configured_anchor_origin(run_caddy):
 
 
 # CSP của mọi ứng dụng Tầng 2 dưới /apps/* (handle chung); /apps/verify/ và /apps/verify-lite/ giữ CSP riêng.
-APPS_CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
+APPS_CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; "
             "connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; "
             "frame-ancestors 'none'")
 

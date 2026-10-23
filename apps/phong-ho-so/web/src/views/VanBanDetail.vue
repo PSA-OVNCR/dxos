@@ -4,12 +4,13 @@ SPDX-License-Identifier: Apache-2.0
 -->
 <script setup lang="ts">
 // Chi tiết văn bản: trường theo nhãn manifest, tệp đính kèm (lấy từ máy chủ) kèm dữ liệu cá nhân đã dò, sửa, tải tệp
-// (bản gốc hoặc bản che), gửi duyệt.
+// (bản gốc hoặc bản che), xem từng trang bằng Viewer (nút "Xem" chỉ hiện khi Viewer sống), gửi duyệt.
 // Ẩn nút theo chủ sở hữu/trạng thái chỉ là tiện dụng; lõi quyết định và mọi lỗi của lõi hiện bằng ProblemMessage.
 // Không có yêu cầu ghi nào được tự thử lại; lỗi 409/412 thì báo và gợi ý tải lại.
 import { ApiError, type AttachmentItem, type DxRecord, type ObjectVariant, type UploadStatus } from 'dxos-sdk-js'
 import { PiiFileStatus, PiiPanel, ProblemMessage, QuarantineStatus, RecordForm, SealPanel, usePoll } from 'dxos-sdk-js/vue'
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import ViewerDialog from '../components/ViewerDialog.vue'
 import { pdfFileName, saveBlob } from '../download'
 import { APP, COL, useSession } from '../session'
 import { formatVn, statusLabel } from '../status'
@@ -32,11 +33,18 @@ const notice = ref('')
 const busy = ref(false)
 const editing = ref(false)
 const draft = ref<Record<string, unknown>>({})
+// Viewer (Plan 04 Task 8) là tùy chọn: chỉ có ở hồ sơ p16. Nút "Xem" chỉ hiện khi GET /view/v1/healthz trả 200.
+const viewerOn = ref(false)
+const viewing = ref<{ uploadId: string; sha256: string; variant: ObjectVariant; label: string } | null>(null)
 
 // Mỗi lần tải lại tăng số này; phản hồi của lần cũ (đổi bản ghi giữa chừng) bị bỏ.
 let run = 0
 let alive = true
 onBeforeUnmount(() => { alive = false })
+onMounted(() => {
+  // viewerAvailable không ném lỗi; catch chỉ để chắc chắn: Viewer vắng mặt không bao giờ là lỗi của màn hình này.
+  client.viewerAvailable().then((ok) => { if (alive) viewerOn.value = ok }, () => {})
+})
 
 /** Chủ bản ghi, chưa vào quy trình, chưa niêm phong: điều kiện để hiện nút ghi (tiện dụng, lõi vẫn kiểm lại). */
 const canWrite = computed(() => {
@@ -136,6 +144,7 @@ const { failure: pollFailure, timedOut: pollTimedOut, restart: restartPoll } = u
 
 watch(() => props.id, () => {
   editing.value = false
+  viewing.value = null
   void load()
 }, { immediate: true })
 
@@ -202,6 +211,17 @@ async function downloadFile(f: AttachmentItem, index: number, variant: ObjectVar
     if (alive) downloadError.value = e
   } finally {
     downloading.value = false
+  }
+}
+
+/** Mở hộp xem trang cho một tệp; chỉ một hộp mở mỗi lúc. */
+function openViewer(f: AttachmentItem, index: number, variant: ObjectVariant): void {
+  if (!f.sha256) return
+  viewing.value = {
+    uploadId: f.upload_id,
+    sha256: f.sha256,
+    variant,
+    label: `tệp ${index + 1}${variant === 'redacted' ? ' (bản che)' : ''}`,
   }
 }
 
@@ -301,6 +321,18 @@ async function onFile(ev: Event): Promise<void> {
             @settled="reloadFiles()"
           />
           <PiiFileStatus :item="a" :busy="downloading" :timed-out="pollTimedOut" @download="(v) => downloadFile(a, i, v)" />
+          <div v-if="viewerOn && a.status === 'CLEAN' && a.sha256" class="dx-actions">
+            <button type="button" class="dx-secondary" @click="openViewer(a, i, 'original')">Xem</button>
+            <button v-if="a.pii?.redacted" type="button" class="dx-secondary" @click="openViewer(a, i, 'redacted')">Xem bản che</button>
+          </div>
+          <ViewerDialog
+            v-if="viewing && viewing.uploadId === a.upload_id"
+            :key="`${viewing.sha256}:${viewing.variant}`"
+            :sha256="viewing.sha256"
+            :variant="viewing.variant"
+            :label="viewing.label"
+            @close="viewing = null"
+          />
         </li>
       </ul>
       <div v-if="canWrite && collection.attachments" class="dx-field">

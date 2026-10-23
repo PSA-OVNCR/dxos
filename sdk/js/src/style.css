@@ -144,3 +144,8 @@ ul.dx-tasks { list-style: none; padding: 0; }
   .dx-table { background: #fff; }
   .dx-table th, .dx-table td { border: 1px solid #000; color: #000; }
 }
+
+/* Xem trang bằng Viewer (ViewerDialog): ảnh PNG một trang, vừa chiều ngang. */
+.dx-dialog.dx-viewer { max-width: 56rem; }
+.dx-viewer .dx-viewer-page { display: block; max-width: 100%; height: auto; margin: 0.5rem 0; border: 1px solid var(--line); background: #fff; }
+.dx-viewer .dx-viewer-nav { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; margin: 0.5rem 0; }
