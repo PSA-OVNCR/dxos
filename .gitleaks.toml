@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: 2026 PSA_OVNCR
+# SPDX-License-Identifier: Apache-2.0
+#
+# Cấu hình gitleaks (job `secrets` trong .github/workflows/ci.yml; quét toàn bộ lịch sử git).
+title = "DX-OS gitleaks"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Chỉ cho phép đúng một mật khẩu thử nghiệm cố định trong bài test, không phải bí mật thật"
+paths = ['''^tests/ops/test_demo_seed\.py$''']
+regexes = ['''mat-khau-thu-nghiem-9f3a''']
