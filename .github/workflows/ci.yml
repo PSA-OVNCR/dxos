@@ -35,7 +35,21 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with: { python-version: "3.12" }
       - run: make dev-install
-      - run: python -m pytest -m "not integration and not infra"
+      - run: python -m pytest -m "not integration and not infra" --junitxml=unit-junit.xml
+      # Khi đỏ: đẩy tên test lỗi + phiên bản Python lên annotation (đọc được qua API check-runs khi log bị chặn).
+      - name: Annotate failures
+        if: failure()
+        run: |
+          python -V | sed 's/^/::notice title=python::/'
+          python - <<'PY'
+          import glob
+          import xml.etree.ElementTree as ET
+          for f in glob.glob("unit-junit.xml"):
+              for case in ET.parse(f).getroot().iter("testcase"):
+                  for bad in list(case.findall("failure")) + list(case.findall("error")):
+                      msg = " ".join((bad.get("message") or "").split())[:300]
+                      print(f"::error title={case.get('classname')}::{case.get('name')}: {msg}")
+          PY
 
   # Workspace npm (SDK, cổng xác minh, ứng dụng Tầng 2): typecheck + test đơn vị + build. npm ghim 11.6.2 (npm 10 lỗi khi cài bộ phụ thuộc này).
   web:
@@ -123,4 +137,16 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with: { fetch-depth: 0 }
       - name: gitleaks (image Docker, không dùng gitleaks-action)
-        run: docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.18.4 detect --source /repo --redact --verbose
+        run: docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.18.4 detect --source /repo --redact --verbose --report-format json --report-path /repo/gitleaks-report.json
+      # Khi đỏ: đẩy vị trí phát hiện (đã che bí mật) lên annotation.
+      - name: Annotate findings
+        if: failure()
+        run: |
+          python3 - <<'PY'
+          import json
+          try:
+              for f in json.load(open("gitleaks-report.json")) or []:
+                  print(f"::error file={f['File']},line={f['StartLine']},title=gitleaks {f['RuleID']}::commit {f['Commit'][:7]}")
+          except OSError:
+              print("::error::gitleaks không ghi báo cáo")
+          PY
