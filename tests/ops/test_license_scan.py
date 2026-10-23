@@ -228,3 +228,8 @@ def test_repo_approved_exceptions_cover_the_v30_licences():
     assert any(e.ecosystem == "python" and e.name == "pypdfium2" for e in exceptions)
     listed = {e.name for e in exceptions if e.ecosystem == "npm"}
     assert {"lightningcss", "glob", "minimatch", "lru-cache", "mdn-data"} <= listed
+
+
+def test_repo_lockfile_passes_with_the_approved_table():
+    """Lockfile thật của kho đạt với bảng "Ngoại lệ đã duyệt" thật (npm không phụ thuộc môi trường)."""
+    assert license_scan.main(["--no-python"]) == 0

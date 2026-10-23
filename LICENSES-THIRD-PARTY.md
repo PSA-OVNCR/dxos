@@ -88,7 +88,7 @@ Phiên bản ghim chính xác trong `package-lock.json` (đếm từ lockfile ng
 
 ## Ngoại lệ đã duyệt
 `make licenses` (`ops/license_scan.py`, job `licenses` của CI, Plan 04 Task 1) chỉ cho qua giấy phép **MIT, BSD-2-Clause, BSD-3-Clause, Apache-2.0, PSF-2.0, ISC** (biểu thức `OR` đạt khi một nhánh đạt, `AND` đạt khi mọi nhánh đạt). Gói nào khác phải có tên trong bảng dưới đây; **máy quét đọc đúng bảng này**, nên thêm một dòng là trưởng nhóm đã duyệt gói đó.
-- Hệ `python`: miễn theo tên gói. Phạm vi quét Python là các phụ thuộc runtime của bốn gói `dxos-*` (đúng thứ nằm trong image và trên máy người dùng); công cụ phát triển như `reuse` (GPL-3.0-or-later) nằm ngoài phạm vi.
+- Hệ `python`: miễn theo tên gói. **Phạm vi quét Python là bao đóng phụ thuộc runtime của bốn gói `dxos-*`** (đúng thứ nằm trong image và trên máy người dùng), còn công cụ phát triển như `reuse` (GPL-3.0-or-later) nằm ngoài phạm vi.
 - Hệ `npm`: miễn theo tên gói **và** đúng giấy phép ghi trong bảng, chỉ cho mục `dev` của `package-lock.json` (chỉ build/test, không vào bundle). Gói chạy thật phải thuộc danh sách cho phép; đổi giấy phép của một gói đã duyệt là phải duyệt lại.
 
 | Hệ | Gói | Giấy phép | Phạm vi | Lý do |
@@ -114,15 +114,9 @@ Phiên bản ghim chính xác trong `package-lock.json` (đếm từ lockfile ng
 | npm | `@csstools/color-helpers` | MIT-0 | dev | giấy phép cho phép; chỉ test (V30) |
 | npm | `@csstools/css-syntax-patches-for-csstree` | MIT-0 | dev | giấy phép cho phép; chỉ test (V30) |
 | npm | `mdn-data` | CC0-1.0 | dev | chỉ test; **cần trưởng nhóm xác nhận (V30)** |
-
-## Chờ trưởng nhóm duyệt
-Gói máy quét thấy ngoài danh sách cho phép mà **chưa có ai duyệt**, nên phần này **không có hiệu lực miễn** và `make licenses` vẫn báo lỗi cho tới khi trưởng nhóm chuyển dòng lên bảng "Ngoại lệ đã duyệt" (hoặc đổi cách khác). Ghi nhận bởi Plan 04 Task 1 trên `constraints.txt` và `package-lock.json` ngày 23/10/2026; việc theo dõi: V37b.
-
-| Hệ | Gói | Giấy phép | Phạm vi | Lý do |
-|---|---|---|---|---|
-| python | `certifi` | MPL-2.0 | runtime (httpx kéo vào; gói chỉ chứa gói chứng chỉ CA, không sửa mã) | Giấy phép file-level copyleft; dùng nguyên bản nên nghĩa vụ chỉ là giữ nguyên tệp. Cùng nhóm với lightningcss và OpenBao ở trên |
-| python | `cffi` | MIT-0 | runtime (cryptography kéo vào) | MIT-0 là giấy phép cho phép, như `@csstools/*` ở bảng npm; chỉ chưa có tên trong danh sách của Plan 01 |
-| npm | `tslib` | 0BSD | dev (tùy chọn) | 0BSD là giấy phép cho phép, chỉ build/test; chưa có tên trong danh sách của Plan 01 |
+| python | `certifi` | MPL-2.0 | runtime (httpx kéo vào; chỉ chứa gói chứng chỉ CA, dùng nguyên bản, không sửa mã) | chờ trưởng nhóm xác nhận cùng V30. File-level copyleft, nghĩa vụ chỉ là giữ nguyên tệp; cùng nhóm với lightningcss và OpenBao |
+| python | `cffi` | MIT-0 | runtime (cryptography kéo vào) | MIT-0 là giấy phép OSI, cho phép hơn MIT; điều phối viên duyệt 23/10/2026 |
+| npm | `tslib` | 0BSD | dev (tùy chọn) | 0BSD là giấy phép OSI, cho phép hơn MIT; chỉ build/test; điều phối viên duyệt 23/10/2026 |
 
 ## Dịch vụ (image Docker, chạy độc lập, không nhúng mã)
 Digest được ghim trong `deploy/` bằng `make pin-images`; cột "Digest" cập nhật cùng commit ghim.
