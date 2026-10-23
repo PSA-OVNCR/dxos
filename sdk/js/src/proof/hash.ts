@@ -54,21 +54,19 @@ export function b64encode(u8: Uint8Array): string {
 }
 
 /**
- * Như `base64.b64decode(s, validate=True)` của Python 3.12 (`binascii.a2b_base64(strict_mode=True)`): chỉ bảng chữ
- * chuẩn, rồi toàn dấu `=` ở cuối; số ký tự dữ liệu d: d % 4 == 0 thì số `=` nào cũng được nếu d > 0 (nhóm đủ rồi
- * thì `=` thừa bị bỏ qua, 3 dấu trở lên cũng vậy; d == 0 chỉ nhận chuỗi rỗng), d % 4 == 2 cần đúng `==`, d % 4 == 3
- * cần đúng `=`, d % 4 == 1 luôn sai; bit thừa cuối được bỏ qua. Sai → null. Vector dùng chung với Python:
+ * Giải mã base64 CHUẨN TẮC (RFC 4648 mục 4), cùng quy tắc với `dxos_witness.b64.b64decode_canonical` (ruling R29):
+ * bảng chữ chuẩn, độ dài chia hết cho 4, `=` chỉ là phần đệm cuối (0 đến 2 dấu, đúng số byte còn thiếu), không khoảng
+ * trắng. Kiểm tường minh trước khi giải mã nên không phụ thuộc phiên bản CPython (bản vá CVE-2026-3446 đổi cách
+ * `b64decode(validate=True)` xử lý thừa `=`). Bit thừa cuối không bị bắt buộc bằng 0. Sai → null. Vector dùng chung:
  * sdk/js/test/vectors/b64/validate.json.
  */
 export function b64decodePy(s: string): Uint8Array | null {
-  const m = /^([A-Za-z0-9+/]*)(=*)$/.exec(s)
+  const m = /^([A-Za-z0-9+/]*)(={0,2})$/.exec(s)
   if (!m) return null
   const data = m[1]!
   const pads = m[2]!.length
   const r = data.length % 4
-  if (r === 1 || (r === 0 && data.length === 0 && pads > 0) || (r === 2 && pads !== 2) || (r === 3 && pads !== 1)) {
-    return null
-  }
+  if (r === 1 || (r === 0 && pads !== 0) || (r === 2 && pads !== 2) || (r === 3 && pads !== 1)) return null
   const out = new Uint8Array(Math.floor((data.length * 6) / 8))
   let acc = 0
   let bits = 0

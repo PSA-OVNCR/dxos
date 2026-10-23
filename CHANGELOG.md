@@ -139,9 +139,14 @@ tương thích của SDK (mục Changed, "BREAKING").
 - **Bộ Playwright live ghim SPKI của CA Caddy thay cho `ignoreHTTPSErrors`**: `ops/web_live.sh` tính SPKI của CA gốc và CA trung
   gian bằng `openssl`, truyền `DXOS_CADDY_SPKI`; cấu hình đưa vào `--ignore-certificate-errors-spki-list` và dừng với lỗi rõ khi
   thiếu biến. Chạy thật trên Chromium là V39.
-- **`verifyBundle` (JS) khớp `dxos-witness verify-bundle` (Python) ở hai chỗ còn lệch**: base64 nhận nhiều dấu `=` thừa sau nhóm
-  đủ như `b64decode(validate=True)` (vector `b64-three-pad`, `b64/validate.json`) và số nguyên dài hơn 4300 chữ số làm gói
-  `MALFORMED` (vector `int-4301-digits`).
+- **`verifyBundle` (JS) khớp `dxos-witness verify-bundle` (Python) ở hai chỗ còn lệch**: số nguyên dài hơn 4300 chữ số làm gói
+  `MALFORMED` (vector `int-4301-digits`), và base64 (xem mục dưới).
+- **Chỉ nhận base64 chuẩn tắc, kết quả không còn phụ thuộc bản CPython (ruling R29)**: `b64decode(validate=True)` của CPython
+  cũ nhận thừa `=` sau nhóm đủ (`AAAA===`), bản đã vá CVE-2026-3446 từ chối, nên cùng một gói có thể ra kết quả khác nhau theo bản
+  Python. Nay cả `dxos-witness` (`witness/src/dxos_witness/b64.py`, mọi chỗ giải mã base64: khóa, chữ ký, biên nhận OTS, đồng bộ
+  STH) lẫn `verifyBundle` (JS) kiểm tường minh trước khi giải mã: bảng chữ RFC 4648 mục 4, độ dài chia hết cho 4, `=` chỉ là đệm
+  cuối (0 đến 2 dấu), không khoảng trắng; dạng khác là sai dạng (`MALFORMED`, khóa hoặc chữ ký không hợp lệ). Vector dùng chung
+  `b64/validate.json` sinh lại theo quy tắc này, `b64-three-pad` chạy trên mọi bản CPython (bỏ `SKIP_PATCHED_B64`).
 - **Phát hiện PII bỏ sót số nằm cạnh số thứ tự hoặc ngày**: các nhóm chữ số nối bằng `.` hoặc `-` là một khối, còn nhóm cách bằng
   khoảng trắng hoặc xuống dòng có thể tách, nên CCCD trong bảng có cột STT vẫn được thấy (hướng sai là che thừa, không phải sót);
   mã số thuế đứng sau "MST" không bị gán thành SĐT hay CCCD.

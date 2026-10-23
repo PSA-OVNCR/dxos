@@ -35,6 +35,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from dxos_proof.canonical import canonical_bytes
 from dxos_proof.merkle import verify_consistency
 
+from dxos_witness.b64 import b64decode_canonical
 from dxos_witness.bundle import AnchorFileError, anchored_public_key
 
 Status = Literal["OK", "FIRST_RUN", "REWRITE_DETECTED", "INCONSISTENT", "BAD_SIGNATURE", "ANCHOR_MISMATCH"]
@@ -64,7 +65,7 @@ def signing_bytes(th: dict) -> bytes:
 
 def signature_ok(th: dict, pubkey: bytes) -> bool:
     try:
-        Ed25519PublicKey.from_public_bytes(pubkey).verify(base64.b64decode(th["signature"], validate=True),
+        Ed25519PublicKey.from_public_bytes(pubkey).verify(b64decode_canonical(th["signature"]),
                                                           signing_bytes(th))
         return True
     except (InvalidSignature, ValueError, binascii.Error):
@@ -134,7 +135,7 @@ def _consistent(client: httpx.Client, a: dict, b: dict) -> bool:
 
 def _pubkey(keys: dict, version: int) -> bytes | None:
     try:
-        return base64.b64decode(keys[str(version)], validate=True)
+        return b64decode_canonical(keys[str(version)])
     except (KeyError, ValueError, binascii.Error, TypeError):
         return None
 

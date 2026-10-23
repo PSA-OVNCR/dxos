@@ -325,7 +325,7 @@ Cột "Review" ghi kết quả vòng đầu và số vòng sửa. Task 16 (M5) c
 - **Dữ liệu demo (Task 13)**: lời nhắn bỏ qua App B nói "chưa cài" cả khi đã cài nhưng chưa duyệt.
 - **Trang tài liệu (Task 2)**: Jekyll có thể hiểu `${{…}}` hay `{% %}` trong `docs/progress` là Liquid; kiểm trước khi bật Pages (V38).
 
-### 14.6. Rulings của điều phối (R1 đến R28) và chi phí nếu sai
+### 14.6. Rulings của điều phối (R1 đến R29) và chi phí nếu sai
 Mọi quyết định mà điều phối phải đưa ra khi plan, spec hoặc repo không đủ rõ, chép từ sổ điều phối (`progress.md`, dòng `Ruling:`). Cột cuối là chi phí nếu quyết định sai; trưởng nhóm có thể mở lại bất kỳ ruling nào.
 
 | # | Task | Quyết định | Nếu sai |
@@ -358,3 +358,4 @@ Mọi quyết định mà điều phối phải đưa ra khi plan, spec hoặc r
 | R26 | 7 | Viewer: 401 giữ 401; API 5xx hoặc không nối được là 502; quá hạn là 504; mọi lỗi khác không phải 200 là 404; không bao giờ có ảnh nếu API không trả 200 | Client thấy 502 chỗ lẽ ra 404 |
 | R27 | 7 | Watermark xám 128 với độ đục 45% (đọc "xám 35%" của plan theo ý "xám nhìn thấy được") | Watermark nổi hơn một chút |
 | R28 | 8 | Khoảng trống phát hành Viewer (dựng từ nguồn trên máy chủ) chuyển cho Task 15 thành yêu cầu cứng: image lên GHCR, overlay thay `build:` bằng digest, `deploy.sh` đọc digest, `release_check` kiểm Viewer | Thêm một vòng phát hành với Viewer dựng từ nguồn nếu Task 15 trễ; đã làm xong ở Task 15 (chưa chạy thật, V40) |
+| R29 | 14 | Cả `dxos-witness` và `verifyBundle` (JS) chỉ nhận base64 chuẩn tắc (RFC 4648 mục 4: bảng chữ chuẩn, độ dài chia hết cho 4, `=` chỉ là đệm cuối, 0 đến 2 dấu), kiểm tường minh trước khi giải mã, nên kết quả không phụ thuộc bản CPython (bản vá CVE-2026-3446 đổi cách xử lý thừa `=`); vector sinh lại, bỏ các `skip` | Gói làm tay có đệm lạ nay bị `MALFORMED` (lõi không bao giờ sinh dạng đó) |

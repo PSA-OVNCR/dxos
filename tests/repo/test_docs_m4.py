@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tài liệu và phát hành M4 (Plan 04 Task 15): mọi phiên bản bằng 0.9.0, CHANGELOG có mục [0.9.0] đã ghi
 ngày, README nêu S1..S4 kèm việc V chưa chạy, không câu cấm nào của spec 25.1, AT-21 trỏ test thật, mục 14
-của bản tổng kết tiến độ đủ bảng task, V37..V44 và các ruling R1..R28, workflow ``release`` đưa Viewer (image
+của bản tổng kết tiến độ đủ bảng task, V37..V44 và các ruling R1..R29, workflow ``release`` đưa Viewer (image
 và wheel) vào Release cùng cách với ``trust-core`` (ruling R28)."""
 
 import json
@@ -232,8 +232,8 @@ def test_progress_14_lists_every_ruling_of_the_ledger():
     numbers = sorted({int(n) for n in re.findall(r"^(?:- )?Ruling R(\d+)[: ]", ledger, re.M)})
     sec = _progress_14()
     assert "### 14.4" in sec or "Rulings" in sec
-    wanted = numbers or list(range(1, 29))
-    assert wanted == list(range(1, 29)), "sổ điều phối phải có R1..R28"
+    wanted = numbers or list(range(1, 30))
+    assert wanted == list(range(1, 30)), "sổ điều phối phải có R1..R29"
     for n in wanted:
         assert re.search(rf"^\| R{n} \|", sec, re.M), f"thiếu R{n}"
     assert "Nếu sai" in sec or "nếu sai" in sec

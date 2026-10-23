@@ -13,8 +13,8 @@ test. Hợp đồng HTTP mà SDK bám theo: [docs/api/contract-tier2.md](../../d
 - Đã kiểm bằng test đơn vị (Vitest + jsdom) và Playwright với API giả. Đã chạy qua App A, App B và cổng đối soát với
   Keycloak và lõi thật trên Chromium (stack dev, 22/10/2026, V27: `docs/progress/2026-10-22-web-live.md`).
 - `verifyBundle` bám `dxos-witness verify-bundle` và chạy chung bộ vector (`sdk/js/test/vectors/`, do
-  `witness/tests/test_web_vectors.py` sinh), gồm cả giải mã base64 (`b64/validate.json`, nhận cả nhiều dấu `=` thừa sau nhóm đủ
-  như Python) và giới hạn 4300 chữ số của số nguyên (gói có số dài hơn là `MALFORMED`). Ngoại lệ có chủ ý duy nhất là tùy chọn
+  `witness/tests/test_web_vectors.py` sinh), gồm cả giải mã base64 (`b64/validate.json`: chỉ nhận base64 chuẩn tắc RFC 4648 mục 4,
+  thừa `=` bị từ chối ở cả hai bên, không phụ thuộc bản CPython) và giới hạn 4300 chữ số của số nguyên (gói có số dài hơn là `MALFORMED`). Ngoại lệ có chủ ý duy nhất là tùy chọn
   `allowPendingAnchor` (mục "Tự kiểm gói bằng chứng"), mặc định tắt.
 - SDK chỉ để hiển thị và gọi API cho tiện. Mọi quyết định về quyền, guard, niêm phong đều do lõi; vai trò trong token
   (`auth.roles()`) chỉ dùng để ẩn hiện nút.

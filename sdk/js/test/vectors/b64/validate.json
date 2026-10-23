@@ -133,31 +133,31 @@
 },
 {
 "input": "NUbi=",
-"hex": "3546e2"
+"hex": null
 },
 {
 "input": "NUbi==",
-"hex": "3546e2"
+"hex": null
 },
 {
 "input": "NUbi===",
-"hex": "3546e2"
+"hex": null
 },
 {
 "input": "NUbi====",
-"hex": "3546e2"
+"hex": null
 },
 {
 "input": "NUbi=====",
-"hex": "3546e2"
+"hex": null
 },
 {
 "input": "NUbi======",
-"hex": "3546e2"
+"hex": null
 },
 {
 "input": "NUbi=======",
-"hex": "3546e2"
+"hex": null
 },
 {
 "input": "QXels",
@@ -261,31 +261,31 @@
 },
 {
 "input": "Zgnu18DK=",
-"hex": "6609eed7c0ca"
+"hex": null
 },
 {
 "input": "Zgnu18DK==",
-"hex": "6609eed7c0ca"
+"hex": null
 },
 {
 "input": "Zgnu18DK===",
-"hex": "6609eed7c0ca"
+"hex": null
 },
 {
 "input": "Zgnu18DK====",
-"hex": "6609eed7c0ca"
+"hex": null
 },
 {
 "input": "Zgnu18DK=====",
-"hex": "6609eed7c0ca"
+"hex": null
 },
 {
 "input": "Zgnu18DK======",
-"hex": "6609eed7c0ca"
+"hex": null
 },
 {
 "input": "Zgnu18DK=======",
-"hex": "6609eed7c0ca"
+"hex": null
 },
 {
 "input": "cjqx4/GNU",
@@ -325,31 +325,31 @@
 },
 {
 "input": "AAAA=",
-"hex": "000000"
+"hex": null
 },
 {
 "input": "AAAA==",
-"hex": "000000"
+"hex": null
 },
 {
 "input": "AAAA===",
-"hex": "000000"
+"hex": null
 },
 {
 "input": "AAAA====",
-"hex": "000000"
+"hex": null
 },
 {
 "input": "AAAA=====",
-"hex": "000000"
+"hex": null
 },
 {
 "input": "AAAA======",
-"hex": "000000"
+"hex": null
 },
 {
 "input": "AAAA=======",
-"hex": "000000"
+"hex": null
 },
 {
 "input": "AAA===",
@@ -417,7 +417,7 @@
 },
 {
 "input": "QUJD===",
-"hex": "414243"
+"hex": null
 },
 {
 "input": "QUI=",
@@ -437,7 +437,7 @@
 },
 {
 "input": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA===",
-"hex": "000000000000000000000000000000000000000000000000000000000000000000"
+"hex": null
 },
 {
 "input": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",

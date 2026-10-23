@@ -35,6 +35,7 @@ from dxos_proof.merkle import (
     verify_consistency,
     verify_inclusion,
 )
+from dxos_witness.b64 import b64decode_canonical
 from dxos_witness.bundle import verify_bundle
 from dxos_witness.cli import _no_duplicate_keys
 
@@ -84,8 +85,8 @@ def _lenient_b64_hint(env, b, files):
 
 
 def _three_pad_b64_hint(env, b, files):
-    # 44 ký tự dữ liệu (nhóm đủ, 33 byte) + "===": Python (validate=True) nhận thừa dấu "=" sau nhóm đủ,
-    # giải ra 33 byte nên khóa bị bỏ vì sai độ dài; JS phải ra cùng kết quả (KEY_MISMATCH/KEY_MISSING).
+    # 44 ký tự dữ liệu (nhóm đủ) + "===": base64 không chuẩn tắc (thừa "=" sau nhóm đủ) bị cả hai bên từ chối
+    # tường minh (R29): khóa gợi ý hỏng trên mọi bản CPython (KEY_MISMATCH khi ghim, KEY_MISSING khi chưa).
     s = b["seal_key"]["public_key"]
     b["seal_key"]["public_key"] = s[:43] + "A" + "==="
 
@@ -295,31 +296,7 @@ def python_verdicts(vec: dict, root: Path) -> tuple[str | None, str | None]:
     return out[0], out[1]
 
 
-def _python_accepts_excess_padding() -> bool:
-    """``b64decode(s, validate=True)`` của interpreter này còn nhận thừa ``=`` sau nhóm đủ không?
-
-    CPython cũ nhận (``AAAA===`` ra 3 byte không); bản đã vá CVE-2026-3446 từ chối.
-    Vector ``b64-three-pad`` và ``b64/validate.json`` mô tả hành vi cũ, nên chỉ so được
-    trên interpreter cũ. Trên bản đã vá, JS vẫn khớp vector (vitest) nhưng phía Python
-    phải bỏ qua (xem mục 14.5 của bản tổng kết tiến độ: nên làm cả hai bên từ chối
-    tường minh để hết phụ thuộc phiên bản Python)."""
-    try:
-        return base64.b64decode("AAAA===", validate=True) == b"\x00\x00\x00"
-    except ValueError:
-        return False
-
-
-LEGACY_B64_PADDING = _python_accepts_excess_padding()
-SKIP_PATCHED_B64 = pytest.mark.skipif(
-    not LEGACY_B64_PADDING,
-    reason="CPython đã vá CVE-2026-3446: b64decode(validate=True) từ chối thừa '=' sau nhóm đủ",
-)
-# b64-three-pad dựa vào hành vi cũ nên chỉ chạy trên interpreter cũ
-CASE_PARAMS = [pytest.param(*c, marks=SKIP_PATCHED_B64) if c[0] == "b64-three-pad" else c
-               for c in CASES + EXTRA_CASES]
-
-
-@pytest.mark.parametrize("name,layout,mutation,expected", CASE_PARAMS)
+@pytest.mark.parametrize("name,layout,mutation,expected", CASES + EXTRA_CASES)
 def test_vector_matches_python_verifier(name, layout, mutation, expected, bundle_env, tmp_path):
     expected_unpinned = UNPINNED.get(name, expected)
     vec = make_vector(bundle_env, layout, mutation)
@@ -353,10 +330,10 @@ B64_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/
 
 
 def _b64_vectors() -> list[dict]:
-    """Chuỗi → byte (hex) mà ``b64decode(s, validate=True)`` của Python 3.12 trả, hoặc ``None`` nếu từ chối.
+    """Chuỗi → byte (hex) theo base64 chuẩn tắc của witness (R29), hoặc ``None`` nếu từ chối.
 
-    Gồm mọi (số ký tự dữ liệu 0…9) × (số dấu ``=`` 0…7), nhất là nhóm đủ kèm 3 dấu ``=`` trở lên: Python vẫn
-    nhận (``b64-three-pad``), cùng các chuỗi lạ (khoảng trắng, ``=`` giữa chuỗi, URL-safe, chữ số Unicode)."""
+    Gồm mọi (số ký tự dữ liệu 0…9) × (số dấu ``=`` 0…7), nhất là nhóm đủ kèm ``=`` thừa (từ chối trên mọi
+    bản CPython, ``b64-three-pad``), cùng các chuỗi lạ (khoảng trắng, ``=`` giữa chuỗi, URL-safe, Unicode)."""
     inputs = []
     for d in range(10):
         data = "".join(B64_ALPHABET[(7 * i + 3 * d + 1) % 64] for i in range(d))   # bit thừa cuối khác 0
@@ -368,23 +345,38 @@ def _b64_vectors() -> list[dict]:
     out = []
     for s in dict.fromkeys(inputs):
         try:
-            out.append({"input": s, "hex": base64.b64decode(s, validate=True).hex()})
-        except (ValueError, TypeError):   # binascii.Error là ValueError; chuỗi non-ASCII → ValueError
+            out.append({"input": s, "hex": b64decode_canonical(s).hex()})
+        except ValueError:
             out.append({"input": s, "hex": None})
     return out
 
 
-@SKIP_PATCHED_B64
 def test_b64_vectors():
     vec = _b64_vectors()
     by = {c["input"]: c["hex"] for c in vec}
-    assert by["AAAA==="] == "000000" and by["AAAA======="] == "000000"       # thừa "=" sau nhóm đủ: nhận
+    assert by["AAAA"] == "000000" and by["AAAA=="] is None                    # thừa "=": từ chối (R29)
+    assert by["AAAA==="] is None and by["AAAA======="] is None
     assert by["AAA==="] is None and by["AA===="] is None and by["A==="] is None
-    assert sum(c["hex"] is not None for c in vec) > 20 and sum(c["hex"] is None for c in vec) > 20
+    assert sum(c["hex"] is not None for c in vec) > 10 and sum(c["hex"] is None for c in vec) > 20
     if os.environ.get("DXOS_WRITE_VECTORS") == "1":
         B64_VEC.parent.mkdir(parents=True, exist_ok=True)
         B64_VEC.write_text(json.dumps(vec, ensure_ascii=False, indent=0) + "\n", encoding="utf-8")
     assert json.loads(B64_VEC.read_text(encoding="utf-8")) == vec, "sinh lại bằng DXOS_WRITE_VECTORS=1"
+
+
+def test_b64_canonical_agrees_with_stdlib_on_canonical_inputs():
+    """Dạng chuẩn tắc: ``b64decode`` của mọi bản CPython cho cùng kết quả; dạng khác bị từ chối trước."""
+    for c in _b64_vectors():
+        s = c["input"]
+        body = s.rstrip("=")
+        canonical = len(s) % 4 == 0 and body.isascii() and s.count("=") <= 2 and "=" not in body
+        if canonical and c["hex"] is not None:
+            assert base64.b64decode(s, validate=True).hex() == c["hex"], s
+        if c["hex"] is None:
+            with pytest.raises(ValueError):
+                b64decode_canonical(s)
+    with pytest.raises(ValueError):
+        b64decode_canonical(b"QUJD")
 
 
 def test_python_integer_limit_is_4300_digits_without_the_sign():

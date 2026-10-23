@@ -195,19 +195,21 @@ describe('RFC 3339 instants (as Python datetime.fromisoformat + astimezone(UTC))
 })
 
 test('base64 decoding follows Python b64decode(validate=True)', () => {
-  // (dữ liệu, số '=') -> độ dài kết quả hoặc null, đo trên Python 3.12
+  // (dữ liệu, số '=') -> độ dài kết quả hoặc null, theo quy tắc chuẩn tắc RFC 4648 mục 4 (R29)
   const py: [number, number, number | null][] = [[0, 0, 0], [0, 1, null], [1, 0, null], [2, 0, null], [2, 1, null],
-    [2, 2, 1], [3, 0, null], [3, 1, 2], [3, 2, null], [4, 0, 3], [4, 1, 3], [4, 2, 3], [5, 1, null], [6, 2, 4], [7, 1, 5]]
+    [2, 2, 1], [3, 0, null], [3, 1, 2], [3, 2, null], [4, 0, 3], [4, 1, null], [4, 2, null], [4, 3, null], [5, 1, null],
+    [6, 2, 4], [7, 1, 5], [8, 0, 6], [8, 1, null]]
   for (const [d, p, len] of py) expect(b64decodePy('A'.repeat(d) + '='.repeat(p))?.length ?? null, `${d},${p}`).toBe(len)
   expect(Array.from(b64decodePy('A/==')!)).toEqual([3])
   expect(b64decodePy('AA AA')).toBeNull()
   expect(b64decodePy('AA=A')).toBeNull()
 })
 
-test('base64 decoding equals Python on the shared vector (including 3+ "=" after a full group)', () => {
+test('base64 decoding equals Python on the shared vector (canonical RFC 4648 only; excess "=" rejected)', () => {
   const vec = b64Vectors as { input: string; hex: string | null }[]
   expect(vec.length).toBeGreaterThan(100)
-  expect(vec.find((c) => c.input === 'AAAA===')?.hex).toBe('000000') // b64-three-pad: Python nhận
+  expect(vec.find((c) => c.input === 'AAAA===')?.hex).toBeNull() // b64-three-pad: cả hai bên từ chối (R29)
+  expect(vec.find((c) => c.input === 'AAAA')?.hex).toBe('000000')
   const toHex = (u: Uint8Array | null) => (u === null ? null : Array.from(u, (x) => x.toString(16).padStart(2, '0')).join(''))
   for (const c of vec) expect(toHex(b64decodePy(c.input)), JSON.stringify(c.input)).toBe(c.hex)
 })

@@ -36,6 +36,10 @@ tuyến (``revocation="unknown_offline"``). Khóa lạ ở mức gốc của gó
 ``ok``/mã thoát; người kiểm dùng ``ots upgrade`` + ``ots verify``. Mọi trường thiếu hoặc sai
 kiểu → ``INVALID`` (``MALFORMED`` nếu không thuộc bước nào ở trên); không ngoại lệ nào lọt ra ngoài.
 
+Mọi trường base64 (khóa, chữ ký, biên nhận OTS) chỉ nhận base64 chuẩn tắc (RFC 4648 mục 4, ``b64.py``); dạng
+không chuẩn tắc, như thừa ``=`` sau nhóm đủ, bị coi là sai dạng (``MALFORMED``, hoặc khóa/chữ ký không hợp lệ)
+trên mọi bản CPython.
+
 Module chỉ dùng dxos-proof và cryptography, không import dxos-core, không gọi mạng.
 """
 
@@ -54,6 +58,8 @@ from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from dxos_proof.canonical import canonical_bytes, sha256_hex
 from dxos_proof.merkle import leaf_hash, verify_consistency, verify_inclusion
+
+from dxos_witness.b64 import b64decode_canonical
 
 BUNDLE_FORMAT = "dxos-seal-bundle/1"
 STATEMENT_FORMAT = "dxos-key-statement/1"
@@ -154,7 +160,7 @@ def _b64_key(v: Any) -> bytes | None:
     if not isinstance(v, str):
         return None
     try:
-        raw = base64.b64decode(v, validate=True)
+        raw = b64decode_canonical(v)
     except (binascii.Error, ValueError):
         return None
     return raw if len(raw) == 32 else None
@@ -164,7 +170,7 @@ def _ed25519_ok(pub: bytes, signature: Any, message: bytes) -> bool:
     if not isinstance(signature, str):
         return False
     try:
-        Ed25519PublicKey.from_public_bytes(pub).verify(base64.b64decode(signature, validate=True), message)
+        Ed25519PublicKey.from_public_bytes(pub).verify(b64decode_canonical(signature), message)
         return True
     except (InvalidSignature, ValueError, binascii.Error):
         return False
@@ -415,7 +421,7 @@ def _ots_note(timestamps: Any, anchored_sth: dict | None) -> str | None:
         size = anchored_sth["tree_size"]
         header = OTS_MAGIC + b"\x01\x08" + hashlib.sha256(canonical_bytes(anchored_sth)).digest()
         good = any(type(t.get("tree_size")) is int and t["tree_size"] == size
-                   and len(raw := base64.b64decode(t.get("ots"), validate=True)) > len(header)
+                   and len(raw := b64decode_canonical(t.get("ots"))) > len(header)
                    and raw.startswith(header) for t in entries)
     except Exception:  # noqa: BLE001 — mục OTS sai dạng chỉ được ghi chú, không bao giờ làm hỏng kết quả
         good = False
