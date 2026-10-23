@@ -262,4 +262,4 @@ Thứ tự: `v0.2.0` (V18) rồi `v0.3.0` (V33). Mỗi tag:
 ### 14.1. Việc cần máy thật hoặc trưởng nhóm (gom từ Plan 04)
 | # | Việc | Ở đâu | Ghi chú |
 |---|---|---|---|
-| V37 | Chạy `make pin-actions` (`python ops/pin_actions.py`) để đổi `uses: owner/repo@vN` trong `.github/workflows/*.yml` thành `@<sha40> # vN`, rồi chạy `make pin-images` để ghim digest `anchore/syft` và `zricethezav/gitleaks`; commit kết quả. Cloud mới chạy hai công cụ bằng resolver giả (test); chưa ghim thật | Máy trưởng nhóm | Cần ra được github.com và Docker buildx. Sau khi ghim, kiểm CI xanh |
+| V37 | ~~Ghim `uses:` của `.github/workflows/*.yml` theo SHA (`python ops/pin_actions.py`)~~ — đã chạy 23/10 từ cloud: mọi `git ls-remote` phân giải được, 24 dòng `uses:` (checkout v4, setup-python v5, setup-node v4) đã thành `@<sha40> # vN`; chạy lại là no-op (CI xanh ở commit này chưa kiểm khi ghi dòng này). **Còn lại**: chạy `make pin-images` để ghim digest `anchore/syft` và `zricethezav/gitleaks` trong workflow; commit kết quả | Máy trưởng nhóm | Cần Docker buildx. Sau khi ghim, kiểm CI xanh |
