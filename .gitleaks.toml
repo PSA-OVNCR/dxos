@@ -9,5 +9,6 @@ useDefault = true
 
 [allowlist]
 description = "Chỉ cho phép đúng một mật khẩu thử nghiệm cố định trong bài test, không phải bí mật thật"
-paths = ['''^tests/ops/test_demo_seed\.py$''']
+# Không đặt `paths` ở đây: trong gitleaks v8.18 các điều kiện của allowlist toàn cục là OR, nên thêm `paths` sẽ miễn trừ
+# cả tệp cho mọi luật. Chỉ so theo chuỗi.
 regexes = ['''mat-khau-thu-nghiem-9f3a''']

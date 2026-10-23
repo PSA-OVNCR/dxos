@@ -19,7 +19,7 @@ Dự án dự thi **Olympic Tin học Sinh viên Việt Nam – Phần mềm ngu
 - Chỗ trống PoF: ghim phụ thuộc và quét giấy phép (V37), kiến trúc và trang tài liệu (V38, chưa bật), `make demo-seed` (V44).
 
 **Thay đổi phá vỡ của SDK**: `client.download` đổi thành `client.downloadObject(sha256, variant)`; xem [CHANGELOG.md](CHANGELOG.md).
-Mọi việc cần máy thật hay trưởng nhóm (V37 đến V44) và các quyết định (ruling R1 đến R28): `docs/progress/2026-10-21-tong-ket-tien-do.md` mục 14.
+Mọi việc cần máy thật hay trưởng nhóm (V37 đến V44) và các quyết định (các ruling R trong mục 14.6): `docs/progress/2026-10-21-tong-ket-tien-do.md` mục 14.
 Từ v0.3.0 vẫn còn: `ops/deploy.sh` trên VPS (V29), biên nhận OpenTimestamps (V32), AT-26 (V31).
 
 ## Trạng thái v0.3.0

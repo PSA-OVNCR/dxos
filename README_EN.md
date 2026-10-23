@@ -18,7 +18,7 @@ Entry for the **Vietnam Student Informatics Olympiad – Open Source Software 20
     encrypted backup and the AT-21 restore drill (V43). The Viewer is also released as an image pinned by digest, like `trust-core`.
   - PoF gaps: dependency pinning and licence scan (V37), architecture overview and docs site (V38, not enabled yet), `make demo-seed` (V44).
   **Breaking SDK change:** `client.download` became `client.downloadObject(sha256, variant)`; see [CHANGELOG.md](CHANGELOG.md).
-  All the machine-bound and team-lead tasks (V37 to V44) and the decisions (rulings R1 to R28, Vietnamese) are in section 14 of
+  All the machine-bound and team-lead tasks (V37 to V44) and the decisions (the R rulings in section 14.6, Vietnamese) are in section 14 of
   `docs/progress/2026-10-21-tong-ket-tien-do.md`. Still open from v0.3.0: `ops/deploy.sh` on the VPS (V29), OpenTimestamps receipts (V32), AT-26 (V31).
 - **v0.3.0 (M3):** the SDK, the App A and App B user interfaces, the Vue verification portal, tag-based deployment and the 30-minute
   tutorial. **Run on the dev stack (Docker Desktop, team lead's machine, 22 Oct 2026):** `make web-build`, the Playwright suite on

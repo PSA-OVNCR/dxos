@@ -144,7 +144,8 @@ def test_changelog_090_states_the_breaking_sdk_rename_and_limits():
     assert "client.download" in sec and "downloadObject" in sec
     assert "100 MiB" in sec                                       # trần bản che (ruling R20)
     for n in ("006", "007", "008", "009"):
-        assert f"{n}_" in sec or f"migration {n}" in sec or n in sec, n
+        assert re.search(rf"`{n}_[a-z_]+\.sql`", sec), f"CHANGELOG 0.9.0 thiếu tên tệp migration {n}_*.sql"
+        assert any((ROOT / "core/migrations").glob(f"{n}_*.sql")), n
     for env in ("DXOS_ADMIN_HOST", "COMPOSE_PROFILES=viewer", "DXOS_VIEWER_API_BASE", "DXOS_VIEWER_MAX_BYTES",
                 "DXOS_VIEWER_DIGEST"):
         assert env in sec, env
@@ -228,12 +229,12 @@ def test_progress_14_has_task_table_numbers_and_v_items():
 
 
 def test_progress_14_lists_every_ruling_of_the_ledger():
+    """Mọi ruling trong sổ điều phối phải có hàng ở 14.6 (tập con: ruling mới của Task 16 không làm đỏ)."""
     ledger = LEDGER.read_text(encoding="utf-8") if LEDGER.is_file() else ""
     numbers = sorted({int(n) for n in re.findall(r"^(?:- )?Ruling R(\d+)[: ]", ledger, re.M)})
     sec = _progress_14()
     assert "### 14.4" in sec or "Rulings" in sec
-    wanted = numbers or list(range(1, 30))
-    assert wanted == list(range(1, 30)), "sổ điều phối phải có R1..R29"
+    wanted = sorted(set(numbers) | set(range(1, 30)))   # R1..R29 luôn phải có, kể cả khi không có sổ (CI)
     for n in wanted:
         assert re.search(rf"^\| R{n} \|", sec, re.M), f"thiếu R{n}"
     assert "Nếu sai" in sec or "nếu sai" in sec
@@ -284,3 +285,24 @@ def test_release_check_job_verifies_the_viewer_version():
 def test_release_workflow_header_mentions_the_viewer():
     head = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8").split("name: release", 1)[0]
     assert "viewer" in head and "dxos-viewer" in head
+
+
+def test_changelog_no_bullet_appears_twice_within_a_version_section():
+    """Release Notes lấy nguyên mục phiên bản: gạch đầu dòng lặp hai lần là lỗi biên tập (review Task 15)."""
+    text = _doc("CHANGELOG.md")
+    for sec in re.split(r"\n(?=## \[)", text):
+        bullets = re.findall(r"^- .+(?:\n  .+)*", sec, re.M)
+        seen: set[str] = set()
+        for b in bullets:
+            key = " ".join(b.split())
+            assert key not in seen, f"trùng trong {sec.splitlines()[0]}: {key[:70]}"
+            seen.add(key)
+
+
+def test_gitleaks_allowlist_is_narrow():
+    """Allowlist chỉ theo chuỗi: `paths` cạnh `regexes` là OR, sẽ miễn trừ cả tệp cho mọi luật."""
+    text = _doc(".gitleaks.toml")
+    body = "\n".join(ln for ln in text.splitlines() if not ln.lstrip().startswith("#"))
+    allow = body[body.index("[allowlist]"):]
+    assert "paths" not in allow
+    assert "mat-khau-thu-nghiem-9f3a" in allow

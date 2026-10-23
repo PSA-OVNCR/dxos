@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 PSA_OVNCR
 // SPDX-License-Identifier: Apache-2.0
-// SHA-256 (WebCrypto), hex, base64 cho bộ kiểm gói bằng chứng. Giải mã base64 theo đúng
-// `base64.b64decode(s, validate=True)` của Python 3.12 mà dxos-witness dùng, để hai bên nhận/từ chối cùng chuỗi.
+// SHA-256 (WebCrypto), hex, base64 cho bộ kiểm gói bằng chứng. Giải mã base64 CHUẨN TẮC (RFC 4648 mục 4), cùng quy tắc
+// với `dxos_witness.b64.b64decode_canonical` (ruling R29), để hai bên nhận/từ chối cùng chuỗi mà không phụ thuộc bản vá CPython.
 
 /** Bản sao trên ArrayBuffer thường (WebCrypto không nhận SharedArrayBuffer). */
 export function own(u8: Uint8Array): Uint8Array<ArrayBuffer> {
