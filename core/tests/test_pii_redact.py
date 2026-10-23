@@ -12,9 +12,9 @@ import pypdfium2.raw as raw
 import pytest
 from dxos_core.pii.detect import DETECTABLE, Box, Finding, detect_text
 from dxos_core.pii.job import extract_pages
-from dxos_core.pii.redact import redact_pdf
+from dxos_core.pii.redact import MAX_OUT_BYTES, RedactionTooLarge, redact_pdf
 from helpers.files import fixture
-from helpers.make_pii_pdf import add_text, build_blank_pages_pdf, save
+from helpers.make_pii_pdf import add_text, build_blank_pages_pdf, build_noise_pages_pdf, save
 
 DPI = 150
 SCALE = DPI / 72
@@ -186,7 +186,7 @@ def test_memory_stays_flat_with_many_large_pages():
         import io, resource, sys
         import pypdfium2 as pdfium
         from dxos_core.pii.detect import Box, Finding
-        from dxos_core.pii.redact import redact_pdf
+        from dxos_core.pii.redact import MAX_OUT_BYTES, RedactionTooLarge, redact_pdf
         doc = pdfium.PdfDocument.new()
         for _ in range(60):
             doc.new_page(1500, 1500)
@@ -251,3 +251,57 @@ def test_cropbox_with_nonzero_origin_and_rotation(rotation):
         if x1 > x0 and y1 > y0:
             dark, n = _black(pixels, stride, x0, y0, x1, y1)
             assert dark == n
+
+
+def test_output_cap_defaults_to_100_mib():
+    import inspect
+
+    assert MAX_OUT_BYTES == 100 * 1024 * 1024
+    assert inspect.signature(redact_pdf).parameters["max_out_bytes"].default == MAX_OUT_BYTES
+
+
+def test_noise_pages_beyond_the_cap_raise_redaction_too_large():
+    """R20: ảnh nhiễu nén không nổi, cỡ bản che tỉ lệ với số trang; vượt trần thì ném lỗi riêng."""
+    src = build_noise_pages_pdf(6, 400, 400)
+    findings = _findings(src)
+    assert len(findings) == 6
+    with pytest.raises(RedactionTooLarge):
+        redact_pdf(src, findings, max_out_bytes=1 << 20)
+    out = redact_pdf(src, findings, max_out_bytes=64 << 20)                 # dưới trần thì xong bình thường
+    assert 1 << 20 < len(out) < 64 << 20
+
+
+def test_cap_check_includes_what_was_already_written():
+    """Mỗi trang riêng lẻ nhỏ hơn trần nhưng tổng thì vượt: phải dừng ở trang làm tổng vượt."""
+    src = build_noise_pages_pdf(6, 400, 400)
+    findings = _findings(src)
+    total = len(redact_pdf(src, findings, max_out_bytes=64 << 20))
+    cap = total // 2                                  # một trang (cỡ total / 6) lọt, ba trang thì không
+    with pytest.raises(RedactionTooLarge):
+        redact_pdf(src, findings, max_out_bytes=cap)
+    one = build_noise_pages_pdf(1, 400, 400)
+    assert redact_pdf(one, _findings(one), max_out_bytes=cap)         # một trang đứng riêng thì lọt
+
+
+def test_memory_stays_bounded_when_the_cap_trips_on_noise_pages(tmp_path):
+    """R20: tệp 6,5 MB một ảnh nhiễu dùng chung cho 40 trang; bản không trần giữ cả bản che nén (257 MB, tuyến
+    tính theo số trang). Với trần 20 MB quá trình dừng sớm và RAM đỉnh vẫn nhỏ."""
+    src = tmp_path / "noise.pdf"
+    src.write_bytes(build_noise_pages_pdf(40, 1500, 720))
+    script = textwrap.dedent("""
+        import resource, sys
+        from dxos_core.pii.detect import Box, Finding
+        from dxos_core.pii.redact import RedactionTooLarge, redact_pdf
+        data = open(sys.argv[1], "rb").read()
+        base = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        try:
+            redact_pdf(data, [Finding("CCCD", 1, (Box(1, 72, 72, 200, 84),))], max_out_bytes=20 << 20)
+        except RedactionTooLarge:
+            print((resource.getrusage(resource.RUSAGE_SELF).ru_maxrss - base) // 1024)
+        else:
+            print("khong nem loi")
+    """)
+    done = subprocess.run([sys.executable, "-c", script, str(src)], capture_output=True, text=True,
+                          timeout=120, check=True)
+    assert done.stdout.strip().isdigit(), done.stdout
+    assert int(done.stdout) < 120, f"RAM tăng {done.stdout.strip()} MB"

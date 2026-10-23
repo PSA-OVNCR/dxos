@@ -16,8 +16,10 @@ trang ảnh có cùng khổ với trang hiển thị nên không cần xoay lạ
 (chữ trong đó vẫn hiện trong ảnh nếu có).
 
 Giới hạn (chống cạn bộ nhớ): tối đa ``MAX_PAGES`` trang, ảnh mỗi trang không quá ``max_px`` điểm theo mỗi
-chiều. Trang lớn tới mức 150 dpi vượt ``max_px`` thì hạ dpi riêng cho trang đó (khổ trang không đổi).
-Khóa PDFium dùng chung với ``pdfcheck``, giữ từng trang (dựng và tô); nén chạy ngoài khóa.
+chiều, tổng phần đã nén không quá ``MAX_OUT_BYTES`` (100 MiB; vượt thì ``RedactionTooLarge``, R20: trang ảnh
+nhiễu nén không nổi nên cỡ bản che tỉ lệ với số trang). Trang lớn tới mức 150 dpi vượt ``max_px`` thì hạ dpi
+riêng cho trang đó (khổ trang không đổi). Khóa PDFium dùng chung với ``pdfcheck``, giữ từng trang (dựng
+và tô); nén chạy ngoài khóa.
 
 Hàm đồng bộ, chặn: bên gọi chạy trong ``asyncio.to_thread``. Không bao giờ ghi nội dung phát hiện vào
 thông báo lỗi.
@@ -34,7 +36,12 @@ from dxos_core.objects import pdfcheck
 from dxos_core.pii.detect import Box, Finding
 
 MAX_PAGES = 200
+MAX_OUT_BYTES = 100 * 1024 * 1024         # trần dung lượng bản che (R20)
 _BLACK = (0, 0, 0, 255)
+
+
+class RedactionTooLarge(Exception):
+    """Bản che vượt ``max_out_bytes``: kết cục cố định của tệp này, thử lại không giúp gì."""
 
 
 def _scale_for(width: float, height: float, dpi: int, max_px: int) -> float:
@@ -97,6 +104,10 @@ class _PdfWriter:
         self.buf.write(b"%PDF-1.7\n%\xe2\xe3\xcf\xd3\n")
         self.offsets: dict[int, int] = {}
 
+    @property
+    def size(self) -> int:
+        return self.buf.tell()
+
     def obj(self, num: int, body: bytes, stream: bytes | None = None) -> None:
         self.offsets[num] = self.buf.tell()
         self.buf.write(b"%d 0 obj\n" % num)
@@ -118,10 +129,12 @@ class _PdfWriter:
 
 
 def redact_pdf(data: bytes, findings: Sequence[Finding], dpi: int = 150, pad_pt: float = 2.0,
-               max_px: int = 4000, max_pages: int = MAX_PAGES) -> bytes:
+               max_px: int = 4000, max_pages: int = MAX_PAGES, max_out_bytes: int = MAX_OUT_BYTES) -> bytes:
     """PDF chỉ có ảnh: mỗi trang của ``data`` thành một ảnh (``dpi``, hạ nếu quá ``max_px``) với mọi hộp của
     ``findings`` tô đen (nở ``pad_pt`` point). Ném ``ValueError`` nếu tệp quá ``max_pages`` trang hoặc một
-    phát hiện nằm ngoài tệp; ``pdfium.PdfiumError`` nếu tệp không mở được. RAM đỉnh xấp xỉ một bitmap."""
+    phát hiện nằm ngoài tệp; ``pdfium.PdfiumError`` nếu tệp không mở được; ``RedactionTooLarge`` ngay khi phần
+    đã nén vượt ``max_out_bytes`` (trang nhiễu nén không nổi: cỡ ra xấp xỉ cỡ thô). RAM đỉnh xấp xỉ một bitmap
+    cộng tối đa ``max_out_bytes`` đã nén."""
     with pdfcheck._LOCK:
         src = pdfium.PdfDocument(data)
         count = len(src)
@@ -150,6 +163,8 @@ def redact_pdf(data: bytes, findings: Sequence[Finding], dpi: int = 150, pad_pt:
             finally:
                 with pdfcheck._LOCK:
                     bitmap.close()
+            if writer.size + len(pixels) > max_out_bytes:
+                raise RedactionTooLarge(f"bản che vượt {max_out_bytes} byte ở trang {number}")
             img, content, page_obj = 3 + 3 * (number - 1), 4 + 3 * (number - 1), 5 + 3 * (number - 1)
             writer.obj(img, b"<< /Type /XObject /Subtype /Image /Width %d /Height %d /ColorSpace /DeviceRGB"
                        b" /BitsPerComponent 8 /Filter /FlateDecode /Length @LEN@ >>" % (px_w, px_h), pixels)

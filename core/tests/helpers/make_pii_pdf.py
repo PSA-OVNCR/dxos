@@ -15,7 +15,9 @@ pypdfium2: nâng pypdfium2 có thể làm test tái lập đỏ; khi đó chạy
 import ctypes
 import io
 import math
+import os
 import re
+import zlib
 from pathlib import Path
 
 import pypdfium2 as pdfium
@@ -87,6 +89,41 @@ def build_blank_pages_pdf(pages: int) -> bytes:
         return save(doc)
     finally:
         doc.close()
+
+
+def build_noise_pages_pdf(pages: int, px: int, pt: int) -> bytes:
+    """PDF viết tay ``pages`` trang ``pt`` x ``pt`` point, mọi trang dùng chung **một** ảnh nhiễu ngẫu nhiên
+    ``px`` x ``px`` (nén không nổi) và một dòng chữ có số CCCD hư cấu. Tệp nhỏ (một ảnh) nhưng bản che của nó
+    lớn tỉ lệ với số trang: dùng thử giới hạn dung lượng và RAM của ``redact_pdf``. Không tất định."""
+    img = zlib.compress(os.urandom(px * px * 3), 6)
+    objs: dict[int, bytes] = {
+        1: b"<< /Type /Catalog /Pages 2 0 R >>",
+        3: b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+        4: (b"<< /Type /XObject /Subtype /Image /Width %d /Height %d /ColorSpace /DeviceRGB"
+            b" /BitsPerComponent 8 /Filter /FlateDecode /Length %d >>\nstream\n" % (px, px, len(img)))
+        + img + b"\nendstream",
+    }
+    kids, n = [], 5
+    content = (b"q %d 0 0 %d 0 0 cm /Im0 Do Q BT /F1 12 Tf 72 72 Td (CCCD: 079203012345 hu cau) Tj ET"
+               % (pt, pt))
+    for _ in range(pages):
+        objs[n] = b"<< /Length %d >>\nstream\n" % len(content) + content + b"\nendstream"
+        objs[n + 1] = (b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 %d %d] /Resources << /XObject"
+                       b" << /Im0 4 0 R >> /Font << /F1 3 0 R >> >> /Contents %d 0 R >>" % (pt, pt, n))
+        kids.append(b"%d 0 R" % (n + 1))
+        n += 2
+    objs[2] = b"<< /Type /Pages /Count %d /Kids [%s] >>" % (pages, b" ".join(kids))
+    out, offsets = io.BytesIO(), {}
+    out.write(b"%PDF-1.7\n")
+    for k in sorted(objs):
+        offsets[k] = out.tell()
+        out.write(b"%d 0 obj\n" % k + objs[k] + b"\nendobj\n")
+    size, xref = max(objs) + 1, out.tell()
+    out.write(b"xref\n0 %d\n0000000000 65535 f \n" % size)
+    for k in range(1, size):
+        out.write(b"%010d 00000 n \n" % offsets[k])
+    out.write(b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (size, xref))
+    return out.getvalue()
 
 
 if __name__ == "__main__":

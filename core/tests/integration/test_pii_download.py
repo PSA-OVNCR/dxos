@@ -7,6 +7,7 @@ Ba người dùng: ``member1`` (tải lên, chủ bản ghi), ``reader1`` chỉ 
 """
 
 import asyncio
+import functools
 import hashlib
 import json
 
@@ -18,6 +19,7 @@ from dxos_core.jobs.context import WorkerContext
 from dxos_core.jobs.queue import Job
 from dxos_core.objects.storage import ObjectStore
 from dxos_core.pii.job import PII_JOB, REDACT_JOB, process_pii_job
+from dxos_core.pii.redact import redact_pdf
 from dxos_core.registry.store import save_manifest
 from dxos_core.registry.validator import validate_manifest
 from dxos_core.settings import read_secret
@@ -347,6 +349,62 @@ async def test_memory_error_in_redaction_is_not_swallowed(api, ctx, core_conn, m
     await core_conn.execute("UPDATE jobs SET run_after=now() WHERE kind=$1", PII_JOB)
     await _run(ctx)
     assert await _redacted_of(core_conn, sha)
+
+
+async def _skips(conn) -> list[str]:
+    return [r["reason"] for r in await conn.fetch("SELECT reason FROM pii_redaction_skips")]
+
+
+async def _assert_locked_without_copy(api, core_conn, rid: str, sha: str) -> None:
+    scan = await _scan_row(core_conn, sha)
+    assert (scan["status"], scan["findings"], scan["redacted_sha256"]) == ("DONE", 3, None)
+    assert (await _get(api, sha, READER, "original")).status_code == 404
+    assert (await _get(api, sha, READER, "redacted")).status_code == 404
+    assert (await _get(api, sha, REVIEWER, "original")).status_code == 200
+    assert await _pii(api, rid) == [{"status": "DONE", "findings": 3, "redacted": False}]
+
+
+async def test_output_too_large_is_final_original_stays_locked_and_nothing_retries(
+        api, ctx, core_conn, monkeypatch):
+    """R20 (đường pii_detect): bản che vượt trần dung lượng là kết cục cố định, không việc thử lại."""
+    from dxos_core.pii import job
+
+    monkeypatch.setattr(job, "redact_pdf", functools.partial(redact_pdf, max_out_bytes=1))
+    rid, sha = await _scanned(api, ctx, fixture("pii-fictional.pdf"))
+    await _assert_locked_without_copy(api, core_conn, rid, sha)
+    assert await _skips(core_conn) == ["TOO_LARGE"]
+    assert await _redact_jobs(core_conn) == []
+    assert await core_conn.fetchval("SELECT count(*) FROM pii_redactions") == 0
+    monkeypatch.undo()                                          # kể cả khi lỗi đã hết: kết cục vẫn cố định
+    for _ in range(2):
+        await _review(api, rid)                                 # :pii-review không xếp lại việc
+        assert await _redact_jobs(core_conn) == []
+    assert await _run(ctx) == 0
+    await _assert_locked_without_copy(api, core_conn, rid, sha)
+
+
+async def test_output_too_large_in_the_retry_job_ends_the_job_without_retry(
+        api, ctx, core_conn, monkeypatch):
+    """R20 (đường pii_redact): lỗi tạm, rồi bản che vượt trần: việc xong, ghi kết cục, không thử lại."""
+    from dxos_core.pii import job
+
+    def boom(*a, **k):
+        raise pdfium.PdfiumError("giả lập lỗi dựng bản che")
+
+    monkeypatch.setattr(job, "redact_pdf", boom)
+    rid, sha = await _scanned(api, ctx, fixture("pii-fictional.pdf"))
+    assert await _redact_jobs(core_conn) == ["QUEUED"] and await _skips(core_conn) == []
+    monkeypatch.setattr(job, "redact_pdf", functools.partial(redact_pdf, max_out_bytes=1))
+    await core_conn.execute("UPDATE jobs SET run_after=now() WHERE kind=$1", REDACT_JOB)
+    await _run(ctx, limit=1)
+    assert await _redact_jobs(core_conn) == ["DONE"]
+    assert await _skips(core_conn) == ["TOO_LARGE"]
+    monkeypatch.undo()
+    for _ in range(2):
+        await _review(api, rid)
+        assert await _redact_jobs(core_conn) == ["DONE"]        # không có việc mới
+    assert await _run(ctx) == 0
+    await _assert_locked_without_copy(api, core_conn, rid, sha)
 
 
 async def test_collection_without_document_detect_is_unchanged(api, ctx, core_conn):

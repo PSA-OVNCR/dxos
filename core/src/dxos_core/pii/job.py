@@ -30,6 +30,9 @@ ledger ``pii.detected``, rồi đánh dấu việc xong.
   thử lại với backoff của worker; việc này dựng từ ``pii_findings`` đã lưu. ``enqueue_missing_scans`` cũng xếp
   ``pii_redact`` cho tệp ``DONE`` có phát hiện mà chưa có ``pii_redactions`` (hàng từ trước tính năng, việc đã
   ``FAILED``). ``MemoryError`` không bao giờ bị nuốt: việc lỗi và được worker thử lại.
+* Bản che quá ``MAX_OUT_BYTES`` (R20, ``RedactionTooLarge``) là kết cục cố định: quét vẫn ``DONE`` có phát
+  hiện, bản gốc vẫn khóa, hàng ``pii_redaction_skips`` được ghi (cùng transaction với quét, hoặc do việc
+  ``pii_redact``), không có việc thử lại, và ``enqueue_missing_scans`` không xếp lại.
 """
 
 import asyncio
@@ -50,7 +53,7 @@ from dxos_core.jobs.queue import Job, complete, enqueue
 from dxos_core.ledger.log import append
 from dxos_core.objects import pdfcheck
 from dxos_core.pii.detect import DETECTABLE, Box, Finding, detect_text
-from dxos_core.pii.redact import MAX_PAGES, redact_pdf
+from dxos_core.pii.redact import MAX_PAGES, RedactionTooLarge, redact_pdf
 
 log = logging.getLogger("dxos_core.pii.job")
 
@@ -190,10 +193,11 @@ def _scan(data: bytes, types: Sequence[str] = DETECTABLE) -> tuple[str, list[Fin
 
 def _redact(data: bytes, findings: Sequence[Finding]) -> bytes | None:
     """Bản che của ``data`` hoặc None nếu dựng lỗi (chạy trong thread); khi đó bên gọi xếp việc ``pii_redact``
-    thử lại. Chỉ ghi tên lớp lỗi, không ghi nội dung. ``MemoryError`` được ném tiếp."""
+    thử lại. Chỉ ghi tên lớp lỗi, không ghi nội dung. ``MemoryError`` và ``RedactionTooLarge`` (kết cục cố
+    định, không thử lại) được ném tiếp."""
     try:
         return redact_pdf(data, findings)
-    except MemoryError:
+    except (MemoryError, RedactionTooLarge):
         raise
     except Exception as exc:  # noqa: BLE001
         log.warning("không dựng được bản che (%s); xếp việc %s thử lại", type(exc).__name__, REDACT_JOB)
@@ -233,6 +237,11 @@ async def _link_redaction(conn: asyncpg.Connection, sha: str, redacted_sha: str)
     return True
 
 
+async def _mark_too_large(conn: asyncpg.Connection, sha: str) -> None:
+    await conn.execute("INSERT INTO pii_redaction_skips(sha256, reason) VALUES ($1, 'TOO_LARGE')"
+                       " ON CONFLICT (sha256) DO NOTHING", sha)
+
+
 def _payload_sha(job: Job) -> str:
     sha = job.payload.get("sha256")
     if not isinstance(sha, str) or not _SHA256.fullmatch(sha):
@@ -251,9 +260,13 @@ async def process_pii_job(ctx: WorkerContext, job: Job) -> None:
         raise ValueError("pii_detect: object không tồn tại hoặc không CLEAN")
     data = await asyncio.to_thread(ctx.store.read_object, sha)
     scan_status, findings = await asyncio.to_thread(_scan, data)
-    redacted = None
+    redacted, too_large = None, False
     if scan_status == "DONE" and findings:
-        redacted = await asyncio.to_thread(_redact, data, findings)
+        try:
+            redacted = await asyncio.to_thread(_redact, data, findings)
+        except RedactionTooLarge:
+            too_large = True
+            log.warning("bản che quá lớn; bản gốc giữ khóa, không thử lại")
     redacted_sha = hashlib.sha256(redacted).hexdigest() if redacted is not None else None
     if redacted is not None:
         await asyncio.to_thread(ctx.store.put_object, redacted_sha, redacted)
@@ -273,6 +286,8 @@ async def process_pii_job(ctx: WorkerContext, job: Job) -> None:
                     [(sha, f.type, f.page, _bbox_json(f)) for f in findings])
                 if redacted_sha is not None:
                     await _link_redaction(conn, sha, redacted_sha)
+                elif too_large:                                 # kết cục cố định: không việc thử lại (R20)
+                    await _mark_too_large(conn, sha)
                 elif scan_status == "DONE" and findings:        # dựng bản che lỗi: thử lại ngoài luồng này
                     await enqueue(conn, REDACT_JOB, {"sha256": sha})
                 if scan_status == "DONE":
@@ -290,7 +305,8 @@ async def process_redact_job(ctx: WorkerContext, job: Job) -> None:
     backoff; hết lượt thì việc ``FAILED`` và ``:pii-review`` có thể xếp lại."""
     sha = _payload_sha(job)
     async with ctx.pool.acquire() as conn:
-        if await conn.fetchval("SELECT 1 FROM pii_redactions WHERE sha256=$1", sha):
+        if await conn.fetchval("SELECT 1 FROM pii_redactions WHERE sha256=$1", sha) or await conn.fetchval(
+                "SELECT 1 FROM pii_redaction_skips WHERE sha256=$1", sha):
             await complete(conn, job.id)
             return
         scan = await conn.fetchrow("SELECT status, findings FROM pii_scans WHERE sha256=$1", sha)
@@ -303,7 +319,14 @@ async def process_redact_job(ctx: WorkerContext, job: Job) -> None:
                                                            else r["bbox"])))
                 for r in rows]
     data = await asyncio.to_thread(ctx.store.read_object, sha)
-    redacted = await asyncio.to_thread(redact_pdf, data, findings)
+    try:
+        redacted = await asyncio.to_thread(redact_pdf, data, findings)
+    except RedactionTooLarge:
+        log.warning("bản che quá lớn; ghi kết cục cố định, không thử lại")
+        async with ctx.pool.acquire() as conn, conn.transaction():
+            await _mark_too_large(conn, sha)
+            await complete(conn, job.id)
+        return
     redacted_sha = hashlib.sha256(redacted).hexdigest()
     await asyncio.to_thread(ctx.store.put_object, redacted_sha, redacted)
     async with ctx.pool.acquire() as conn:
@@ -341,6 +364,7 @@ async def enqueue_missing_scans(conn: asyncpg.Connection, shas: Iterable[str], t
                 queued += 1
         elif (scan["status"] == "DONE" and scan["findings"] > 0
                 and not await conn.fetchval("SELECT 1 FROM pii_redactions WHERE sha256=$1", sha)
+                and not await conn.fetchval("SELECT 1 FROM pii_redaction_skips WHERE sha256=$1", sha)
                 and await _no_open_job(conn, REDACT_JOB, sha)):
             await enqueue(conn, REDACT_JOB, {"sha256": sha})
             queued += 1
