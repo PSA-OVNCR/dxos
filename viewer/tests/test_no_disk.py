@@ -45,7 +45,7 @@ def violations(source: str, name: str = "<mem>") -> list[str]:
 
 
 def test_static_scan_finds_nothing_in_viewer_src():
-    files = sorted(SRC.glob("*.py"))
+    files = sorted(SRC.rglob("*.py"))
     assert {f.name for f in files} >= {"app.py", "render.py", "png.py", "settings.py", "__init__.py"}
     assert [v for f in files for v in violations(f.read_text(encoding="utf-8"), f.name)] == []
 

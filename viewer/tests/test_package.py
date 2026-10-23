@@ -30,7 +30,7 @@ def test_every_dependency_is_pinned_in_constraints():
 def test_viewer_imports_only_allowed_libraries_and_never_core_or_storage():
     stdlib = sys.stdlib_module_names
     seen = set()
-    for path in SRC.glob("*.py"):
+    for path in SRC.rglob("*.py"):
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             if isinstance(node, ast.Import):
                 seen |= {a.name.split(".")[0] for a in node.names}

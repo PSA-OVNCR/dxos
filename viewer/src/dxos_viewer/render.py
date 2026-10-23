@@ -9,7 +9,11 @@ chụp màn hình được; nó gắn danh tính và giờ xem vào ảnh để 
 
 Watermark: dòng ``DX-OS <8 ký tự đầu của sub> <YYYY-MM-DD HH:MM> ICT`` (chỉ ASCII, phông Helvetica chuẩn nên
 không dấu tiếng Việt), cỡ 18 point, xoay 30 độ, lặp lưới 3 x 4 trên **trang như người xem thấy** (đã tính
-/Rotate và CropBox), đen mờ 35% (trên nền trắng ra xám). Chữ được tô sau cùng nên nằm trên nội dung trang.
+/Rotate và CropBox), xám 128 độ đục 45% (R27; thấy được cả trên nền sáng và nền tối).
+Chữ được tô sau cùng nên nằm trên nội dung trang.
+
+Chú thích (annotation) được dán phẳng vào nội dung trước khi chèn watermark và không dựng lại lần nữa
+(``draw_annots=False``), nên không chú thích nào che được watermark.
 
 Giới hạn: tối đa ``MAX_PAGES`` (200) trang; ảnh không quá ``MAX_PX`` (4000) điểm mỗi chiều (trang quá lớn thì
 hạ dpi riêng cho trang đó, cỡ chữ watermark theo điểm ảnh được giữ); 110 dpi. Một trang một lúc: RAM đỉnh xấp
@@ -36,7 +40,8 @@ DPI = 110
 FONT_PT = 18.0
 ANGLE_DEG = 30.0
 GRID_COLS, GRID_ROWS = 3, 4
-ALPHA = round(0.35 * 255)                 # đen 35% đục: trên nền trắng ra xám ~166
+GREY = 128                                # xám trung bình: thấy được cả trên vùng sáng lẫn vùng tối
+ALPHA = round(0.45 * 255)                 # độ đục 45%: trên nền trắng ra ~198, trên nền đen ra ~58
 ICT = timezone(timedelta(hours=7))        # Việt Nam không có giờ mùa hè; không cần dữ liệu múi giờ (tzdata)
 
 _LOCK = threading.Lock()
@@ -112,12 +117,26 @@ def apply_watermark(doc: pdfium.PdfDocument, page: pdfium.PdfPage, text: str, wi
             pdfium.raw.FPDFPageObj_GetBounds(obj, left, bottom, right, top)
             cx, cy = (left.value + right.value) / 2, (bottom.value + top.value) / 2
             u, v = _to_user_space(rot, box, width * (col + 0.5) / GRID_COLS, height * (row + 0.5) / GRID_ROWS)
-            pdfium.raw.FPDFPageObj_SetFillColor(obj, 0, 0, 0, ALPHA)
+            pdfium.raw.FPDFPageObj_SetFillColor(obj, GREY, GREY, GREY, ALPHA)
             # xoay quanh tâm dòng chữ rồi dời tâm đó tới (u, v)
             pdfium.raw.FPDFPageObj_Transform(obj, cos, sin, -sin, cos,
                                              u - (cos * cx - sin * cy), v - (sin * cx + cos * cy))
             pdfium.raw.FPDFPage_InsertObject(page.raw, obj)      # trang nắm giữ đối tượng
     pdfium.raw.FPDFPage_GenerateContent(page.raw)
+
+
+def _flattened_page(doc: pdfium.PdfDocument, index: int) -> pdfium.PdfPage:
+    """Trang ``index`` sau khi dán phẳng chú thích vào nội dung. Chú thích được vẽ **sau** nội dung trang nên
+    một chú thích có hình đục (AP) che được watermark; dán phẳng trước khi chèn watermark thì watermark nằm
+    trên cùng. Sau khi dán phẳng phải mở lại trang (đối tượng trang cũ không còn khớp). Người gọi giữ
+    ``_LOCK``."""
+    page = doc[index]
+    try:
+        # lỗi hoặc không có gì để dán: bỏ qua
+        pdfium.raw.FPDFPage_Flatten(page.raw, pdfium.raw.FLAT_NORMALDISPLAY)
+    finally:
+        page.close()
+    return doc[index]
 
 
 def _open(data: bytes) -> pdfium.PdfDocument:
@@ -171,14 +190,14 @@ def render_page(data: bytes, number: int, sub: str, now: datetime, *, dpi: int =
             raise PageOutOfRange(f"trang {number} ngoài 1..{count}")
         with _LOCK:
             try:
-                page = doc[number - 1]
+                page = _flattened_page(doc, number - 1)
                 try:
                     width, height = page.get_size()                 # khổ hiển thị: đã xoay và cắt
                     if not (width > 0 and height > 0 and math.isfinite(width) and math.isfinite(height)):
                         raise BadDocument("khổ trang không hợp lệ")
                     scale = _scale_for(width, height, dpi, max_px)
                     apply_watermark(doc, page, text, width, height, scale, dpi)
-                    bitmap = page.render(scale=scale, rev_byteorder=True)
+                    bitmap = page.render(scale=scale, rev_byteorder=True, draw_annots=False)
                 finally:
                     page.close()
             except pdfium.PdfiumError as exc:

@@ -16,6 +16,7 @@ Mọi phản hồi có ``Cache-Control: no-store`` và ``X-Content-Type-Options:
 """
 
 import asyncio
+import logging
 import re
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
@@ -31,6 +32,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from dxos_viewer import render
 from dxos_viewer.settings import Settings
 
+log = logging.getLogger("dxos_viewer")
 PROBLEM_BASE = "https://dxos.dev/problems/"
 PROBLEM_MEDIA_TYPE = "application/problem+json"
 _SHA256 = re.compile(r"[0-9a-f]{64}")
@@ -168,9 +170,27 @@ def create_app(settings: Settings | None = None, *, transport: httpx.AsyncBaseTr
     app = FastAPI(title="DX-OS Viewer", version="0.9.0", docs_url=None, redoc_url=None, openapi_url=None,
                   lifespan=lifespan)
 
+    @asynccontextmanager
+    async def slot() -> AsyncIterator[None]:
+        """Một chỗ dựng; chờ tối đa ``timeout_s`` rồi 503 (không để yêu cầu treo vô hạn khi đang đầy)."""
+        try:
+            await asyncio.wait_for(gate.acquire(), settings.timeout_s)
+        except TimeoutError as exc:
+            raise ProblemError(503, "busy", "Service Busy", "too many pages being rendered",
+                               {"Retry-After": "1"}) from exc
+        try:
+            yield
+        finally:
+            gate.release()
+
     @app.middleware("http")
     async def no_store(request: Request, call_next: Callable) -> Response:
-        response = await call_next(request)
+        try:
+            response = await call_next(request)
+        except Exception:
+            # Lỗi không lường trước: vẫn problem+json và đủ tiêu đề bảo mật; không lộ chi tiết nội bộ.
+            log.exception("unhandled error")
+            response = _problem(500, "internal", "Internal Server Error")
         response.headers["Cache-Control"] = "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
         return response
@@ -197,7 +217,7 @@ def create_app(settings: Settings | None = None, *, transport: httpx.AsyncBaseTr
         authorization = _authorization(request)
         _check_sha(sha256)
         params = _variant(request)
-        async with gate:
+        async with slot():
             data = await upstream.fetch_pdf(sha256, authorization, params)
             try:
                 pages = await asyncio.to_thread(render.page_count, data)
@@ -212,9 +232,9 @@ def create_app(settings: Settings | None = None, *, transport: httpx.AsyncBaseTr
         params = _variant(request)
         if not _PAGE.fullmatch(page) or int(page) < 1:
             raise ProblemError(404, "not-found", "Not Found", "page out of range")
-        async with gate:
+        sub = await upstream.whoami_sub(authorization)             # nhỏ, ngoài chỗ dựng
+        async with slot():                                          # tải + dựng: RAM có trần
             data = await upstream.fetch_pdf(sha256, authorization, params)
-            sub = await upstream.whoami_sub(authorization)
             try:
                 png = await asyncio.to_thread(render.render_page, data, int(page), sub, now())
             except render.RenderError as exc:

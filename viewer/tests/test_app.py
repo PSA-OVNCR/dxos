@@ -3,6 +3,7 @@
 """API của Viewer với API Trust Core giả (httpx.MockTransport); Plan 04 Task 7, P4-D6."""
 
 import asyncio
+import time
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -78,9 +79,12 @@ async def test_no_token_401(path, header):
     assert api.calls == []                                             # không gọi API
 
 
-@pytest.mark.parametrize("path", [f"/view/v1/objects/{SHA}/info", f"/view/v1/objects/{SHA}/pages/1.png"])
+@pytest.mark.parametrize(("path", "calls"), [
+    (f"/view/v1/objects/{SHA}/info", [f"/api/v1/objects/{SHA}"]),
+    (f"/view/v1/objects/{SHA}/pages/1.png", ["/api/v1/whoami", f"/api/v1/objects/{SHA}"]),
+])
 @pytest.mark.parametrize("status", [404, 403, 400])
-async def test_api_404_passthrough(path, status):
+async def test_api_404_passthrough(path, calls, status):
     api = FakeApi(object_status=status)
     async with make_client(api) as client:
         reply = await client.get(path, headers=auth())
@@ -88,7 +92,7 @@ async def test_api_404_passthrough(path, status):
     assert reply.headers["content-type"] == PROBLEM
     assert reply.json()["type"] == "https://dxos.dev/problems/not-found"
     assert not reply.content.startswith(b"\x89PNG")
-    assert [c.url.path for c in api.calls] == [f"/api/v1/objects/{SHA}"]    # không hỏi whoami khi chưa có tệp
+    assert [c.url.path for c in api.calls] == calls                  # chỉ các lời gọi này
 
 
 async def test_api_401_is_401_and_api_5xx_is_502():
@@ -248,6 +252,50 @@ async def test_nothing_is_cached_between_requests():
         assert (await client.get(f"/view/v1/objects/{SHA}/info", headers=auth())).json() == {"pages": 4}
         api.object_status = 404
         assert (await client.get(f"/view/v1/objects/{SHA}/pages/1.png", headers=auth())).status_code == 404
+
+
+async def test_unexpected_error_is_problem_json_with_security_headers(monkeypatch):
+    def boom(*_a, **_k):
+        raise RuntimeError("secret internal detail /etc/passwd")
+
+    monkeypatch.setattr(viewer_app.render, "page_count", boom)
+    async with make_client(FakeApi()) as client:
+        reply = await client.get(f"/view/v1/objects/{SHA}/info", headers=auth())
+    assert reply.status_code == 500 and reply.headers["content-type"] == PROBLEM
+    assert reply.json()["type"] == "https://dxos.dev/problems/internal"
+    assert reply.headers["cache-control"] == "no-store"
+    assert reply.headers["x-content-type-options"] == "nosniff"
+    assert b"secret" not in reply.content and b"passwd" not in reply.content
+
+
+async def test_busy_service_answers_503_after_a_bounded_wait(monkeypatch):
+    """Hết chỗ dựng thì chờ tối đa timeout_s rồi 503 + Retry-After; chỗ trả lại sau khi xong."""
+    monkeypatch.setattr(viewer_app, "MAX_CONCURRENT_RENDERS", 1)
+    real = render.render_page
+
+    def slow(*args, **kwargs):
+        time.sleep(0.6)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(viewer_app.render, "render_page", slow)
+    api = FakeApi()
+    async with make_client(api, timeout_s=0.2) as client:
+        url = f"/view/v1/objects/{SHA}/pages/1.png"
+        first, second = await asyncio.gather(client.get(url, headers=auth()), client.get(url, headers=auth()))
+        statuses = sorted([first.status_code, second.status_code])
+        assert statuses == [200, 503]
+        busy = first if first.status_code == 503 else second
+        assert busy.headers["content-type"] == PROBLEM and busy.headers["retry-after"] == "1"
+        assert (await client.get(url, headers=auth())).status_code == 200      # chỗ đã được trả lại
+
+
+async def test_slot_is_not_held_while_asking_who_is_calling():
+    """whoami chậm (nhưng trong hạn) không giữ chỗ dựng của yêu cầu khác."""
+    api = FakeApi(whoami_status=401)
+    async with make_client(api) as client:
+        replies = await asyncio.gather(*[client.get(f"/view/v1/objects/{SHA}/pages/1.png", headers=auth())
+                                         for _ in range(6)])
+    assert [r.status_code for r in replies] == [401] * 6
 
 
 def test_settings_from_env(monkeypatch):

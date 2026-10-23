@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta, timezone
 import pypdfium2 as pdfium
 import pytest
 from dxos_viewer import render
-from viewer_helpers import decode_png, grey_pixels, make_pdf
+from viewer_helpers import annotated_pdf, decode_png, grey_pixels, make_pdf
 
 ICT = timezone(timedelta(hours=7))
 NOW = datetime(2026, 12, 10, 9, 5, tzinfo=ICT)
@@ -57,6 +57,24 @@ def test_watermark_is_drawn_over_page_content():
     plain = decode_png(render.render_page(make_pdf(text="Hop dong so 01"), 1, SUB, NOW))
     assert plain[0] == 935 and grey_pixels(*plain) > 1000
     assert plain[2].count(b"\x00\x00\x00") > 100                            # chữ đen của trang vẫn còn
+
+
+def test_opaque_annotation_cannot_hide_the_watermark():
+    """Chú thích có AP đục phủ kín trang vẽ sau nội dung: phải dán phẳng trước khi chèn watermark."""
+    width, height, rgb = decode_png(render.render_page(annotated_pdf(), 1, SUB, NOW))
+    assert (width, height) == (935, 1210)
+    assert grey_pixels(width, height, rgb, (0.25, 0.25, 0.75, 0.75)) > 300
+    assert rgb.count(b"\x00\x00\x00") > 100                                # thanh đen của chú thích vẫn thấy
+    plain = decode_png(render.render_page(make_pdf(), 1, SUB, NOW))
+    assert grey_pixels(width, height, rgb) > 0.5 * grey_pixels(*plain)       # cỡ watermark như trang thường
+
+
+def test_watermark_is_visible_on_a_black_page_too():
+    width, height, rgb = decode_png(render.render_page(make_pdf(black=True), 1, SUB, NOW))
+    lifted = sum(1 for i in range(0, len(rgb), 3)
+                 if rgb[i] == rgb[i + 1] == rgb[i + 2] and 30 <= rgb[i] <= 100)
+    assert lifted > 300, lifted                                              # xám 128 độ đục 45% trên đen ~58
+    assert rgb.count(b"\x00\x00\x00") > 0.5 * width * height                 # nền vẫn đen
 
 
 def test_rotated_page_gets_an_upright_watermark():

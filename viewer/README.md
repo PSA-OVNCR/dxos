@@ -11,7 +11,8 @@ của Trust Core, vẽ **một trang** thành ảnh PNG, đóng watermark rồi 
 ## Watermark chỉ để răn đe
 
 Watermark là dòng chữ `DX-OS <8 ký tự đầu của sub> <YYYY-MM-DD HH:MM> ICT` (ASCII, phông Helvetica, cỡ 18, xoay 30°,
-lặp lưới 3 × 4, đen mờ 35%). Nó gắn danh tính và giờ xem vào ảnh để người xem biết việc xem có dấu vết. Nó **chỉ để
+lặp lưới 3 × 4, xám 128, độ đục 45%: thấy được cả trên nền sáng lẫn nền tối). Chú thích của PDF được dán phẳng vào nội dung
+trước khi chèn watermark nên không chú thích nào che được nó. Nó gắn danh tính và giờ xem vào ảnh để người xem biết việc xem có dấu vết. Nó **chỉ để
 răn đe**: không ngăn được chụp màn hình, chụp ảnh màn hình bằng điện thoại hay chép tay; không phải biện pháp chống rò rỉ.
 
 ## Điểm vào
@@ -35,6 +36,8 @@ xem bản gốc (chặn theo `reveal_pii` với bộ sưu tập có PII). Lỗi 
 | `variant` lạ | 422 |
 | API 5xx hoặc không nối được; `whoami` không trả `sub` | 502 |
 | API quá `DXOS_VIEWER_TIMEOUT_S` | 504 |
+| hết chỗ dựng (tối đa 2 trang cùng lúc; chờ tối đa `DXOS_VIEWER_TIMEOUT_S`), kèm `Retry-After` | 503 |
+| lỗi không lường trước (không kèm chi tiết nội bộ) | 500 |
 | tệp không phải PDF | 415 |
 | PDF hỏng, hoặc quá 200 trang | 422 |
 | tệp lớn hơn `DXOS_VIEWER_MAX_BYTES` | 413 |
@@ -53,8 +56,10 @@ Viewer không có khóa hay bí mật nào, chỉ nằm trên mạng `net-app`, 
 
 - Tối đa 200 trang mỗi tệp; ảnh mỗi trang không quá 4000 × 4000 điểm (trang quá lớn bị hạ dpi riêng cho trang đó); 110 dpi.
 - Không ghi đĩa: không `tempfile`, không `open(..., 'w')`, không `.write_bytes`/`.write_text` trong `src/`
-  (test tĩnh `tests/test_no_disk.py`, kèm test chạy thật chặn mọi lần mở tệp để ghi). Chạy được trên hệ tệp gốc chỉ đọc.
-- Mỗi lần gọi chỉ giữ một trang trong RAM; tối đa 2 lần dựng song song. Không cache, không nhớ gì giữa hai yêu cầu.
+  (test tĩnh `tests/test_no_disk.py`, kèm test chạy thật chặn mọi lần mở tệp để ghi). Các test này chỉ bắt lỗi
+  trong mã Python của Viewer; bảo đảm thật sự là **hệ tệp gốc chỉ đọc** của container (Task 8 bật `read_only`),
+  vì mã gốc của PDFium nằm ngoài tầm của test Python.
+- Mỗi lần gọi chỉ giữ một trang trong RAM; tối đa 2 lần tải + dựng song song (hỏi `whoami` nằm ngoài chỗ này). Không cache, không nhớ gì giữa hai yêu cầu.
 - `src/dxos_viewer/png.py` là bản chép của `core/src/dxos_core/pii/png.py` (gói riêng, không import `dxos_core`);
   test của hai bản (`tests/test_png.py`, `core/tests/test_pii_png.py`) giống nhau trừ dòng import.
 - Chỉ bốn phụ thuộc: `fastapi`, `uvicorn[standard]`, `httpx`, `pypdfium2` (phiên bản ghim ở `constraints.txt`).
