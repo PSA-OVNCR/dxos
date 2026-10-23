@@ -43,7 +43,7 @@ async function load(): Promise<void> {
     ? (list.value.find((r) => r.app_id === id && r.version === version) ?? null)
     : null
   diff.value = d.status === 'fulfilled' ? d.value : null
-  shown.value = { id, version }
+  shown.value = d.status === 'fulfilled' ? { id, version } : null // không có diff đã thấy thì không có gì để duyệt
   const failed = [d, list].find((r): r is PromiseRejectedResult => r.status === 'rejected')
   error.value = failed ? failed.reason : null
   loading.value = false
@@ -59,6 +59,8 @@ watch(() => [props.id, props.version], () => {
   error.value = null
   approved.value = null
   approveError.value = null
+  approveRun++          // POST đang bay của phiên bản cũ: bỏ kết quả của nó
+  approving.value = false
   void load()
 })
 
@@ -136,26 +138,29 @@ const nothingChanged = computed(() => lines.value.every((l) => l.floor === 'same
 
 // ---- duyệt -----------------------------------------------------------------------------------------
 const approving = ref(false)
+/** Tăng khi route đổi: kết quả của một lần duyệt thuộc về lần route cũ thì bị bỏ. */
+let approveRun = 0
 const approveError = ref<unknown>(null)
 const approved = ref<InstalledView | null>(null)
 
 async function approve(): Promise<void> {
   const target = shown.value
-  if (approving.value || !target) return
+  if (approving.value || !target || !diff.value) return
+  const mine = approveRun
   approving.value = true
   approveError.value = null
   approved.value = null
   try {
     // Ghi: đúng một lần mỗi lần bấm; gửi phiên bản của diff đang hiện, không phải tham số route hiện tại.
     const result = await api.approveApp(target.id, target.version)
-    if (shown.value === target) { // trang chưa chuyển sang phiên bản khác trong lúc chờ
+    if (mine === approveRun) { // trang chưa chuyển sang phiên bản khác trong lúc chờ
       approved.value = result
       await load()
     }
   } catch (e) {
-    if (shown.value === target) approveError.value = e
+    if (mine === approveRun) approveError.value = e
   } finally {
-    approving.value = false
+    if (mine === approveRun) approving.value = false
   }
 }
 </script>
@@ -215,7 +220,7 @@ async function approve(): Promise<void> {
       <p v-if="nothingChanged" class="dx-meta">Không có thay đổi nào về quyền hay chính sách so với bản đối chiếu.</p>
     </template>
 
-    <template v-if="row && row.status === 'PENDING'">
+    <template v-if="diff && row && row.status === 'PENDING'">
       <div class="dx-actions">
         <button type="button" :disabled="approving" :aria-busy="approving" @click="approve">Duyệt phiên bản này</button>
         <span class="dx-meta">Cần người duyệt khác người nộp (bốn mắt); máy chủ kiểm tra.</span>

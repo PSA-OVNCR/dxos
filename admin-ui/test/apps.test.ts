@@ -305,4 +305,50 @@ describe('AppDiffView', () => {
     await click(w, 'Duyệt phiên bản này')
     expect(api.approveApp).toHaveBeenCalledWith('so-muon-sach', '1.2.0')
   })
+
+  test('no approve button (and no call) when the diff failed to load, even if the list shows a pending row', async () => {
+    const api = fakeApi({
+      appDiff: async () => { throw new ApiError(502, 'http-502', 'Bad Gateway', undefined, null) },
+      apps: async () => [appRow({ version: '1.1.0', status: 'PENDING' })],
+    })
+    const w = await mountView(AppDiffView, api, PROPS)
+    expect(w.find('.dx-problem').exists()).toBe(true)
+    expect(w.find('[data-field="status"]').text()).toContain('Chờ duyệt')
+    expect(w.findAll('button').some((b) => b.text().includes('Duyệt'))).toBe(false)
+    expect(api.approveApp).not.toHaveBeenCalled()
+    // Tải lại thành công thì nút xuất hiện.
+    api.appDiff.mockImplementation(async () => DIFF_OK)
+    await click(w, 'Tải lại')
+    expect(w.findAll('button').some((b) => b.text().trim() === 'Duyệt phiên bản này')).toBe(true)
+  })
+
+  test('a POST in flight while the params change: no wrong notice, and the new version can be approved', async () => {
+    let release!: () => void
+    const gate = new Promise<void>((r) => { release = r })
+    const api = fakeApi({
+      apps: async () => [appRow({ version: '1.1.0', status: 'PENDING' }), appRow({ version: '1.2.0', status: 'PENDING' })],
+      appDiff: async (_id, v) => ({ ...DIFF_OK, version: v }),
+      approveApp: async (id, version) => {
+        if (version === '1.1.0') await gate
+        return { app_id: id, version, status: 'ACTIVE', manifest_sha256: 'ab', self_approved: false, deployment_id: null, rendered_sha256: null }
+      },
+    })
+    const w = await mountView(AppDiffView, api, { id: 'so-muon-sach', version: '1.1.0' })
+    const btn = () => w.findAll('button').find((b) => b.text().trim() === 'Duyệt phiên bản này')
+    await btn()!.trigger('click')
+    expect(api.approveApp).toHaveBeenLastCalledWith('so-muon-sach', '1.1.0')
+    await w.setProps({ version: '1.2.0' })
+    await flushPromises()
+    // Nút của phiên bản mới không bị kẹt vì POST cũ.
+    expect(btn()!.attributes('disabled')).toBeUndefined()
+    release() // POST của 1.1.0 xong muộn: không hiện thông báo, không tải lại đè
+    await flushPromises()
+    expect(w.find('[role="status"]').exists()).toBe(false)
+    expect(w.find('h1').text()).toContain('1.2.0')
+    await btn()!.trigger('click')
+    await flushPromises()
+    expect(api.approveApp).toHaveBeenCalledTimes(2)
+    expect(api.approveApp).toHaveBeenLastCalledWith('so-muon-sach', '1.2.0')
+    expect(w.find('[role="status"]').text()).toContain('1.2.0')
+  })
 })
