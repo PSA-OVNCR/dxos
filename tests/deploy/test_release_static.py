@@ -8,6 +8,7 @@ Overlay được kiểm bằng ``docker compose config`` (chỉ cần CLI, khôn
 
 import json
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -20,6 +21,11 @@ WORKFLOW = ROOT / ".github/workflows/release.yml"
 DIGEST = "0123456789abcdef" * 4
 IMAGE = f"ghcr.io/psa-ovncr/trust-core@sha256:{DIGEST}"
 CORE = ("trust-core-api", "trust-core-worker")
+
+
+def _is_action(uses: str, action: str) -> bool:
+    """``uses`` là ``action`` ở dạng SHA 40 ký tự (ghim bằng ops/pin_actions.py)."""
+    return re.fullmatch(re.escape(action) + r"@[0-9a-f]{40}", uses or "") is not None
 
 
 def _wf() -> dict:
@@ -45,13 +51,14 @@ def test_release_runs_only_on_version_tags_with_least_privilege():
 def test_every_job_builds_from_the_tag_commit():
     for job in ("check", "image", "release"):
         checkout = _wf()["jobs"][job]["steps"][0]
-        assert checkout["uses"] == "actions/checkout@v4"
+        assert _is_action(checkout["uses"], "actions/checkout")
         assert checkout["with"]["ref"] == "${{ github.ref }}", job
 
 
 def test_check_job_sets_up_python_before_running_ops_scripts():
     steps = _wf()["jobs"]["check"]["steps"]
-    assert steps[1] == {"uses": "actions/setup-python@v5", "with": {"python-version": "3.12"}}
+    assert _is_action(steps[1]["uses"], "actions/setup-python")
+    assert steps[1]["with"] == {"python-version": "3.12"}
 
 
 def test_check_job_refuses_unreleased_changelog_and_version_mismatch():
@@ -94,7 +101,7 @@ def test_release_attaches_the_web_build_as_a_tarball():
     ``dxos-web-<X.Y.Z>.tar.gz`` trong ``dist/`` (cùng các tệp đính kèm khác); thư mục build nằm ngoài
     ``dist/``."""
     steps = _wf()["jobs"]["release"]["steps"]
-    node = next(i for i, s in enumerate(steps) if s.get("uses") == "actions/setup-node@v4")
+    node = next(i for i, s in enumerate(steps) if _is_action(s.get("uses"), "actions/setup-node"))
     assert steps[node]["with"] == {"node-version": "22"}
     web = next(i for i, s in enumerate(steps) if "ops/build_web.sh" in s.get("run", ""))
     run = steps[web]["run"]
