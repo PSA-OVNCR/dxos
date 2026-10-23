@@ -129,7 +129,47 @@ def test_main_dry_run_lists_without_network(tmp_path, capsys):
     assert (d / "ci.yml").read_text(encoding="utf-8") == WORKFLOW
 
 
-def test_repo_workflows_use_plain_tags_or_shas():
-    """Mọi `uses:` thật trong kho là tag dạng vN (công cụ phân giải được) hoặc đã là SHA (sau V37)."""
-    refs = [ref for _, _, ref in pin_actions.find_uses(ROOT / ".github" / "workflows")]
-    assert all(r.startswith("v") and r[1:].replace(".", "").isdigit() for r in refs), refs
+def test_repo_workflows_are_fully_pinned():
+    """Sau V37 mọi `uses:` từ xa trong kho đã là SHA 40 ký tự (find_uses chỉ liệt kê cái chưa ghim)."""
+    assert pin_actions.find_uses(ROOT / ".github" / "workflows") == []
+
+
+class _Run:
+    def __init__(self, stdout):
+        self.stdout = stdout
+
+
+def _stub_ls_remote(monkeypatch, stdout):
+    seen = []
+
+    def run(cmd, **kwargs):
+        seen.append((cmd, kwargs))
+        return _Run(stdout)
+
+    monkeypatch.setattr(pin_actions.subprocess, "run", run)
+    return seen
+
+
+def test_git_resolver_prefers_peeled_commit_of_annotated_tag(monkeypatch):
+    out = f"{SHA_OTHER}\trefs/tags/v4\n{SHA_CHECKOUT}\trefs/tags/v4^{{}}\n"
+    seen = _stub_ls_remote(monkeypatch, out)
+    assert pin_actions.git_resolver("actions/checkout", "v4") == SHA_CHECKOUT
+    cmd, kwargs = seen[0]
+    assert cmd == ["git", "ls-remote", "https://github.com/actions/checkout",
+                   "refs/tags/v4", "refs/tags/v4^{}"]
+    assert kwargs["check"] is True and "shell" not in kwargs
+
+
+def test_git_resolver_uses_lightweight_tag_when_not_annotated(monkeypatch):
+    _stub_ls_remote(monkeypatch, f"{SHA_PYTHON}\trefs/tags/v5\n")
+    assert pin_actions.git_resolver("actions/setup-python", "v5") == SHA_PYTHON
+
+
+def test_git_resolver_rejects_missing_tag(monkeypatch):
+    _stub_ls_remote(monkeypatch, "")                                            # ls-remote không thấy tag nào
+    try:
+        pin_actions.git_resolver("actions/checkout", "main")
+    except ValueError as e:
+        assert "actions/checkout" in str(e) and "main" in str(e)
+    else:
+        raise AssertionError("phải báo lỗi khi không có tag")

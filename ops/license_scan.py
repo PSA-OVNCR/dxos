@@ -284,6 +284,12 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
 
     dists = load_dists(args.python_path)
+    if (args.freeze_runtime or not args.no_python) and not args.all_python and not TEAM & dists.keys():
+        # Bao đóng rỗng sẽ "quét 0 gói, 0 vi phạm" và thoát 0: không được để lọt (fail open).
+        print("LỖI: không thấy gói dxos-* nào trong môi trường Python này nên không xác định được "
+              "phụ thuộc runtime; cài chúng trước (pip install -c constraints.txt -e libs/dxos-proof "
+              "-e core -e witness -e cli) hoặc dùng --all-python / --no-python.", file=sys.stderr)
+        return 1
     if args.freeze_runtime:
         pins = sorted((d.metadata["Name"], d.version) for d in runtime_closure(dists))
         for name, version in sorted(pins, key=lambda p: canon(p[0])):

@@ -133,6 +133,21 @@ def test_python_extras_are_followed_only_when_requested(tmp_path):
     assert _py(tmp_path) == 1                                                   # extra standard được yêu cầu
 
 
+def test_empty_runtime_closure_fails_closed(tmp_path, capsys):
+    """Không cài gói dxos-* nào thì bao đóng rỗng; "0 gói, 0 vi phạm" mà thoát 0 là sai."""
+    site = tmp_path / "site"
+    _dist(site, "dev-tool", expr="GPL-3.0-or-later")
+    assert _py(tmp_path) == 1
+    assert "dxos-" in capsys.readouterr().err
+    assert license_scan.main(["--freeze-runtime", "--python-path", str(site)]) == 1
+    assert _py(tmp_path, None, "--all-python") == 1                       # --all-python vẫn thấy dev-tool
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    base = ["--no-npm", "--python-path", str(empty), "--allow-file", str(_allow(tmp_path))]
+    assert license_scan.main([*base, "--all-python"]) == 0                  # chủ ý quét hết: rỗng là rỗng
+    assert license_scan.main([*base, "--no-python"]) == 0
+
+
 def test_team_packages_are_not_checked(tmp_path):
     site = tmp_path / "site"
     _dist(site, "dxos-core", "0.3.0")                                           # không khai giấy phép
