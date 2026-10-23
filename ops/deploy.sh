@@ -248,7 +248,11 @@ NOROLLBACK
         # migration mà mã nguồn không có) và không bao giờ hạ migration: dừng ở đây, trước khi đổi cây làm việc hay container.
         if [ -n "$rollback_from" ]; then
             local from_migs to_migs added
-            from_migs=$(git ls-tree --name-only "refs/tags/$rollback_from^{commit}" core/migrations/ 2> /dev/null | sort) || from_migs=""
+            # Không đọc được danh sách của bản mới thì coi như có migration mới (chặn, không đoán).
+            if ! from_migs=$(git ls-tree --name-only "refs/tags/$rollback_from^{commit}" core/migrations/ 2> /dev/null | sort); then
+                echo "deploy.sh: không đọc được core/migrations/ của $rollback_from: không tự quay lui" >&2
+                return 11
+            fi
             to_migs=$(git ls-tree --name-only "refs/tags/$t^{commit}" core/migrations/ 2> /dev/null | sort) || to_migs=""
             added=$(comm -23 <(printf '%s\n' "$from_migs") <(printf '%s\n' "$to_migs") | sed '/^$/d' | sed 's|^core/migrations/||' | tr '\n' ' ')
             if [ -n "$added" ]; then

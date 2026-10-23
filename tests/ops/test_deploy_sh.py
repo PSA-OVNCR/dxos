@@ -56,6 +56,7 @@ case "$*" in
     echo "${c:-$FAKE_COMMIT}" ;;
   "ls-tree --name-only refs/tags/"*" core/migrations/")
     t=${3#refs/tags/}; t=${t%^\{commit\}}; v=$(printf '%s' "$t" | tr . _)
+    [ "${FAKE_LSTREE_FAIL:-}" != "$t" ] || { echo "fatal: not a tree object" >&2; exit 128; }
     printenv "FAKE_MIGS_$v" || true ;;                # FAKE_MIGS_vX_Y_Z: tệp trong core/migrations/ của tag
   "status --porcelain") printf '%s' "${FAKE_GIT_STATUS:-}" ;;
   fetch*) [ -z "${FAKE_FETCH_FAIL:-}" ] || { echo "! [rejected] would clobber existing tag" >&2; exit 1; } ;;
@@ -980,6 +981,24 @@ def test_migration_check_runs_after_the_signature_check_and_before_rollback_dock
     assert r.returncode == 5
     assert r.order(["git fetch origin refs/tags/v0.3.0", "verify-tag refs/tags/v0.3.0",
                     "ls-tree --name-only refs/tags/v0.3.0^{commit} core/migrations/"]), r.text
+
+
+def test_unreadable_migration_list_of_the_failing_tag_blocks_the_rollback(run, stubs):
+    # Fail closed (re-review Minor-1): không đọc được core/migrations/ của bản mới thì không quay lui.
+    _bad_new_tag(stubs, MIGS_OLD, MIGS_OLD)
+    stubs.extra["FAKE_LSTREE_FAIL"] = "v0.9.0"
+    r = run("v0.9.0")
+    assert r.returncode == 5, r.stdout + r.stderr
+    assert len([c for c in r.calls if " up " in c]) == 1
+    assert "không đọc được core/migrations/ của v0.9.0" in r.stderr
+
+
+def test_unreadable_migration_list_of_the_target_tag_blocks_the_rollback(run, stubs):
+    _bad_new_tag(stubs, MIGS_OLD, MIGS_OLD)
+    stubs.extra["FAKE_LSTREE_FAIL"] = "v0.3.0"
+    r = run("v0.9.0")
+    assert r.returncode == 5, r.stdout + r.stderr
+    assert len([c for c in r.calls if " up " in c]) == 1
 
 
 def test_runbook_changelog_and_readme_state_the_migration_limit():

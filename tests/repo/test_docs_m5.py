@@ -284,7 +284,7 @@ def test_rulings_r30_r31_are_in_14_6_with_cost_if_wrong():
         row = next(ln for ln in sec.splitlines() if ln.startswith(f"| R{n} |"))
         cells = [c.strip() for c in row.strip("|").split("|")]
         assert len(cells) == 4 and cells[1] == "16" and cells[2] and cells[3], row
-    assert "R1 đến R34" in sec
+    assert "R1 đến R36" in sec
     assert "G12" in next(ln for ln in sec.splitlines() if ln.startswith("| R31 |"))
 
 
