@@ -15,6 +15,9 @@ ledger ``pii.detected``, rồi đánh dấu việc xong.
   nhân đôi hàng.
 * Lỗi tạm thời (kho S3, DB) cho ném ra ngoài để worker thử lại với backoff. Lỗi của chính tệp (PDFium) là
   tất định nên ghi ``FAILED`` luôn, không thử lại: nếu không guard sẽ chờ mãi một lần dò không bao giờ có.
+* Tệp có từ trước khi nâng cấp (F2, R32): ``sweep_missing_scans`` (worker gọi định kỳ) xếp ``pii_detect`` và
+  ``pii_redact`` cho tệp CLEAN đã được bản ghi của app khai ``document_detect`` tham chiếu, kể cả bản ghi đã
+  niêm phong, nơi ``:pii-review`` không chạy được.
 * Không để guard chờ mãi (R16): ``enqueue_missing_scans`` (gọi từ ``:pii-review``) xếp lại việc cho tệp CLEAN
   chưa có hàng ``pii_scans`` và chưa có việc đang chờ/chạy; ``record_failed_scan`` (worker gọi khi việc hết
   lượt thử) ghi ``FAILED`` để bản ghi quay về rà tay.
@@ -369,6 +372,76 @@ async def enqueue_missing_scans(conn: asyncpg.Connection, shas: Iterable[str], t
             await enqueue(conn, REDACT_JOB, {"sha256": sha})
             queued += 1
     return queued
+
+
+SWEEP_LIMIT = 50                       # tối đa số tệp xét mỗi lượt quét của worker
+REDACT_COOLDOWN = "1 hour"             # pii_redact vừa hỏng hết lượt: chưa xếp lại ngay (tránh lặp vô tận)
+
+_SWEEP_DETECT_SQL = """
+    SELECT DISTINCT o.sha256::text AS sha256
+    FROM object_refs r
+    JOIN records rec ON rec.id = r.record_id
+    JOIN objects o ON o.sha256 = r.sha256
+    WHERE r.role = 'original' AND o.status = 'CLEAN' AND rec.app_id::text = ANY($1::text[])
+      AND NOT EXISTS (SELECT 1 FROM pii_scans s WHERE s.sha256 = o.sha256)
+      AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.kind = $2 AND j.state IN ('QUEUED', 'RUNNING')
+                      AND j.payload->>'sha256' = o.sha256::text)
+    ORDER BY 1
+    LIMIT $3
+"""
+_SWEEP_REDACT_SQL = f"""
+    SELECT DISTINCT s.sha256::text AS sha256
+    FROM pii_scans s
+    JOIN object_refs r ON r.sha256 = s.sha256 AND r.role = 'original'
+    JOIN records rec ON rec.id = r.record_id
+    WHERE s.status = 'DONE' AND s.findings > 0 AND rec.app_id::text = ANY($1::text[])
+      AND NOT EXISTS (SELECT 1 FROM pii_redactions x WHERE x.sha256 = s.sha256)
+      AND NOT EXISTS (SELECT 1 FROM pii_redaction_skips k WHERE k.sha256 = s.sha256)
+      AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.kind = $2 AND j.payload->>'sha256' = s.sha256::text
+                      AND (j.state IN ('QUEUED', 'RUNNING')
+                           OR j.updated_at > now() - interval '{REDACT_COOLDOWN}'))
+    ORDER BY 1
+    LIMIT $3
+"""  # noqa: S608 (REDACT_COOLDOWN là hằng số)
+
+
+async def _sweep_scope(conn: asyncpg.Connection) -> tuple[list[str], list[str]]:
+    """(app_id, loại bộ dò) của các app có manifest ACTIVE khai ``document_detect`` với loại hỗ trợ."""
+    rows = await conn.fetch(
+        "SELECT id::text AS id, manifest #> '{policies,pii,document_detect}' AS types FROM apps"
+        " WHERE status = 'ACTIVE' AND jsonb_typeof(manifest #> '{policies,pii,document_detect}') = 'array'")
+    apps: list[str] = []
+    types: list[str] = []
+    for row in rows:
+        raw = row["types"]
+        found = detectable(json.loads(raw) if isinstance(raw, str) else raw)
+        if found:
+            apps.append(row["id"])
+            types.extend(t for t in found if t not in types)
+    return apps, types
+
+
+async def sweep_missing_scans(conn: asyncpg.Connection, *, limit: int = SWEEP_LIMIT) -> int:
+    """Quét định kỳ của worker (final review F2, R32): xếp việc dò/dựng bản che cho tệp mà đường nóng không
+    bao giờ xếp, điển hình là tệp CLEAN từ **trước** khi nâng cấp lên bản có dò PII (scan chỉ được xếp lúc tệp
+    thành CLEAN) trên bản ghi đã niêm phong, nơi ``:pii-review`` từ chối (409 ``record-sealed``).
+
+    Chung cho mọi app (không nhắc tên app nào): chỉ xét app có manifest ACTIVE khai ``document_detect`` với
+    loại bộ dò hỗ trợ và tệp được bản ghi của app đó tham chiếu với ``role='original'``. Xếp ``pii_detect``
+    cho tệp CLEAN chưa có ``pii_scans`` và chưa có việc đang chờ/chạy; ``pii_redact`` cho quét ``DONE`` có
+    phát hiện mà chưa có ``pii_redactions``, ``pii_redaction_skips`` hay việc đang mở (và không có việc vừa
+    hỏng trong ``REDACT_COOLDOWN``). Xét tối đa ``limit`` tệp mỗi lượt (dò trước), idempotent, gần như không
+    tốn gì khi hết việc (hai truy vấn nhẹ). Việc xếp dùng lại ``enqueue_missing_scans``. Trả số việc đã xếp.
+    Gọi trong transaction của bên gọi."""
+    apps, types = await _sweep_scope(conn)
+    if not apps:
+        return 0
+    detect = [r["sha256"] for r in await conn.fetch(_SWEEP_DETECT_SQL, apps, PII_JOB, limit)]
+    redact: list[str] = []
+    if limit - len(detect) > 0:
+        rows = await conn.fetch(_SWEEP_REDACT_SQL, apps, REDACT_JOB, limit - len(detect))
+        redact = [r["sha256"] for r in rows]
+    return await enqueue_missing_scans(conn, [*detect, *redact], types) if detect or redact else 0
 
 
 async def record_failed_scan(conn: asyncpg.Connection, job: Job) -> None:

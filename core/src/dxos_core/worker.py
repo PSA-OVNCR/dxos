@@ -27,7 +27,14 @@ from dxos_core.jobs.queue import Job, claim, fail, retry_later
 from dxos_core.ledger.anchor_job import ANCHOR_JOB, maybe_schedule, process_anchor_job
 from dxos_core.ledger.ots import OTS_JOB, process_ots_job
 from dxos_core.objects.ingest import SCAN_JOB, process_scan_job
-from dxos_core.pii.job import PII_JOB, REDACT_JOB, process_pii_job, process_redact_job, record_failed_scan
+from dxos_core.pii.job import (
+    PII_JOB,
+    REDACT_JOB,
+    process_pii_job,
+    process_redact_job,
+    record_failed_scan,
+    sweep_missing_scans,
+)
 from dxos_core.seal.job import process_seal_job
 from dxos_core.seal.service import SEAL_JOB
 from dxos_core.settings import Settings, read_secret
@@ -38,6 +45,7 @@ DEFAULT_HEARTBEAT = Path(tempfile.gettempdir()) / "dxos-worker.heartbeat"
 HEARTBEAT_MAX_AGE = 60.0
 MAX_ATTEMPTS = 10
 RENEW_EVERY_S = 3600.0
+SWEEP_EVERY_S = 60.0       # quét tệp chưa dò PII (F2, R32): không cần mỗi nhịp 5 giây
 _DB_ERRORS = (OSError, TimeoutError, asyncpg.PostgresError, asyncpg.InterfaceError)
 
 Handler = Callable[[WorkerContext, Job], Awaitable[None]]
@@ -100,12 +108,24 @@ async def _renew_token(ctx: WorkerContext) -> None:
         log.warning("không gia hạn được token OpenBao: %s", exc)
 
 
+async def _sweep(pool: asyncpg.Pool) -> None:
+    """Xếp việc dò PII cho tệp có từ trước khi nâng cấp (F2, R32). Lỗi chỉ ghi log, không chặn việc khác."""
+    try:
+        async with pool.acquire() as conn, conn.transaction():
+            queued = await sweep_missing_scans(conn)
+        if queued:
+            log.info("quét PII định kỳ: xếp %d việc", queued)
+    except _DB_ERRORS as exc:
+        log.warning("quét PII định kỳ lỗi: %s", type(exc).__name__)
+
+
 async def run(settings: Settings, *, heartbeat: Path = DEFAULT_HEARTBEAT, interval: float = 5.0,
               once: bool = False) -> None:
     pool = await create_pool(settings.database_url, min_size=0, max_size=4)
     ctx: WorkerContext | None = None
     buckets_ready = False
     last_renew = 0.0
+    last_sweep = float("-inf")
     try:
         while True:
             try:
@@ -134,6 +154,9 @@ async def run(settings: Settings, *, heartbeat: Path = DEFAULT_HEARTBEAT, interv
                         if settings.anchor_remote:
                             async with pool.acquire() as conn:
                                 await maybe_schedule(conn)
+                        if time.monotonic() - last_sweep >= SWEEP_EVERY_S:
+                            last_sweep = time.monotonic()
+                            await _sweep(pool)
                         while await run_once(ctx):
                             touch_heartbeat(heartbeat)
                 except Exception:  # noqa: BLE001 (DB rớt giữa vòng: ghi log, vòng sau làm tiếp)

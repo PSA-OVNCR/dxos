@@ -18,7 +18,7 @@ from dxos_core.db.pool import create_pool
 from dxos_core.jobs.context import WorkerContext
 from dxos_core.jobs.queue import Job
 from dxos_core.objects.storage import ObjectStore
-from dxos_core.pii.job import PII_JOB, REDACT_JOB, process_pii_job
+from dxos_core.pii.job import PII_JOB, REDACT_JOB, process_pii_job, sweep_missing_scans
 from dxos_core.pii.redact import redact_pdf
 from dxos_core.registry.store import save_manifest
 from dxos_core.registry.validator import validate_manifest
@@ -565,3 +565,115 @@ async def test_pii_counts_add_up_per_type(api, ctx):
     rid, _ = await _scanned(api, ctx, data)
     assert await _pii(api, rid) == [{"status": "DONE", "findings": 3, "counts": {"CCCD": 2, "PHONE": 1},
                                      "redacted": True}]
+
+
+# ---------------------------------------------------------------- quét định kỳ tệp có từ trước (F2, R32)
+
+async def _all_jobs(conn, kind: str) -> list[str]:
+    return [r["state"] for r in await conn.fetch("SELECT state FROM jobs WHERE kind=$1 ORDER BY id", kind)]
+
+
+async def _sweep(conn) -> int:
+    async with conn.transaction():
+        return await sweep_missing_scans(conn)
+
+
+async def _predating_file(api, ctx, conn, *, seal: bool = False) -> tuple[str, str]:
+    """Tệp CLEAN đã được bản ghi tham chiếu nhưng chưa từng được dò và không có việc nào: dữ liệu của bản
+    v0.3.0 sau khi nâng cấp."""
+    rid, sha = await _upload(api, fixture("pii-fictional.pdf"))
+    await _run(ctx, limit=1)                                           # chỉ việc scan: tệp thành CLEAN
+    await conn.execute("DELETE FROM jobs WHERE kind=$1", PII_JOB)      # giả lập: bản cũ không xếp việc dò
+    assert await conn.fetchval("SELECT count(*) FROM pii_scans WHERE sha256=$1", sha) == 0
+    assert await _all_jobs(conn, PII_JOB) == []
+    if seal:                                              # :pii-review từ chối bản ghi đã niêm phong
+        await conn.execute("UPDATE records SET seal_state='SEALED' WHERE id=$1", rid)
+    return rid, sha
+
+
+@pytest.mark.parametrize("seal", [False, True], ids=["open-record", "sealed-record"])
+async def test_sweep_scans_and_redacts_a_file_that_predates_detection(api, ctx, core_conn, seal):
+    rid, sha = await _predating_file(api, ctx, core_conn, seal=seal)
+    assert await _pii(api, rid, MEMBER) == [{"status": "PENDING", "findings": 0, "counts": {},
+                                              "redacted": False}]
+    assert await _sweep(core_conn) == 1
+    assert await _all_jobs(core_conn, PII_JOB) == ["QUEUED"]
+    assert await _sweep(core_conn) == 0                                # việc đang chờ: không xếp trùng
+    await _run(ctx)
+    assert (await _scan_row(core_conn, sha))["status"] == "DONE"
+    red = await _redacted_of(core_conn, sha)
+    assert red and await _redacted_refs(core_conn, red) == [rid]
+    assert await _pii(api, rid) == [_pii3(True)]
+    assert (await _get(api, sha, READER, "redacted")).status_code == 200
+    assert (await _get(api, sha, READER, "original")).status_code == 404
+    assert await _sweep(core_conn) == 0                                # xong hết: lần quét sau không xếp gì
+    assert await _all_jobs(core_conn, PII_JOB) == ["DONE"] and await _all_jobs(core_conn, REDACT_JOB) == []
+
+
+async def test_sweep_enqueues_the_missing_redaction_once(api, ctx, core_conn, monkeypatch):
+    from dxos_core.pii import job
+
+    monkeypatch.setattr(job, "redact_pdf", lambda *a, **k: (_ for _ in ()).throw(ValueError("x")))
+    _, sha = await _scanned(api, ctx, fixture("pii-fictional.pdf"))
+    monkeypatch.undo()
+    await core_conn.execute("DELETE FROM jobs WHERE kind=$1", REDACT_JOB)    # mất việc, hoặc đã hỏng từ lâu
+    assert (await _scan_row(core_conn, sha))["findings"] == 3 and await _redacted_of(core_conn, sha) is None
+    assert await _sweep(core_conn) == 1
+    assert await _all_jobs(core_conn, REDACT_JOB) == ["QUEUED"]
+    assert await _sweep(core_conn) == 0
+    await _run(ctx, limit=1)
+    assert await _redacted_of(core_conn, sha)
+    assert await _sweep(core_conn) == 0
+    assert await _all_jobs(core_conn, REDACT_JOB) == ["DONE"]
+
+
+async def test_sweep_does_not_requeue_a_redaction_that_just_failed_for_good(api, ctx, core_conn, monkeypatch):
+    from dxos_core.pii import job
+
+    monkeypatch.setattr(job, "redact_pdf", lambda *a, **k: (_ for _ in ()).throw(ValueError("x")))
+    await _scanned(api, ctx, fixture("pii-fictional.pdf"))
+    monkeypatch.undo()
+    await core_conn.execute("UPDATE jobs SET state='FAILED' WHERE kind=$1", REDACT_JOB)     # hết lượt thử
+    assert await _sweep(core_conn) == 0                                # vừa hỏng: chờ hết thời gian nghỉ
+    await core_conn.execute(
+        "UPDATE jobs SET updated_at = now() - interval '2 hours' WHERE kind=$1", REDACT_JOB)
+    assert await _sweep(core_conn) == 1
+
+
+async def test_sweep_skips_a_final_too_large_redaction(api, ctx, core_conn, monkeypatch):
+    from dxos_core.pii import job
+
+    monkeypatch.setattr(job, "redact_pdf", lambda *a, **k: (_ for _ in ()).throw(ValueError("x")))
+    _, sha = await _scanned(api, ctx, fixture("pii-fictional.pdf"))
+    monkeypatch.undo()
+    await core_conn.execute("DELETE FROM jobs WHERE kind=$1", REDACT_JOB)
+    await core_conn.execute("INSERT INTO pii_redaction_skips(sha256, reason) VALUES ($1, 'TOO_LARGE')", sha)
+    assert await _redacted_of(core_conn, sha) is None
+    assert await _sweep(core_conn) == 0                                # kết cục cố định: không xếp lại (R20)
+
+
+async def test_sweep_ignores_apps_without_document_detect(api, ctx, core_conn):
+    await _predating_file(api, ctx, core_conn)
+    await _install(core_conn, detect=[], version="0.2.0")
+    await core_conn.execute("UPDATE apps SET status='DISABLED' WHERE id='test-app' AND version='0.1.0'")
+    await core_conn.execute("UPDATE apps SET status='ACTIVE' WHERE id='test-app' AND version='0.2.0'")
+    assert await _sweep(core_conn) == 0
+    assert await _all_jobs(core_conn, PII_JOB) == []
+
+
+async def test_sweep_is_batched(api, ctx, core_conn):
+    rid, _ = await _predating_file(api, ctx, core_conn)
+    await _upload(api, build_blank_pages_pdf(1), rid)
+    await _run(ctx, limit=1)
+    await core_conn.execute("DELETE FROM jobs WHERE kind=$1", PII_JOB)
+    async with core_conn.transaction():
+        assert await sweep_missing_scans(core_conn, limit=1) == 1
+    assert await _all_jobs(core_conn, PII_JOB) == ["QUEUED"]
+    assert await _sweep(core_conn) == 1                                # lượt sau xếp nốt tệp còn lại
+    assert await _all_jobs(core_conn, PII_JOB) == ["QUEUED", "QUEUED"]
+
+
+async def test_worker_sweep_helper_queues_the_work(api, ctx, core_conn):
+    await _predating_file(api, ctx, core_conn)
+    await worker._sweep(ctx.pool)
+    assert await _all_jobs(core_conn, PII_JOB) == ["QUEUED"]
