@@ -136,7 +136,10 @@ sequenceDiagram
 - Tệp ở `STAGING` thì không ai đọc, tham chiếu hay niêm phong được; guard `attachments_clean` chặn duyệt khi còn tệp chưa `CLEAN`.
 - Tên tệp gốc chỉ lưu dạng hash. Tệp nhiễm nằm ở bucket cách ly, admin xem qua `GET /admin/v1/quarantine`.
 - Nếu ClamAV lỗi thì từ chối (F8), không cho qua.
-- Phát hiện PII trong tệp (SHOULD) chỉ lưu loại, vị trí và HMAC; **không** lưu giá trị rõ (I5).
+- Phát hiện PII trong tệp (SHOULD) chỉ lưu loại, vị trí và HMAC; **không** lưu giá trị rõ (I5). Tệp CLEAN có từ trước khi bật tính năng (nâng cấp
+  từ 0.3.0) được worker quét định kỳ và dò bù, kể cả với bản ghi đã niêm phong.
+- Viewer (chỉ p16) không chạm kho: mỗi lần `info` hoặc lấy một trang, nó đọc tệp qua API bằng token của người xem, nên mỗi lần ghi một lá
+  `object.read` vào sổ cái (duyệt tệp 200 trang ≈ 201 lá).
 
 ## Niêm phong và sổ cái
 

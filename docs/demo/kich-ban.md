@@ -46,7 +46,7 @@ Hai việc cuối cùng làm **ngay trước** buổi trình bày; phần còn l
 |---|---|---|---|---|
 | 0:00–2:00 | Slide | Luận điểm "tự kiểm chứng": nền tảng tự chứng minh dữ liệu chưa bị sửa, không cần tin người vận hành. Ba tầng (lõi headless, hai app, người dùng); mạng phân vùng (AT-01, `make netcheck`) | Ảnh `make netcheck` toàn PASS | Slide ảnh tĩnh |
 | 2:00–3:00 | Trình duyệt | Đăng nhập **một lần** (Keycloak SSO), vào được cả App A và App B; mở console Keycloak (giao diện quản trị của dịch vụ nguồn mở) | — | V1 |
-| 3:00–4:30 | App A, rồi trang quản trị | Tải tệp **EICAR** vào văn bản: ClamAV chặn, hiện **"Tệp bị cách ly"**. Mở `https://<DXOS_ADMIN_HOST>/ui/` (S3), màn hình Cách ly cho thấy tệp ở phía quản trị | Lá `object.infected` | V2 |
+| 3:00–4:30 | App A, rồi trang quản trị | Tải tệp **EICAR** vào văn bản: ClamAV chặn, hiện **"Nhiễm mã độc — đã cách ly"**. Mở `https://<DXOS_ADMIN_HOST>/ui/` (S3), màn hình Cách ly cho thấy tệp ở phía quản trị | Lá `object.infected` | V2 |
 | 4:30–6:00 | App A | Văn bản `[DEMO] Hợp đồng cung cấp dịch vụ kế toán thuế năm 2027 (hư cấu)`, đã có PDF sạch. **S1**: hệ thống báo "Phát hiện 3 dữ liệu cá nhân (CCCD 1, SĐT 1, STK 1)"; người đọc thường chỉ tải được **bản che** (CCCD, số điện thoại, số tài khoản đã bị che ngay trong PDF, dạng ảnh), bản gốc chỉ cho vai trò `reveal_pii` (giám đốc, văn thư). Trưởng phòng duyệt, văn thư xác nhận đã rà, giám đốc ban hành: **niêm phong + mã QR**. Ngay sau đó chạy `dxos anchor run` ở cửa sổ khác | `pii.detected`, `pii.reviewed`, `field.revealed`, `record.sealed` | V3 |
 | 6:00–8:00 | Terminal | **Bảng thử vượt rào** (`make vuot-rao`): tự duyệt văn bản của mình, gọi thẳng S3/core-db, IDOR, manifest nới chính sách. Tất cả bị chặn; cuối bảng là danh sách lá `policy.denied` | `policy.denied` | V4 |
 | 8:00–10:00 | CLI, trang quản trị, App B | Cài **App B** ngay trên sân khấu: `dxos --server https://<DXOS_ADMIN_HOST> app install apps/chung-nhan` (admin1, in diff quyền), rồi **admin2 duyệt** (`dxos ... app approve chung-nhan 1.1.0` hoặc nút "Duyệt phiên bản này" ở `/ui/`; người nộp tự duyệt bị từ chối). Không sửa dòng nào của `core/` (AT-13). Sau khi App B chạy: `make demo-seed ARGS="--only b"`, trưởng CLB phê duyệt một chứng nhận; **khán giả quét QR** | AT-13: diff `core/` rỗng; `app.installed` | V5 |
@@ -75,7 +75,7 @@ việc V37 trở đi ở `docs/progress/2026-10-21-tong-ket-tien-do.md`.
 | # | Đoạn | Quay cái gì | Độ dài |
 |---|---|---|---|
 | V1 | 2:00–3:00 | Đăng nhập một lần vào App A và App B; mở console Keycloak | ≤ 60 giây |
-| V2 | 3:00–4:30 | Tải EICAR, "Tệp bị cách ly", màn hình Cách ly ở `/ui/` | ≤ 90 giây |
+| V2 | 3:00–4:30 | Tải EICAR, "Nhiễm mã độc — đã cách ly", màn hình Cách ly ở `/ui/` | ≤ 90 giây |
 | V3 | 4:30–6:00 | Bản che có CCCD bị che, duyệt hai cấp, văn thư rà, ban hành, niêm phong, quét QR | ≤ 90 giây |
 | V4 | 6:00–8:00 | Bảng thử vượt rào chạy đủ 10 kịch bản và danh sách `policy.denied` | ≤ 120 giây |
 | V5 | 8:00–10:00 | Cài App B bằng CLI, admin thứ hai duyệt, quét QR chứng nhận | ≤ 120 giây |

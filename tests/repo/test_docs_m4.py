@@ -306,3 +306,34 @@ def test_gitleaks_allowlist_is_narrow():
     allow = body[body.index("[allowlist]"):]
     assert "paths" not in allow
     assert "mat-khau-thu-nghiem-9f3a" in allow
+
+
+# ----------------------------------------------- vòng sửa sau review cuối toàn nhánh (F1 đến F3, R32 đến R34)
+def test_changelog_090_has_the_upgrade_from_030_note():
+    sec = _changelog_090()
+    note = sec[sec.index("### Nâng cấp từ 0.3.0"): sec.index("### Known limitations")]
+    for token in ("ops/backup.sh", "ops/deploy.sh v0.9.0", "DXOS_ADMIN_HOST", "keycloak_upgrade.py",
+                  "ops/restore.sh", "quay lui", "quét", "006 đến 009"):
+        assert token in note, token
+    assert "worker" in note and "tự" in note
+
+
+def test_rulings_r32_to_r34_are_in_14_6_with_cost_if_wrong():
+    sec = _progress_14()
+    for n in (32, 33, 34):
+        row = next(ln for ln in sec.splitlines() if ln.startswith(f"| R{n} |"))
+        cells = [c.strip() for c in row.strip("|").split("|")]
+        assert len(cells) == 4 and all(cells), row
+
+
+def test_demo_script_quotes_the_real_quarantine_label():
+    label = "Nhiễm mã độc — đã cách ly"
+    assert label in _doc("sdk/js/src/vue/QuarantineStatus.vue")
+    demo = _doc("docs/demo/kich-ban.md")
+    assert label in demo and "Tệp bị cách ly" not in demo
+
+
+def test_viewer_docs_state_that_every_view_call_appends_an_object_read_leaf():
+    for rel in ("viewer/README.md", "ARCHITECTURE.md"):
+        text = _doc(rel)
+        assert "object.read" in text and "201" in text, rel

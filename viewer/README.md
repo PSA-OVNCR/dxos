@@ -65,6 +65,8 @@ hủy được); cổng APISIX cắt sau 30 giây, còn giới hạn tài nguyê
   (test tĩnh `tests/test_no_disk.py`, kèm test chạy thật chặn mọi lần mở tệp để ghi). Các test này chỉ bắt lỗi
   trong mã Python của Viewer; bảo đảm thật sự là **hệ tệp gốc chỉ đọc** của container (Task 8 bật `read_only`),
   vì mã gốc của PDFium nằm ngoài tầm của test Python.
+- **Dấu vết sổ cái**: mỗi lần gọi `info` hoặc lấy một trang, Viewer đọc tệp qua `GET /api/v1/objects/{sha256}` bằng token của người
+  gọi, và API ghi một lá `object.read` vào sổ cái cho mỗi lần đọc (không có cache). Duyệt một tệp 200 trang ≈ 201 lá (1 `info` + 200 trang).
 - Mỗi lần gọi chỉ giữ một trang trong RAM; tối đa 2 lần tải + dựng song song (hỏi `whoami` nằm ngoài chỗ này). Không cache, không nhớ gì giữa hai yêu cầu.
 - `src/dxos_viewer/png.py` là bản chép của `core/src/dxos_core/pii/png.py` (gói riêng, không import `dxos_core`);
   test của hai bản (`tests/test_png.py`, `core/tests/test_pii_png.py`) giống nhau trừ dòng import.
