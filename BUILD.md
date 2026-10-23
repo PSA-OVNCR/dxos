@@ -144,6 +144,18 @@ Chi tiết manifest, guard, BPMN, luật nâng phiên bản: [docs/manifest-guid
    duyệt) rồi chạy cả E2E M1 và M2; kết quả ở `<thư mục kết quả>/e2e-junit.xml`.
 6. AT-20 (khóa OpenBao) cần `docker` nên chạy trên máy chủ, ngoài container: xem đầu tệp `tests/e2e/test_m2_attacks.py`.
 
+## Dữ liệu demo hư cấu (`make demo-seed`)
+Nạp sẵn dữ liệu cho buổi demo vào stack dev đang chạy (cùng điều kiện với E2E: realm dev, App A và App B đã cài):
+```bash
+make demo-seed                                    # https://localhost; Python cần tin CA của Caddy
+make demo-seed ARGS="--ca-file <caddy-root.crt>"  # hoặc đặt SSL_CERT_FILE
+```
+Tạo 3 văn bản "Công ty TNHH Sao Mai" kèm PDF có CCCD, số điện thoại hư cấu (App A) và 12 chứng nhận "Sự kiện CLB" từ
+`demo/su-kien-clb.csv` (App B), toàn bộ qua API thật. Mọi dữ liệu là **hư cấu** và có tên bắt đầu bằng `[DEMO] `. Chạy lại
+không tạo trùng. Seed không duyệt, không niêm phong: trạng thái từng mục (nháp, chờ duyệt) ở `demo/README.md`. Mật khẩu dev
+chỉ qua biến `DXOS_E2E_PASSWORD` (mặc định `dev-only-password`), không có tham số dòng lệnh cho mật khẩu; khác `localhost`
+phải thêm `--allow-remote`. Chạy thật trên laptop là việc V44.
+
 ## Dựng SPA Tầng 2 và kiểm trên trình duyệt thật
 Bốn SPA (App A `/apps/phong-ho-so/`, App B `/apps/chung-nhan/`, cổng đối soát `/apps/verify/` và ví dụ của hướng dẫn 30 phút `/apps/so-muon-sach/`) nằm trong volume `apps-static`
 (`dxos_apps-static`, Caddy mount chỉ đọc ở `/srv/apps`). Stack không có dịch vụ build; `make web-build` chạy MỘT

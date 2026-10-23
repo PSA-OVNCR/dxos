@@ -1,7 +1,7 @@
 version = 1
 
 [[annotations]]
-path = ["**/*.md", "NOTICE", "docs/**", "**/*.json", "package-lock.json", "**/fixtures/**"]
+path = ["**/*.md", "NOTICE", "docs/**", "**/*.json", "package-lock.json", "**/fixtures/**", "demo/**/*.pdf", "demo/*.csv"]
 precedence = "aggregate"
 SPDX-FileCopyrightText = "2026 PSA_OVNCR"
 SPDX-License-Identifier = "Apache-2.0"

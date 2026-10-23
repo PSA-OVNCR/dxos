@@ -5,6 +5,10 @@
   `dxos-test`); mật khẩu dev qua biến `DXOS_E2E_PASSWORD`; khác `localhost` phải thêm `--allow-remote`. Mã thoát 0 mọi
   kịch bản bị chặn, 1 có kịch bản lọt, 2 lỗi cấu hình hoặc kết nối. Trên Windows cần `localhost` và `admin.localhost`
   phân giải về 127.0.0.1, và `--ca-file` trỏ tới CA nội bộ của Caddy (giống `ops/e2e/run_e2e.sh`). Đã chạy trên stack dev 22/10/2026: 10/10 (V28, `docs/progress/2026-10-22-web-live.md`)
+- `demo_seed.py`: nạp dữ liệu demo hư cấu qua API thật (`make demo-seed`, Plan 04 Task 13): 3 văn bản "Công ty TNHH Sao Mai"
+  kèm PDF có CCCD/SĐT hư cấu (App A) và 12 chứng nhận "Sự kiện CLB" từ `demo/su-kien-clb.csv` (App B). Bản ghi mang tên
+  `[DEMO] ...`, chạy lại không tạo trùng; không duyệt, không niêm phong. Cùng điều kiện với `vuot_rao.py` (realm dev,
+  `DXOS_E2E_PASSWORD`, `--allow-remote` khi khác `localhost`). Trạng thái từng mục: `demo/README.md`. Chạy thật: V44
 - `netcheck.py`: kiểm ma trận kết nối mạng (AT-01), Plan 01 Task 4
 - `measure.sh`: đo RAM theo container (AT-22), Plan 01 Task 7
 - `deploy.sh`: `ops/deploy.sh <vX.Y.Z> [--profile p16|p8] [--repo-url URL] [--allow-unsigned]` triển khai theo tag trên VPS:

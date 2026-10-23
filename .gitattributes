@@ -6,3 +6,6 @@
 *.bin binary
 # Tệp CSV mẫu của App B là nhị phân (bảng mã, CRLF phải giữ nguyên từng byte).
 apps/chung-nhan/web/test/fixtures/*.csv binary
+
+# Dữ liệu demo hư cấu: CSV nhị phân, giữ nguyên BOM UTF-8
+demo/*.csv binary
