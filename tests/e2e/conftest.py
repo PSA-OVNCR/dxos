@@ -180,6 +180,24 @@ class Stack:
         return httpx.post(f"{self.base}{self.records(app, col)}/{rid}:pii-review",
                           headers=self.h(user, **{"If-Match": f'"{v}"'}), timeout=30)
 
+    def complete_task_reviewed(self, app: str, col: str, rid: str, task_key: str, decision: str, user: str,
+                               reviewer: str, timeout_s: float = 90) -> httpx.Response:
+        """``pii_review`` rồi ``complete_task``; nếu guard ``pii_reviewed`` trượt vì việc dò PII nền chưa xong
+        (``pii_scan_pending``) hoặc xác nhận làm trước lúc dò xong đã cũ (``pii_not_reviewed``) thì rà lại
+        và thử lại tới ``timeout_s``. Chưa có tín hiệu nào không cần DB cho trạng thái dò (Plan 04 Task 5 thêm
+        ``pii.status`` vào danh sách tệp), nên thử lại là cách chống flaky duy nhất."""
+        deadline = time.monotonic() + timeout_s
+        while True:
+            rv = self.pii_review(app, col, rid, reviewer)
+            assert rv.status_code == 200, (rv.status_code, rv.text)
+            r = self.complete_task(app, col, rid, task_key, decision, user)
+            body = r.json() if r.status_code == 409 else {}
+            waiting = (r.status_code == 409 and body.get("guard") == "pii_reviewed"
+                       and body.get("reason") in ("pii_scan_pending", "pii_not_reviewed"))
+            if not waiting or time.monotonic() > deadline:
+                return r
+            time.sleep(2)
+
     def wait_sealed(self, app: str, col: str, rid: str, user: str, timeout_s: float = 120) -> dict:
         """Chờ ``seal_state = SEALED`` (niêm phong ngay sau task cuối, hoặc job thử lại khi
         ``SEAL_PENDING``)."""

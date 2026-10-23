@@ -22,6 +22,7 @@ from dxos_core.registry.model import Manifest
 from dxos_core.registry.store import save_manifest
 from dxos_core.registry.validator import validate_manifest
 from dxos_core.settings import read_secret
+from dxos_core.worker import MAX_ATTEMPTS
 from dxos_core.workflow.guards import evaluate, load_guard_input
 from dxos_proof.canonical import canonical_bytes, sha256_hex
 from helpers.api import running_api, tok
@@ -114,8 +115,9 @@ async def test_clean_upload_enqueues_pii_job_only_when_manifest_asks(
 
 async def test_manifest_without_document_detect_enqueues_nothing(api, ctx, core_conn):
     await _install(core_conn, detect=[])
-    await _upload(api, fixture("pii-fictional.pdf"))
+    rid, _ = await _upload(api, fixture("pii-fictional.pdf"))
     await _run_until_idle(ctx)
+    await _review(api, rid)                          # :pii-review cũng không xếp việc khi manifest không khai
     assert await _job_kinds(core_conn) == ["scan"]
     assert await core_conn.fetchval("SELECT count(*) FROM pii_scans") == 0
 
@@ -241,3 +243,75 @@ async def test_failed_and_too_large_scans_still_require_a_fresh_review(api, ctx,
     assert (await _guard(core_conn, detect_on, rid)).reason == "pii_not_reviewed"
     await _review(api, rid)
     assert await _guard(core_conn, detect_on, rid) is None
+
+
+async def _pii_jobs(conn) -> list[str]:
+    return [r["state"] for r in await conn.fetch("SELECT state FROM jobs WHERE kind=$1 ORDER BY id", PII_JOB)]
+
+
+async def test_review_requeues_a_missing_scan_once_and_guard_then_passes(api, ctx, core_conn, detect_on):
+    """R16 (a): tệp CLEAN mà không có hàng pii_scans và không có việc nào (CLEAN từ trước tính năng)."""
+    rid, _ = await _upload(api, fixture("pii-fictional.pdf"))
+    await _run_until_idle(ctx, limit=1)                       # CLEAN + việc pii_detect
+    await core_conn.execute("DELETE FROM jobs WHERE kind=$1", PII_JOB)    # giả lập: chưa từng có việc
+    assert await _pii_jobs(core_conn) == []
+    await _review(api, rid)
+    assert await _pii_jobs(core_conn) == ["QUEUED"]
+    await _review(api, rid)                                   # gọi lần hai không xếp thêm
+    assert await _pii_jobs(core_conn) == ["QUEUED"]
+    assert (await _guard(core_conn, detect_on, rid)).reason == "pii_scan_pending"
+    await _run_until_idle(ctx)
+    assert await _pii_jobs(core_conn) == ["DONE"]
+    assert (await _guard(core_conn, detect_on, rid)).reason == "pii_not_reviewed"
+    await _review(api, rid)
+    assert await _guard(core_conn, detect_on, rid) is None
+    assert await _pii_jobs(core_conn) == ["DONE"]             # đã có hàng pii_scans: không xếp lại
+
+
+async def test_last_failed_attempt_records_failed_scan_and_falls_back_to_manual_review(
+        api, ctx, core_conn, detect_on, monkeypatch):
+    """R16 (b): việc hết lượt thử thì ghi FAILED, bản ghi quay về rà tay thay vì chờ mãi."""
+    rid, sha = await _upload(api, fixture("pii-fictional.pdf"))
+    await _run_until_idle(ctx, limit=1)
+    await _review(api, rid)                                   # làm khi việc dò còn chờ
+    await core_conn.execute("UPDATE jobs SET attempts=$2 WHERE kind=$1", PII_JOB, MAX_ATTEMPTS - 1)
+
+    def boom(_sha):
+        raise OSError("giả lập S3 hỏng")
+
+    monkeypatch.setattr(ctx.store, "read_object", boom)
+    await _run_until_idle(ctx, limit=1)                       # lần thử thứ MAX_ATTEMPTS
+    assert await _pii_jobs(core_conn) == ["FAILED"]
+    scan = await core_conn.fetchrow("SELECT status, findings, detector FROM pii_scans WHERE sha256=$1", sha)
+    assert (scan["status"], scan["findings"]) == ("FAILED", 0)
+    assert await core_conn.fetchval("SELECT count(*) FROM pii_findings") == 0
+    assert (await _guard(core_conn, detect_on, rid)).reason == "pii_not_reviewed"
+    await _review(api, rid)
+    assert await _guard(core_conn, detect_on, rid) is None
+
+
+async def test_not_the_last_attempt_does_not_record_a_scan(api, ctx, core_conn, detect_on, monkeypatch):
+    _, sha = await _upload(api, fixture("pii-fictional.pdf"))
+    await _run_until_idle(ctx, limit=1)
+
+    def boom(_sha):
+        raise OSError("giả lập S3 hỏng")
+
+    monkeypatch.setattr(ctx.store, "read_object", boom)
+    await _run_until_idle(ctx, limit=1)
+    assert await _pii_jobs(core_conn) == ["QUEUED"]           # sẽ thử lại
+    assert await core_conn.fetchval("SELECT count(*) FROM pii_scans WHERE sha256=$1", sha) == 0
+
+
+async def test_concurrent_jobs_for_one_file_write_one_scan(api, ctx, core_conn, detect_on):
+    """Nhánh ON CONFLICT: hai việc cùng sha chạy song song, chỉ một lần ghi thắng."""
+    import asyncio
+    _, sha = await _upload(api, fixture("pii-fictional.pdf"))
+    await _run_until_idle(ctx, limit=1)
+    row = await core_conn.fetchrow("SELECT id, kind, payload FROM jobs WHERE kind=$1", PII_JOB)
+    payload = json.loads(row["payload"])
+    await asyncio.gather(process_pii_job(ctx, Job(row["id"], row["kind"], payload, 1)),
+                         process_pii_job(ctx, Job(row["id"], row["kind"], payload, 1)))
+    assert await core_conn.fetchval("SELECT count(*) FROM pii_scans WHERE sha256=$1", sha) == 1
+    assert await core_conn.fetchval("SELECT count(*) FROM pii_findings WHERE sha256=$1", sha) == 3
+    assert await core_conn.fetchval("SELECT count(*) FROM ledger_entries WHERE type='pii.detected'") == 1

@@ -186,16 +186,16 @@ def test_openbao_sealed_before_last_task_is_503_and_flowable_untouched(stack, op
     a, col = stack.APP_A, stack.COL_A
     rid = _ready_a_record(stack)
     assert stack.complete_task(a, col, rid, "duyet_noi_dung", "approve", "truong_phong1").status_code == 200
-    assert stack.pii_review(a, col, rid, "van_thu1").status_code == 200
     task = stack.task(a, rid, "giam_doc1", "ban_hanh")
 
     seal()
-    r = stack.complete_task(a, col, rid, "ban_hanh", "approve", "giam_doc1")
+    # rà PII rồi hoàn thành; việc dò PII nền chưa xong thì chờ (complete_task_reviewed); 503 là kết quả cuối
+    r = stack.complete_task_reviewed(a, col, rid, "ban_hanh", "approve", "giam_doc1", "van_thu1")
     assert r.status_code == 503, r.text
     assert stack.task(a, rid, "giam_doc1", "ban_hanh")["task_id"] == task["task_id"]     # task vẫn ở Flowable
     assert stack.get(a, col, rid, "giam_doc1")["seal_state"] == "NONE"
 
     unseal()
-    r = stack.complete_task(a, col, rid, "ban_hanh", "approve", "giam_doc1")
+    r = stack.complete_task_reviewed(a, col, rid, "ban_hanh", "approve", "giam_doc1", "van_thu1")
     assert r.status_code == 200, r.text
     stack.wait_sealed(a, col, rid, "giam_doc1")

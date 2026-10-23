@@ -53,9 +53,8 @@ def test_m2_app_a_end_to_end(stack, tmp_path):
     assert r.json().get("guard") == "pii_reviewed", r.text
 
     # 6. Văn thư xác nhận rà PII; giám đốc ban hành → SEALED.
-    r = stack.pii_review(a, col, rid, "van_thu1")
-    assert r.status_code == 200, r.text
-    r = stack.complete_task(a, col, rid, "ban_hanh", "approve", "giam_doc1")
+    # (việc dò PII chạy nền sau khi tệp CLEAN: nếu chưa xong thì chờ và rà lại, xem complete_task_reviewed)
+    r = stack.complete_task_reviewed(a, col, rid, "ban_hanh", "approve", "giam_doc1", "van_thu1")
     assert r.status_code == 200, r.text
     stack.wait_sealed(a, col, rid, "giam_doc1")
     seal_id = stack.seal_id(a, col, rid, "giam_doc1")

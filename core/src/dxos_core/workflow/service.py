@@ -26,6 +26,7 @@ from dxos_core.errors import ProblemError
 from dxos_core.identity.jwt import app_roles
 from dxos_core.kms.base import KmsUnavailable
 from dxos_core.ledger.log import append
+from dxos_core.pii.job import enqueue_missing_scans
 from dxos_core.policy import pdp
 from dxos_core.records.service import (
     Ctx,
@@ -417,6 +418,11 @@ async def pii_review(ctx: Ctx, app: str, col: str, rid: str, if_match: str | Non
         gi = await guards.load_guard_input(ctx.conn, record=row, spec=spec, m=m, p=ctx.principal,
                                            task_assignee=None)
         digest = guards.review_digest(gi.data_digest, gi.clean_attachments, gi.finding_ids, gi.scans)
+        # R16: tệp CLEAN chưa được dò (CLEAN trước khi có tính năng, hoặc manifest lúc đó chưa khai
+        # document_detect) thì xếp việc để guard không chờ mãi. Dùng đúng manifest mà guard dùng (bản ghim).
+        pinned = row["wf_app_version"]
+        gm = await get_version(ctx.conn, m.app.id, pinned) if pinned else None
+        await enqueue_missing_scans(ctx.conn, gi.clean_attachments, (gm or m).policies.pii.document_detect)
         await ctx.conn.execute(
             "INSERT INTO core.pii_reviews(record_id, review_digest, reviewed_by) VALUES ($1, $2, $3)",
             row["id"], digest, ctx.principal.sub)

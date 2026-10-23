@@ -27,7 +27,7 @@ from dxos_core.jobs.queue import Job, claim, fail, retry_later
 from dxos_core.ledger.anchor_job import ANCHOR_JOB, maybe_schedule, process_anchor_job
 from dxos_core.ledger.ots import OTS_JOB, process_ots_job
 from dxos_core.objects.ingest import SCAN_JOB, process_scan_job
-from dxos_core.pii.job import PII_JOB, process_pii_job
+from dxos_core.pii.job import PII_JOB, process_pii_job, record_failed_scan
 from dxos_core.seal.job import process_seal_job
 from dxos_core.seal.service import SEAL_JOB
 from dxos_core.settings import Settings, read_secret
@@ -70,7 +70,10 @@ async def run_once(ctx: WorkerContext) -> bool:
         log.exception("việc %s #%s lỗi (lần %s)", job.kind, job.id, job.attempts)
         async with ctx.pool.acquire() as conn:
             if job.attempts >= MAX_ATTEMPTS:
-                await fail(conn, job.id, err)
+                async with conn.transaction():
+                    await fail(conn, job.id, err)
+                    if job.kind == PII_JOB:        # hết lượt: guard không được chờ mãi (R16)
+                        await record_failed_scan(conn, job)
             else:
                 await retry_later(conn, job.id, min(3600, 30 * 2 ** (job.attempts - 1)), err)
     return True

@@ -15,6 +15,9 @@ ledger ``pii.detected``, rồi đánh dấu việc xong.
   nhân đôi hàng.
 * Lỗi tạm thời (kho S3, DB) cho ném ra ngoài để worker thử lại với backoff. Lỗi của chính tệp (PDFium) là
   tất định nên ghi ``FAILED`` luôn, không thử lại: nếu không guard sẽ chờ mãi một lần dò không bao giờ có.
+* Không để guard chờ mãi (R16): ``enqueue_missing_scans`` (gọi từ ``:pii-review``) xếp lại việc cho tệp CLEAN
+  chưa có hàng ``pii_scans`` và chưa có việc đang chờ/chạy; ``record_failed_scan`` (worker gọi khi việc hết
+  lượt thử) ghi ``FAILED`` để bản ghi quay về rà tay.
 """
 
 import asyncio
@@ -23,13 +26,14 @@ import json
 import logging
 import re
 from collections import Counter
-from collections.abc import Collection, Sequence
+from collections.abc import Collection, Iterable, Sequence
 
+import asyncpg
 import pypdfium2 as pdfium
 import pypdfium2.raw as pdfium_raw
 
 from dxos_core.jobs.context import WorkerContext
-from dxos_core.jobs.queue import Job, complete
+from dxos_core.jobs.queue import Job, complete, enqueue
 from dxos_core.ledger.log import append
 from dxos_core.objects import pdfcheck
 from dxos_core.pii.detect import DETECTABLE, Box, Finding, detect_text
@@ -201,3 +205,37 @@ async def process_pii_job(ctx: WorkerContext, job: Job) -> None:
                              body={"sha256": sha, "counts": dict(Counter(f.type for f in findings)),
                                    "detector": DETECTOR})
         await complete(conn, job.id)
+
+
+async def enqueue_missing_scans(conn: asyncpg.Connection, shas: Iterable[str], types: Collection[str]) -> int:
+    """Xếp việc ``pii_detect`` cho tệp CLEAN chưa có hàng ``pii_scans`` và chưa có việc ``QUEUED``/``RUNNING``
+    cho sha đó (tệp CLEAN từ trước khi có tính năng, hoặc CLEAN lúc manifest chưa khai ``document_detect``).
+    ``types`` lấy từ manifest mà guard đang dùng; không có loại hỗ trợ thì không làm gì. Trả số việc đã xếp.
+    Gọi trong transaction của bên gọi."""
+    wanted = detectable(types)
+    if not wanted:
+        return 0
+    queued = 0
+    for sha in sorted(set(shas)):
+        if await conn.fetchval("SELECT 1 FROM pii_scans WHERE sha256=$1", sha):
+            continue
+        if await conn.fetchval(
+                "SELECT 1 FROM jobs WHERE kind=$1 AND state IN ('QUEUED', 'RUNNING')"
+                " AND payload->>'sha256'=$2", PII_JOB, sha):
+            continue
+        await enqueue(conn, PII_JOB, {"sha256": sha, "types": wanted})
+        queued += 1
+    return queued
+
+
+async def record_failed_scan(conn: asyncpg.Connection, job: Job) -> None:
+    """Lần thử cuối của việc ``pii_detect`` thất bại: ghi ``FAILED`` (findings 0) để guard không chờ mãi mà
+    đòi rà tay. Không ghi gì nếu payload không có sha256 hợp lệ hoặc object không tồn tại (không có khóa)."""
+    sha = job.payload.get("sha256")
+    if not isinstance(sha, str) or not _SHA256.fullmatch(sha):
+        return
+    await conn.execute(
+        "INSERT INTO pii_scans(sha256, status, findings, detector)"
+        " SELECT $1::text::sha256_hex, 'FAILED', 0, $2"
+        " WHERE EXISTS (SELECT 1 FROM objects WHERE sha256::text = $1::text)"
+        " ON CONFLICT (sha256) DO NOTHING", sha, DETECTOR)
