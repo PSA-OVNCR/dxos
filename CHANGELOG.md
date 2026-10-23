@@ -4,7 +4,39 @@ Mọi thay đổi đáng kể được ghi tại đây, theo định dạng [Kee
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-23
+Mốc M4: các việc SHOULD S1 (phát hiện PII và bản che), S2 (Viewer có watermark), S3 (trang quản trị web), S4 (tag ký, tự quay
+lui, sao lưu mã hóa và diễn tập khôi phục) và các chỗ trống PoF (ghim phụ thuộc, quét giấy phép, kiến trúc, dữ liệu demo).
+Mã đã qua test đơn vị và integration ở cloud (không có Docker, VPS hay Keycloak thật); **không việc nào ở mục "Known
+limitations" đã chạy thật** (V37 đến V44). Gắn tag `v0.9.0` sau `v0.2.0` (V18) và `v0.3.0` (V33). Có một thay đổi phá vỡ
+tương thích của SDK (mục Changed, "BREAKING").
+
 ### Added
+- **S1: dò dữ liệu cá nhân trong PDF (Plan 04 Tasks 3 đến 5)**. `dxos_core.pii.detect` (không thêm phụ thuộc, P4-D1) dò CCCD
+  (12 chữ số, ba số đầu 001 đến 096), số điện thoại (`0[35789]` cộng 8 chữ số, hoặc `+84`) và số tài khoản (8 đến 19 chữ số, phải có
+  từ khóa "STK", "số tài khoản" trong 30 ký tự trước), bỏ qua mã số thuế; chỉ đọc lớp chữ của PDF (không OCR) và là heuristic: dải
+  001 đến 096 chưa đối chiếu với danh mục tỉnh của Thông tư 07/2016/TT-BCA. Việc nền `pii_detect` chạy sau khi tệp qua kiểm dịch
+  (CLEAN), tối đa 200 trang mỗi tệp, ghi `pii_scans` và `pii_findings` (migration 006: vị trí và loại, **không** giá trị và **không** hash,
+  I5) và lá ledger `pii.detected` (chỉ `sha256`, số lượng theo loại, `detector`). Guard `pii_reviewed` chờ quét xong
+  (409 `pii_scan_pending`); `:pii-review` tự xếp việc quét cho tệp CLEAN chưa có kết quả, quét hỏng thì ghi `FAILED` để người rà tay.
+- **S1: bản che và kiểm soát bản gốc**. Việc nền dựng bản che là PDF chỉ chứa ảnh (150 dpi, tối đa 4000 × 4000 px mỗi trang; không còn
+  chữ, chú thích hay siêu dữ liệu), ghi từng trang bằng zlib của thư viện chuẩn nên RAM bị chặn bởi trần dưới đây, không tăng theo số trang. Trần dung lượng
+  bản che **100 MiB**: vượt thì dừng chắc chắn, đánh dấu không có bản che (migration 009) và bản gốc vẫn khóa. `GET
+  /api/v1/objects/{sha}?variant=redacted` trả bản che; `variant=original` chỉ cho người có `reveal_pii`, trừ khi tệp đã quét xong
+  và không có phát hiện nào (quét chưa xong, hỏng, quá lớn hay có phát hiện đều khóa). Migration 007 (cột `pii_scans.redacted_sha256`),
+  008 (chuyển liên kết sang bảng chỉ-thêm `pii_redactions`, bỏ cột đó, thêm việc `pii_redact` thử lại khi dựng bản che hỏng), 009
+  (`pii_redaction_skips`). Danh sách tệp đính kèm
+  có thêm `pii` (trạng thái, số phát hiện, số theo loại CCCD, SĐT, STK; chỉ số, không giá trị).
+- **S1: giao diện App A**: panel PII (trong SDK) hiện "Phát hiện N dữ liệu cá nhân (CCCD n, SĐT n, STK n)", nút tải bản che và
+  bản gốc (chỉ người có quyền), và danh sách trạng thái từng tệp trong bước rà soát.
+- **S2: dịch vụ Viewer `dxos-viewer` (Plan 04 Task 7)**: gói Python riêng (FastAPI, PDFium qua pypdfium2; không phụ thuộc
+  `dxos-core`), không trạng thái, chỉ RAM, không ghi đĩa (test tĩnh cấm `tempfile` và `open(..., "w")` trong `viewer/src`). Lấy
+  PDF qua API bằng chính token của người gọi, dựng **một trang** thành PNG 110 dpi (tối đa 4000 × 4000 px, 200 trang, tệp
+  `DXOS_VIEWER_MAX_BYTES` mặc định 64 MiB), đóng watermark (chú thích của PDF được dán phẳng vào nội dung trước nên không che được
+  nó) rồi trả ảnh với `Cache-Control: no-store`. Điểm vào `/view/v1/healthz`, `/view/v1/objects/{sha}/info`,
+  `/view/v1/objects/{sha}/pages/{n}.png`; lỗi dạng `problem+json` (401 giữ 401; API 5xx hoặc không nối được là 502, quá hạn là 504,
+  mọi lỗi 4xx khác là 404, không bao giờ có ảnh nếu API không trả 200). Watermark `DX-OS <8 ký tự đầu của sub> <ngày giờ> ICT`
+  **chỉ để răn đe**: không ngăn chụp màn hình. `viewer/Dockerfile` chạy user không phải root, ghim bằng `constraints.txt`.
 - **Nối Viewer vào p16 và App A (S2, Plan 04 Task 8)**: dịch vụ `viewer` trong compose (profile `viewer`, bật bằng
   `COMPOSE_PROFILES=viewer` trong `.env.example`; p8 và dev-lite không bao giờ dựng), chỉ `net-app`, không cổng, `read_only`
   không tmpfs/volume, `cap_drop: [ALL]`, `no-new-privileges`, giới hạn 768 MiB RAM không swap, 1 CPU, 128 tiến trình
@@ -33,6 +65,67 @@ Mọi thay đổi đáng kể được ghi tại đây, theo định dạng [Kee
   "Thành viên đóng góp" trong `CONTRIBUTING.md`.
 - `make build`, `make sbom VERSION=x` (syft cùng image với workflow release, ra `dist/sbom-x.cdx.json`) và
   `make release-check VERSION=x` (`ops/release_check.py`, chỉ đọc, không gắn tag).
+- **S3: trang quản trị web `/ui/` (Plan 04 Tasks 9 và 10)**: workspace `admin-ui` (Vue 3, đăng nhập OIDC PKCE qua client Keycloak mới
+  `dxos-admin-ui`, token trong `sessionStorage`, CSP riêng không `unsafe-inline`, không `v-html`) do Caddy phục vụ **chỉ trên host
+  quản trị** (`DXOS_ADMIN_HOST`, giới hạn IP như API quản trị; `/ui/` trên host công khai trả 404). Màn hình: Sức khỏe hệ thống,
+  Sổ cái (xem lá, "Neo ngay"), Ứng dụng (danh sách, diff quyền giữa phiên bản chờ duyệt và đang chạy kèm đánh dấu thay đổi sàn
+  chính sách, duyệt bốn mắt: người nộp bấm duyệt nhận câu giải thích; vô hiệu hóa phải gõ đúng mã ứng dụng) và Cách ly (tệp bị từ
+  chối hoặc nhiễm mã độc). Chỉ gọi API quản trị hiện có; không thêm endpoint lõi.
+- **S4: chỉ triển khai tag đã ký, tự quay lui (Plan 04 Task 11)**. `ops/deploy.sh` chỉ triển khai **tag đã ký SSH** (`git -c gpg.format=ssh -c gpg.ssh.allowedSignersFile=deploy/allowed_signers
+  verify-tag`, kiểm trước mọi lệnh `docker` và trước `checkout`; `--allow-unsigned` cho cấp cứu, ghi `signed=no`) và **tự quay
+  lui** về bản tốt gần nhất khi health hỏng; tên trong thân tag ký phải khớp tên ref (chặn đổi tên tag ký cũ), checkout theo OID
+  đã giải, `compose pull` chạy trước bước dựng SPA. Mã thoát 0/2/3/4/5; `deploy/deployments.log` thêm cột `result`
+  (`ok|rolled-back|failed`) và `signed`, dòng kiểu cũ vẫn đọc được. `deploy/allowed_signers` mới chỉ có chú thích, khóa thật
+  là việc V42 nên cho tới đó mọi tag bị từ chối nếu không dùng `--allow-unsigned`. Mới kiểm bằng `git`, `docker`, `curl` giả.
+- **Sao lưu mã hóa, khôi phục có chốt chặn, diễn tập AT-21 (S4, P4-D9)**: `ops/backup.sh <thư mục ra>` (`pg_dump -Fc` ba DB, tar hai
+  volume qua busybox ghim digest chỉ đọc, mã hóa `openssl enc -aes-256-cbc -pbkdf2 -iter 600000 -salt` với `.secrets/backup-passphrase`,
+  ghi kèm `.sha256`; không có tệp chưa mã hóa ở thư mục ra), `ops/restore.sh <gói> --project <tên>` (kiểm sha256, giải mã và kiểm
+  gói trước mọi lệnh docker; từ chối `--project dxos`; chỉ tạo tài nguyên của project được chỉ định) và `ops/at21_drill.sh`
+  (sao lưu, khôi phục vào `dxos-restore`, dựng lõi ở `restore.localhost`, `dxos-witness verify-bundle` rồi so `tree_size` và root).
+  Container seaweedfs được `docker pause` đúng lúc tar volume của nó (unpause bằng bẫy EXIT); `TMPDIR` phải nằm ngoài thư mục ra;
+  diễn tập đọc lại khóa công khai (`/verify/v1/keys`) và tệp đính kèm từ OpenBao/SeaweedFS đã khôi phục.
+  `docs/runbook-backup.md` có mẫu systemd timer (không bật mặc định). Không có xác thực MAC riêng (sha256 ghi kèm bù một phần);
+  thời hạn giữ gói chờ V21; mới kiểm bằng `docker` và `dxos-witness` giả với `openssl` thật, diễn tập thật là V43.
+- **Phát hành Viewer cùng cách với `trust-core` (Plan 04 Task 15, ruling R28)**: workflow `release` có job `image-viewer` (dựng
+  `viewer/Dockerfile`, đẩy `ghcr.io/psa-ovncr/viewer:X.Y.Z`, digest ghi vào mô tả Release và tệp `viewer-image-X.Y.Z.txt`), thêm
+  wheel `dxos-viewer`, và bước `check` kiểm cả `viewer/pyproject.toml` lẫn `dxos_viewer/__init__.py`. `deploy/compose.release.yaml`
+  thay `build:` của `viewer` bằng image theo digest (`DXOS_VIEWER_DIGEST`; để mặc định là chuỗi không phải digest nên p8 và dev-lite
+  không phải đặt một digest không dùng, còn p16 thiếu digest thì không có `build` để rơi về). `ops/deploy.sh` đọc
+  `viewer-image-X.Y.Z.txt` từ Release như digest lõi, chỉ khi hồ sơ p16 bật `viewer` và overlay của tag có `DXOS_VIEWER_DIGEST` (tag
+  cũ không có Viewer vẫn quay lui được); thiếu hoặc sai digest thì thoát 3 trước khi gọi compose. `ops/release_check.py` và
+  `make release-check` kiểm 5 gói Python. Chưa chạy một Release thật có Viewer (V40, V29).
+- **PoF: ghim phụ thuộc và quét giấy phép (Plan 04 Task 1)**: `constraints.txt` ghim 44 phụ thuộc Python chạy thật (Dockerfile của lõi
+  và Viewer, `make dev-install` và CI cài theo nó); `ops/license_scan.py` (`make licenses`, job CI `licenses`) quét giấy phép của
+  closure runtime và lockfile npm, đối chiếu "Ngoại lệ đã duyệt" trong `LICENSES-THIRD-PARTY.md` (MPL-2.0 như `certifi` và
+  `lightningcss`, BlueOak-1.0.0, MIT-0, CC0-1.0, 0BSD; trưởng nhóm duyệt 23/10, V30); `ops/pin_actions.py` (`make pin-actions`) ghim
+  `uses:` của workflow theo SHA commit (24 dòng đã ghim, CI xanh).
+- **PoF: dữ liệu demo hư cấu (Plan 04 Task 13)**: `make demo-seed` tạo ba văn bản `[DEMO]` của "Công ty TNHH Sao Mai" với PDF
+  hư cấu có CCCD, SĐT, STK (mỗi số ghi "hư cấu") cho App A và 12 chứng nhận `[DEMO] Sự kiện CLB` cho App B (`demo/`, UTF-8 BOM);
+  chạy lại không tạo trùng (khóa theo tiền tố `[DEMO] `), không duyệt hay niêm phong, từ chối máy chủ ngoài localhost nếu không có
+  `--allow-remote`, mật khẩu chỉ từ `DXOS_E2E_PASSWORD`. App B chưa cài thì bỏ qua (`--only a|b`).
+- `ARCHITECTURE.md` (tóm tắt kiến trúc, trỏ về spec), trang tài liệu GitHub Pages (`docs/index.md`, `docs/_config.yml`; chưa bật, V38),
+  `docs/capacity.md` (chỉ số có nguồn đo), `.github/ISSUE_TEMPLATE/config.yml` (tắt issue trống, trỏ Discussions), mục
+  "Thành viên đóng góp" trong `CONTRIBUTING.md`.
+- `make build`, `make sbom VERSION=x` (syft cùng image với workflow release, ra `dist/sbom-x.cdx.json`) và
+  `make release-check VERSION=x` (`ops/release_check.py`, chỉ đọc, không gắn tag).
+
+### Changed
+- **BREAKING (SDK `dxos-sdk-js`, Plan 04 Task 6)**: `client.download(...)` đã bị **bỏ**, thay bằng
+  `client.downloadObject(sha256, variant = 'original')` trả `Blob`; `variant` là `'original'` hoặc `'redacted'`. Gọi
+  `client.download` sẽ lỗi `TypeError`. Mã Tầng 2 ngoài kho phải đổi lời gọi. SDK còn thêm `viewerAvailable()`, `viewInfo()` và
+  `viewPage()` cho Viewer. Gói vẫn `private: true` (chưa công bố lên npm).
+- `variant=original` của tệp đính kèm giờ bị khóa bằng `reveal_pii` ở bộ sưu tập có dò PII (xem mục S1 ở trên); trước Plan 04
+  không có cổng này, người đọc được bản ghi tải được bản gốc.
+- Migration `006_pii_scans.sql`, `007_pii_redacted.sql`, `008_pii_redactions.sql`, `009_pii_redaction_skips.sql` (đều chạy tự động khi
+  `trust-core-api` khởi động, role `dxos_owner`; `dxos_core` chỉ có SELECT và INSERT trên các bảng mới). Chưa kiểm trên CSDL đã có dữ liệu thật.
+- Biến môi trường mới hoặc đổi nghĩa: `DXOS_ADMIN_HOST` (bắt buộc; Caddy, Keycloak và trang quản trị dùng cùng một host, nên **được
+  truyền cho Keycloak** để redirect của client `dxos-admin-ui` khớp; stack dựng từ trước cần thêm biến, tạo lại container keycloak
+  và chạy lại `python ops/keycloak_upgrade.py`, xem V41); `COMPOSE_PROFILES=viewer` trong `.env.example` (bật Viewer ở p16; p8 và
+  dev-lite luôn bỏ qua); `DXOS_VIEWER_API_BASE`, `DXOS_VIEWER_TIMEOUT_S`, `DXOS_VIEWER_MAX_BYTES` (cấu hình của container Viewer, đặt
+  sẵn trong compose); `DXOS_VIEWER_DIGEST` (chỉ cho `deploy/compose.release.yaml`, mục Added).
+- Cổng đối soát và `verifyBundle` khớp hơn với `dxos-witness` (mục Fixed).
+- Phiên bản mọi gói lên `0.9.0`: 5 gói Python (`dxos-proof`, `dxos-core`, `dxos-witness`, `dxos-cli`, `dxos-viewer`), `package.json`
+  gốc và mọi workspace (`sdk/js`, `verify-portal/app`, `apps/*/web`, `examples/*/web`, `admin-ui`), `package-lock.json`, `docs/api/openapi.json`.
 
 ### Fixed
 - **Cổng đối soát không còn báo "Không hợp lệ" cho niêm phong vừa ban hành (Plan 04 Task 14, R11)**: ở chế độ ghim
@@ -49,6 +142,52 @@ Mọi thay đổi đáng kể được ghi tại đây, theo định dạng [Kee
 - **`verifyBundle` (JS) khớp `dxos-witness verify-bundle` (Python) ở hai chỗ còn lệch**: base64 nhận nhiều dấu `=` thừa sau nhóm
   đủ như `b64decode(validate=True)` (vector `b64-three-pad`, `b64/validate.json`) và số nguyên dài hơn 4300 chữ số làm gói
   `MALFORMED` (vector `int-4301-digits`).
+- **Phát hiện PII bỏ sót số nằm cạnh số thứ tự hoặc ngày**: các nhóm chữ số nối bằng `.` hoặc `-` là một khối, còn nhóm cách bằng
+  khoảng trắng hoặc xuống dòng có thể tách, nên CCCD trong bảng có cột STT vẫn được thấy (hướng sai là che thừa, không phải sót);
+  mã số thuế đứng sau "MST" không bị gán thành SĐT hay CCCD.
+- Quét PII và bản che không còn làm worker hết bộ nhớ: bản che ghi từng trang (RAM tăng 107 MB thay vì 1,3 GB khi thử với PDF 200
+  trang nhiễu), tệp hỏng được đánh dấu `FAILED` thay vì thử mãi, mọi loại PII đều được quét bất kể manifest xin loại nào (một app
+  xin ít loại hơn không còn mở bản gốc cho người không có quyền), và `MemoryError` không bị nuốt.
+- `ops/deploy.sh` không chấp nhận tag ký của bản cũ đẩy lại dưới tên mới; `ops/at21_drill.sh` thật sự đọc lại khóa và tệp từ OpenBao và
+  SeaweedFS đã khôi phục (không chỉ so `tree_size`); `make demo-seed --only a|b` coi App B chưa cài là bỏ qua.
+- Trang quản trị: nút duyệt luôn ở đúng phiên bản đang xem diff (không duyệt bản chưa xem), mọi lỗi 403 đi qua `ProblemMessage`.
+
+### Security
+- Giá trị PII và hash của chúng **không bao giờ** vào `pii_findings`, `pii_scans` hay sổ cái (I5, P4-D2): lá `pii.detected` chỉ có
+  `sha256`, số lượng theo loại và tên bộ dò; bản che là ảnh nên không còn lớp chữ để trích ngược.
+- Viewer chỉ ở `net-app`, đi vào lõi duy nhất qua APISIX bằng token của người gọi, không thấy kho dữ liệu, Flowable, OpenBao (ma
+  trận mạng và `make netcheck`); container `read_only` không tmpfs, `cap_drop: [ALL]`, `no-new-privileges`, 768 MiB RAM không swap.
+  Watermark chỉ để răn đe, không phải biện pháp chống rò rỉ.
+- Triển khai chỉ nhận tag đã ký bằng khóa trong `deploy/allowed_signers`, tên trong thân tag phải khớp ref; sao lưu mã hóa AES-256-CBC
+  (PBKDF2 600000 vòng) kèm sha256, `ops/restore.sh` từ chối project `dxos` và kiểm gói trước mọi lệnh docker. Chữ ký tag **không phủ**
+  digest image (lấy từ GitHub Release); giới hạn đã ghi ở `docs/runbook-deploy.md` mục 2.
+- Trang quản trị có CSP riêng không `unsafe-inline`, chỉ phục vụ trên host quản trị có IP allow-list; ghim `uses:` của workflow theo SHA.
+
+### Known limitations
+**Chưa chạy ở bất kỳ nơi nào ngoài cloud** (mã chỉ được kiểm bằng test đơn vị, integration, Vitest/jsdom, `docker compose config`,
+và các lệnh giả). Việc cần làm ghi ở `docs/progress/2026-10-21-tong-ket-tien-do.md` mục 14.
+- **V37**: `make pin-images` cho `anchore/syft` và `zricethezav/gitleaks` trong workflow (cần Docker buildx); ghim `uses:` theo SHA đã xong.
+- **V38**: chủ đề repo và GitHub Pages bị proxy cloud chặn (403), trang `https://psa-ovncr.github.io/dxos/` chưa tồn tại; chưa dựng thử Jekyll.
+- **V39**: bộ Playwright live có ca PII và ghim SPKI của CA Caddy chưa chạy trên Chromium thật.
+- **V40**: Viewer chưa chạy trong container (chưa dựng image, `read_only` thật, `make netcheck`, ảnh watermark, đo RAM); chưa có Release
+  nào kèm image Viewer nên đường `viewer-image-X.Y.Z.txt` của `ops/deploy.sh` chưa chạy thật.
+- **V41**: trang quản trị chưa chạy với Keycloak thật (đăng nhập từ host quản trị, lệch issuer, luồng duyệt bằng hai quản trị viên).
+- **V42**: chưa có khóa SSH ký tag trong `deploy/allowed_signers`, nên `ops/deploy.sh` từ chối mọi tag (trừ `--allow-unsigned`); chưa
+  chạy với tag ký thật hay ép health hỏng để xem tự quay lui trên VPS.
+- **V43**: diễn tập AT-21 (`ops/at21_drill.sh`) chưa chạy trên Docker thật; khôi phục thật vào project `dxos` khi mất máy chủ chưa có
+  script (`ops/restore.sh` từ chối cố ý), thời hạn giữ gói chờ V21, lịch systemd chưa bật.
+- **V44**: `make demo-seed` chưa chạy với Keycloak, lõi và ClamAV thật.
+- Các việc của bản 0.3.0 vẫn còn: `ops/deploy.sh` trên VPS (V29), OpenTimestamps trên VPS (V32), AT-26 (V31), repo neo thật cho cổng
+  đối soát (V34), package GHCR (`trust-core`, `viewer`) còn Private (V19).
+- Bộ dò PII là heuristic trên lớp chữ của PDF: không OCR (PDF quét ảnh không có phát hiện nào), không dò số cố định `02x`, số `84...`
+  không có dấu `+`, hay số dính liền chữ cái; có thể che thừa. Bản che có trần 100 MiB (PDF nhiều ảnh màu lớn có thể không có bản che,
+  khi đó chỉ người có `reveal_pii` mở được bản gốc). Sự cố kéo dài qua hết số lần thử của việc quét đánh dấu tệp `FAILED` vĩnh
+  viễn (rà tay, ghi chú vận hành chưa viết).
+- Viewer chưa có giới hạn thời gian dựng trang riêng (chỉ giới hạn của container và `timeout.read` 30 giây của route APISIX); mọi lời gọi từ
+  Viewer vào APISIX dùng chung một bucket `limit-req` (khóa theo `X-Forwarded-For`).
+- Sao lưu: tar SeaweedFS được `docker pause` để đồng nhất, tar OpenBao là bản sao nóng; không có xác thực MAC riêng cho gói.
+- `tests/deploy/browser/verify_page_checks.js` (bộ Playwright riêng của trang đối soát tối giản) vẫn dùng `ignoreHTTPSErrors`; việc tiếp theo.
+- Gói npm `dxos-sdk-js` chưa công bố lên npm (`private: true`).
 
 ## [0.3.0] - 2026-10-23
 Mốc M3 (Tầng 1 hoàn tất cho client: SDK, hai ứng dụng Tầng 2 có giao diện, cổng đối soát Vue, triển khai theo tag).

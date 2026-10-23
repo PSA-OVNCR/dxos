@@ -101,6 +101,9 @@ Trình duyệt sẽ cảnh báo chứng chỉ vì Caddy dùng CA nội bộ cho 
 | `DXOS_ALLOW_SELF_APPROVAL` | `true` cho phép một admin tự duyệt app mình nộp. **Chỉ** cho demo một người; không bật khi lấy minh chứng | `false` |
 | `DXOS_INSTALLER_CLIENT_SECRET` | Secret của client `dxos-installer` (service account tạo realm role `app:<id>:<role>` khi duyệt app). Phải trùng giá trị Keycloak đã nạp lúc tạo realm; đổi `.env` không xoay secret trong Keycloak | `changeme-installer` |
 | `DXOS_TRUST_CORE_DIGEST` | Digest image `trust-core` đã phát hành (64 hex), chỉ dùng với `deploy/compose.release.yaml` | không có |
+| `DXOS_VIEWER_DIGEST` | Digest image `viewer` đã phát hành (64 hex), chỉ dùng với `deploy/compose.release.yaml` khi hồ sơ `viewer` bật (Plan 04 Task 15) | không có |
+| `COMPOSE_PROFILES` | `viewer` bật dịch vụ Viewer (chỉ hồ sơ p16; p8 và dev-lite bỏ qua). Xóa dòng hoặc để trống để tắt | `viewer` trong `.env.example` |
+| `DXOS_ADMIN_HOST` | Host của trang quản trị (`/ui/`) và API quản trị; Caddy phục vụ site quản trị ở host này, Keycloak đặt redirect của client `dxos-admin-ui` theo nó (Plan 04 Task 9) | `admin.localhost` |
 
 Đặt tên tổ chức **trước** lần niêm phong đầu: tên đã vào tuyên bố khóa thì không sửa được. Tổ chức hư cấu của demo
 theo spec là "Công ty TNHH Sao Mai"; tên dùng trên VPS do trưởng nhóm quyết định.
@@ -117,6 +120,9 @@ docker compose -p dxos --env-file .env -f deploy/compose.yaml -f deploy/compose.
   -f deploy/compose.anchor.yaml -f deploy/compose.release.yaml up -d
 docker inspect -f '{{.Config.Image}}' dxos-trust-core-api-1   # phải là ghcr.io/psa-ovncr/trust-core@sha256:<digest>
 ```
+Viewer (hồ sơ p16 có `COMPOSE_PROFILES=viewer`) cũng chạy image đã phát hành, không dựng trên máy chủ: đặt thêm
+`DXOS_VIEWER_DIGEST=<64 hex từ trang Release>` (tệp `viewer-image-X.Y.Z.txt`); `ops/deploy.sh` tự đọc cả hai digest.
+Thiếu digest Viewer mà hồ sơ bật nó thì `deploy.sh` thoát 3 trước khi gọi compose.
 Không dùng `make up` ở chế độ này (`make up` build từ mã nguồn).
 
 ## Cài ứng dụng bằng CLI
@@ -209,17 +215,21 @@ Build wheel: `python -m pip install build && python -m build --wheel --outdir di
 Test (không cần dịch vụ, dùng respx): `python -m pytest cli -q`. Cách dùng: `cli/README.md`.
 
 ## Phát hành
-Chỉ trưởng nhóm gắn tag (hành động công khai). Trước khi gắn tag `vX.Y.Z` (thứ tự: `v0.2.0` rồi `v0.3.0`):
+Chỉ trưởng nhóm gắn tag (hành động công khai). Trước khi gắn tag `vX.Y.Z` (thứ tự: `v0.2.0`, `v0.3.0`, rồi `v0.9.0`):
 1. Đổi phiên bản trong `libs/dxos-proof/pyproject.toml`, `core/pyproject.toml`, `witness/pyproject.toml`,
-   `cli/pyproject.toml` và `__version__` của `core/src/dxos_core/__init__.py`, `witness/src/dxos_witness/__init__.py`,
-   `cli/src/dxos_cli/__init__.py`; chạy `make openapi`. Các gói web (`package.json` gốc và các workspace) đã ghi `0.3.0`
-   sẵn từ Plan 03, bản kiểm của workflow không đọc chúng.
+   `cli/pyproject.toml`, `viewer/pyproject.toml` và `__version__` của `core/src/dxos_core/__init__.py`,
+   `witness/src/dxos_witness/__init__.py`, `cli/src/dxos_cli/__init__.py`, `viewer/src/dxos_viewer/__init__.py`; chạy
+   `make openapi`. Các gói web (`package.json` gốc, `sdk/js`, `verify-portal/app`, `apps/*/web`, `examples/*/web`,
+   `admin-ui`) và `package-lock.json` cùng số phiên bản (từ `0.9.0`; bản kiểm của workflow không đọc chúng, nhưng
+   `tests/repo/test_docs_m4.py` bắt buộc khớp). `make release-check VERSION=X.Y.Z` kiểm 5 gói Python (kể cả `viewer`).
 2. Đổi tiêu đề `## [X.Y.Z] - Chưa phát hành` trong `CHANGELOG.md` thành `## [X.Y.Z] - YYYY-MM-DD`.
 3. `make check`, commit, rồi `git tag -a vX.Y.Z -m "…"` và `git push origin vX.Y.Z`.
 
-Workflow `release` dừng ngay nếu phiên bản gói khác tag hoặc mục CHANGELOG chưa có ngày. Nếu đạt, nó build image
-`trust-core` từ commit của tag, đẩy lên `ghcr.io/psa-ovncr/trust-core:X.Y.Z` (bằng `GITHUB_TOKEN`), rồi tạo Release
-đính kèm `dxos-X.Y.Z.tar.gz`, `sbom-X.Y.Z.cdx.json`, `trust-core-image-X.Y.Z.txt`, `dxos-web-X.Y.Z.tar.gz` (các SPA do
-`ops/build_web.sh` dựng) và wheel của `dxos-proof`, `dxos-core`, `dxos-witness`, `dxos-cli`; digest image ghi trong mô tả Release.
+Workflow `release` dừng ngay nếu phiên bản gói (5 gói Python) khác tag hoặc mục CHANGELOG chưa có ngày. Nếu đạt, nó build
+image `trust-core` và image `viewer` từ commit của tag, đẩy lên `ghcr.io/psa-ovncr/trust-core:X.Y.Z` và
+`ghcr.io/psa-ovncr/viewer:X.Y.Z` (bằng `GITHUB_TOKEN`, hai job riêng), rồi tạo Release đính kèm `dxos-X.Y.Z.tar.gz`,
+`sbom-X.Y.Z.cdx.json`, `trust-core-image-X.Y.Z.txt`, `viewer-image-X.Y.Z.txt`, `dxos-web-X.Y.Z.tar.gz` (các SPA do
+`ops/build_web.sh` dựng) và wheel của `dxos-proof`, `dxos-core`, `dxos-witness`, `dxos-cli`, `dxos-viewer`; hai digest
+image ghi trong mô tả Release. Sau lần đẩy image Viewer đầu tiên, package `viewer` trên GHCR cũng phải đặt công khai (V19).
 
 Triển khai lên VPS theo tag: `ops/deploy.sh vX.Y.Z` (`docs/runbook-deploy.md`).

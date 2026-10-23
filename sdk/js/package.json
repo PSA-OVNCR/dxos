@@ -1,6 +1,6 @@
 {
   "name": "dxos-sdk-js",
-  "version": "0.3.0",
+  "version": "0.9.0",
   "private": true,
   "type": "module",
   "description": "SDK trình duyệt cho DX-OS Tầng 2: client HTTP, đăng nhập OIDC, kiểm chứng offline, thành phần Vue.",

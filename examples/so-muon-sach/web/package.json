@@ -1,6 +1,6 @@
 {
   "name": "dxos-example-so-muon-sach",
-  "version": "0.3.0",
+  "version": "0.9.0",
   "private": true,
   "type": "module",
   "description": "Ví dụ \"Sổ mượn sách\" (hướng dẫn app trong 30 phút): SPA Vue 3 sinh form từ manifest, không có backend riêng.",
@@ -11,7 +11,7 @@
     "build": "vite build"
   },
   "dependencies": {
-    "dxos-sdk-js": "0.3.0",
+    "dxos-sdk-js": "0.9.0",
     "vue": "3.5.43",
     "vue-router": "4.6.4"
   },

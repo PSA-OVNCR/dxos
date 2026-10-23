@@ -19,10 +19,10 @@ giả, xem `tests/ops/test_deploy_sh.py`).
 |---|---|
 | Docker Compose ≥ **2.24** (V22) | Overlay `deploy/compose.release.yaml` dùng `!reset`; bản cũ hơn sẽ build từ mã nguồn thay vì dùng image đã phát hành. Kiểm: `docker compose version`. |
 | NTP bật (V24) | Lệch giờ giữa API và worker làm niêm phong bị báo "khóa hết hạn". Kiểm: `timedatectl show -p NTPSynchronized`. |
-| Package GHCR `trust-core` **công khai** (V19) | VPS kéo image theo digest mà không cần đăng nhập. Nếu để riêng tư thì `docker login ghcr.io` trên VPS trước. |
+| Package GHCR `trust-core` và `viewer` **công khai** (V19) | VPS kéo image theo digest mà không cần đăng nhập. Nếu để riêng tư thì `docker login ghcr.io` trên VPS trước. |
 | `.env` đủ | Sao từ `.env.example`; bắt buộc có `DXOS_DOMAIN` (script thoát 2 nếu thiếu). `DXOS_ANCHOR_REMOTE` khác rỗng thì script tự thêm `deploy/compose.anchor.yaml` (cần `.secrets/anchor-deploy-key`, xem `docs/runbook-anchor.md`). |
 | Image Node đã ghim digest | `make pin-images` rồi commit trước khi gắn tag. Chưa ghim thì `ops/web_build_docker.sh` thoát 3 và `deploy.sh` dừng, chưa gọi compose. |
-| Release của tag đã có tệp `trust-core-image-<X.Y.Z>.txt` | Do workflow `release` sinh; script tải từ `https://github.com/PSA-OVNCR/dxos/releases/download/<tag>/`. Repo khác: `--repo-url`. |
+| Release của tag đã có tệp `trust-core-image-<X.Y.Z>.txt` (và `viewer-image-<X.Y.Z>.txt` từ v0.9.0) | Do workflow `release` sinh; script tải từ `https://github.com/PSA-OVNCR/dxos/releases/download/<tag>/`. Repo khác: `--repo-url`. Tệp Viewer chỉ cần khi hồ sơ là p16 và `.env` có `COMPOSE_PROFILES=viewer`. |
 | Cổng đối soát đọc repo neo (tùy chọn, V34) | Đặt trong `.env` cả `VITE_ANCHOR_RAW_BASE=https://raw.githubusercontent.com/<org>/dxos-transparency-log/main` (đọc lúc dựng SPA) và `DXOS_ANCHOR_RAW_ORIGIN=https://raw.githubusercontent.com` (CSP của Caddy); hai giá trị phải khớp origin. Thiếu một trong hai thì cổng báo "chưa đối chiếu repo neo" hoặc CSP chặn. |
 | Khóa ký tag trong `deploy/allowed_signers` (V42) | Chưa có khóa thì mọi tag bị từ chối (thoát 2); xem mục 2.2. |
 | Cây làm việc sạch | `git status --porcelain` rỗng. `.env`, `deploy/release.env`, `deploy/deployments.log` đã nằm trong `.gitignore`. |
@@ -127,11 +127,15 @@ Theo đúng thứ tự, dừng ở bước đầu tiên hỏng:
 7. Tải `trust-core-image-<X.Y.Z>.txt`, lấy digest. `release.yml` ghi hai dòng: `ghcr.io/psa-ovncr/trust-core:<X.Y.Z>`
    và `ghcr.io/psa-ovncr/trust-core@sha256:<64 hex>`; script lấy phần sau `@sha256:` (cũng nhận tệp chỉ có 64 hex).
    Digest phải khớp `^[0-9a-f]{64}$`, nếu không thoát 3 **trước** khi gọi compose. Ghi `deploy/release.env`.
+   Cùng cách cho `viewer-image-<X.Y.Z>.txt` (ghi thêm `DXOS_VIEWER_DIGEST`), nhưng chỉ khi hồ sơ là p16, dịch vụ `viewer` bật
+   (`COMPOSE_PROFILES` trong môi trường tiến trình, rồi `.env`, như compose) và `deploy/compose.release.yaml` của tag có
+   `DXOS_VIEWER_DIGEST` (tag cũ trước v0.9.0 không có Viewer nên quay lui về chúng vẫn chạy). Thiếu hay sai thì thoát 3:
+   máy chủ không bao giờ dựng Viewer từ mã nguồn. Chưa chạy thật trên VPS (V29, V40).
 8. Với cùng một bộ tệp: `docker compose -p dxos --env-file .env --env-file deploy/release.env -f deploy/compose.yaml
    -f deploy/compose.<profile>.yaml [-f deploy/compose.anchor.yaml] -f deploy/compose.release.yaml`, chạy
    `pull --ignore-buildable` **trước** (hỏng: thoát 3, chưa có gì đang chạy bị đổi, kể cả SPA).
 9. `ops/web_build_docker.sh`: dựng SPA từ mã nguồn của tag vào volume `apps-static`; rồi `up -d --wait --wait-timeout 600`
-   (spec 16.3: `compose pull && up -d`). Script bỏ `DXOS_TRUST_CORE_DIGEST` và `DXOS_RELEASE_TAG` khỏi môi trường của tiến trình ngay từ đầu: compose ưu tiên
+   (spec 16.3: `compose pull && up -d`). Script bỏ `DXOS_TRUST_CORE_DIGEST`, `DXOS_VIEWER_DIGEST` và `DXOS_RELEASE_TAG` khỏi môi trường của tiến trình ngay từ đầu: compose ưu tiên
    biến môi trường hơn `--env-file`, nên giá trị đã `export` trong shell sẽ lấn digest đã kiểm.
 10. Kiểm sức khỏe: `/readyz` của `trust-core-api` (trong container) in `200`, và `https://$DXOS_DOMAIN/verify/v1/keys`
     trả 200. `curl` xác minh chứng chỉ TLS; chỉ khi `DXOS_DOMAIN` là `localhost` hoặc `*.localhost` (CA nội bộ của Caddy)

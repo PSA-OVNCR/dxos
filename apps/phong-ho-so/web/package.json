@@ -1,6 +1,6 @@
 {
   "name": "dxos-app-phong-ho-so",
-  "version": "0.3.0",
+  "version": "0.9.0",
   "private": true,
   "type": "module",
   "description": "App A \"Phòng hồ sơ số\" (Tầng 2): SPA Vue 3 chạy trên API của Trust Core, không có backend riêng.",
@@ -11,7 +11,7 @@
     "build": "vite build"
   },
   "dependencies": {
-    "dxos-sdk-js": "0.3.0",
+    "dxos-sdk-js": "0.9.0",
     "vue": "3.5.43",
     "vue-router": "4.6.4"
   },

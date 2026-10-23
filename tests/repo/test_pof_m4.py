@@ -171,7 +171,7 @@ def test_release_check_passes_on_matching_repo_and_flags_each_gap(tmp_path):
     draft = "## [Unreleased]\n\n## [1.2.3] - Chưa phát hành\n"
     (tmp_path / "CHANGELOG.md").write_text(draft, encoding="utf-8")
     assert rc.check_versions(tmp_path, "1.2.3") == []
-    assert len(rc.check_versions(tmp_path, "1.2.4")) == 7
+    assert len(rc.check_versions(tmp_path, "1.2.4")) == 9
     assert len(rc.check_changelog(tmp_path, "1.2.3")) == 1
     (tmp_path / "CHANGELOG.md").write_text("## [1.2.3] - 2026-10-23\n", encoding="utf-8")
     assert rc.check_changelog(tmp_path, "1.2.3") == []

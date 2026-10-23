@@ -5,15 +5,26 @@ A **headless core platform (Layer 1) for the DX-OS Open-Core model**. Applicatio
 Entry for the **Vietnam Student Informatics Olympiad – Open Source Software 2026** (theme: *DX-OS Open-Core*).
 
 ## Status
-- **v0.2.0 (M2): in progress; not tagged yet.** The Tier-0 code (workflow, sealing, verification, installer) is in place
-  with unit and integration tests. The M2 end-to-end tests passed 13/13 on Docker Desktop (22 Oct, AT-20 skipped); the
-  parts that need the VPS (AT-13, AT-18, AT-19, AT-20) have not been run. v0.1.0 is tagged (22 Oct).
-- **v0.3.0 (M3): code done in the cloud; not tagged yet.** The SDK, the App A and App B user interfaces, the Vue
-  verification portal, tag-based deployment and the 30-minute tutorial exist, with unit tests and Playwright tests
-  against a mocked API. **Run on the dev stack (Docker Desktop, team lead's machine, 22 Oct 2026):** `make web-build`, the
-  Playwright suite on real Chromium 10/10 (V27), the attack board 10/10 (V28) and AT-20 (V36); see
-  `docs/progress/2026-10-22-web-live.md`. **Not run yet:** `ops/deploy.sh` on the VPS (V29) and OpenTimestamps receipts (V32).
-  The to-do list (Vietnamese) is in section 13 of `docs/progress/2026-10-21-tong-ket-tien-do.md`.
+- **v0.9.0 (M4): code done in the cloud; not tagged yet** (the team lead tags it, signed, after `v0.2.0` and `v0.3.0`). Four SHOULD
+  items, covered by unit, integration and Vitest/jsdom tests; **none of them has been run for real outside the cloud**:
+  - **S1, personal-data detection in PDFs:** a detector for citizen ID numbers, phone numbers and bank account numbers on the
+    text layer (heuristic, no OCR), an image-only redacted copy, and the original file released only to holders of `reveal_pii`;
+    App A shows the number of findings and offers the redacted download. To run for real: V39 (Chromium), V44 (demo data).
+  - **S2, Viewer:** a service that shows a PDF page by page as watermarked images, RAM only, p16 profile only. The watermark is a
+    **deterrent only**; it does not prevent screenshots. To run for real in a container: V40.
+  - **S3, web admin page** `/ui/` on the admin host: health, ledger, app approval by two administrators, quarantined files. To run
+    against a real Keycloak: V41.
+  - **S4, operations:** `ops/deploy.sh` deploys only signed tags and rolls back by itself when the health check fails (V42),
+    encrypted backup and the AT-21 restore drill (V43). The Viewer is also released as an image pinned by digest, like `trust-core`.
+  - PoF gaps: dependency pinning and licence scan (V37), architecture overview and docs site (V38, not enabled yet), `make demo-seed` (V44).
+  **Breaking SDK change:** `client.download` became `client.downloadObject(sha256, variant)`; see [CHANGELOG.md](CHANGELOG.md).
+  All the machine-bound and team-lead tasks (V37 to V44) and the decisions (rulings R1 to R28, Vietnamese) are in section 14 of
+  `docs/progress/2026-10-21-tong-ket-tien-do.md`. Still open from v0.3.0: `ops/deploy.sh` on the VPS (V29), OpenTimestamps receipts (V32), AT-26 (V31).
+- **v0.3.0 (M3):** the SDK, the App A and App B user interfaces, the Vue verification portal, tag-based deployment and the 30-minute
+  tutorial. **Run on the dev stack (Docker Desktop, team lead's machine, 22 Oct 2026):** `make web-build`, the Playwright suite on
+  real Chromium 10/10 (V27), the attack board 10/10 (V28) and AT-20 (V36); see `docs/progress/2026-10-22-web-live.md`.
+- **v0.2.0 (M2) and v0.1.0 (M1):** the Tier-0 code (workflow, sealing, verification, installer). The M2 end-to-end tests passed
+  13/13 on Docker Desktop (22 Oct, AT-20 skipped); the parts that need the VPS (AT-13, AT-18, AT-19, AT-20) have not been run.
 
 ## Architecture and documentation
 A short architecture overview (three tiers, networks, upload flow, sealing and ledger, trust boundaries; Vietnamese):

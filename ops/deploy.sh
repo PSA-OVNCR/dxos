@@ -30,7 +30,11 @@
 #   6. Giải refs/tags/<tag>^{commit} MỘT lần ra OID và git checkout --detach <OID> (không checkout theo tên).
 #   7. Tải trust-core-image-<X.Y.Z>.txt từ Release của tag; lấy digest 64 hex (dạng release.yml ghi: dòng
 #      ghcr.io/psa-ovncr/trust-core@sha256:<64 hex>, hoặc chỉ 64 hex). Sai định dạng thì thoát 3 TRƯỚC khi gọi compose.
-#      Ghi deploy/release.env (DXOS_TRUST_CORE_DIGEST, DXOS_RELEASE_TAG).
+#      Cùng cách cho viewer-image-<X.Y.Z>.txt (Plan 04 Task 15, ruling R28), nhưng chỉ khi hồ sơ là p16, dịch vụ `viewer`
+#      được bật (COMPOSE_PROFILES có `viewer`, theo biến môi trường rồi tới .env như compose) và deploy/compose.release.yaml
+#      của tag có DXOS_VIEWER_DIGEST (tag cũ trước 0.9.0 không có Viewer: bỏ qua, nên quay lui về chúng vẫn chạy). Thiếu
+#      hoặc sai digest Viewer thì thoát 3: máy chủ không bao giờ dựng Viewer từ mã nguồn.
+#      Ghi deploy/release.env (DXOS_TRUST_CORE_DIGEST, DXOS_RELEASE_TAG, và DXOS_VIEWER_DIGEST khi cần).
 #   8. docker compose pull --ignore-buildable (hỏng thì thoát 3, chưa có gì đang chạy bị đổi).
 #   9. ops/web_build_docker.sh: dựng SPA từ mã nguồn của tag vào volume apps-static (thoát 3 nếu image Node chưa ghim),
 #      rồi up -d --wait (spec 16.3: pull && up -d): lõi chạy đúng image theo digest (compose.release.yaml); thêm
@@ -60,7 +64,7 @@ usage() {
 main() {
     # Compose ưu tiên biến môi trường của tiến trình hơn --env-file: bỏ giá trị người vận hành đã export để compose
     # chỉ thấy digest và tag đã kiểm trong deploy/release.env (dòng log phải khớp thứ thực sự chạy).
-    unset DXOS_TRUST_CORE_DIGEST DXOS_RELEASE_TAG
+    unset DXOS_TRUST_CORE_DIGEST DXOS_VIEWER_DIGEST DXOS_RELEASE_TAG
     # Biến trạng thái cho on_exit (EXIT trap) là biến toàn cục: bash có thể đã bỏ biến local khi trap chạy sau set -e.
     # cur, commit, digest, signed mô tả lần triển khai (hoặc quay lui) đang chạy.
     tag="" log_file=deploy/deployments.log previous=none cur="" commit=- digest=- signed=no started=0
@@ -123,6 +127,34 @@ main() {
         if [ -z "$previous" ] || ! [[ $previous =~ $tag_re ]]; then previous=none; fi
     fi
 
+    # release_digest <tag> <tên tệp>: tải tệp image từ Release của tag, in ra digest 64 hex (dạng release.yml ghi: dòng
+    # ghcr.io/...@sha256:<64 hex>, hoặc chỉ 64 hex). Lỗi thì in lý do ra stderr và trả 1.
+    release_digest() {
+        local t=$1 name=$2 body line d
+        body=$(curl -fsSL "$repo_url/releases/download/$t/$name" --max-time 60) || {
+            echo "deploy.sh: không tải được $name từ Release $t" >&2
+            return 1
+        }
+        line=$(printf '%s\n' "$body" | tr -d '\r' | grep -F '@sha256:' | head -n 1 || true)
+        if [ -n "$line" ]; then
+            d=${line##*@sha256:}
+        else
+            d=$(printf '%s' "$body" | tr -d '\r\n ')
+        fi
+        if ! [[ $d =~ ^[0-9a-f]{64}$ ]]; then
+            echo "deploy.sh: digest trong $name không phải 64 chữ số hex; dừng trước khi gọi compose" >&2
+            return 1
+        fi
+        printf '%s\n' "$d"
+    }
+    # viewer_enabled: dịch vụ `viewer` có được bật không. Compose ưu tiên COMPOSE_PROFILES trong môi trường tiến trình
+    # (kể cả rỗng) hơn .env, nên đọc theo đúng thứ tự đó; `*` bật mọi hồ sơ.
+    viewer_enabled() {
+        local profiles
+        profiles=$(printf '%s' "${COMPOSE_PROFILES-$(env_get COMPOSE_PROFILES)}" | tr -d ' ')
+        case ",$profiles," in *,viewer,* | *,\*,*) return 0 ;; *) return 1 ;; esac
+    }
+
     # record <result> [tag commit digest signed]: mặc định mô tả lần triển khai đang chạy.
     record() {
         local result=$1 t=${2:-$cur} c=${3:-$commit} d=${4:-$digest} s=${5:-$signed}
@@ -157,7 +189,7 @@ MANUAL
     #   0 đạt; 2 tag chưa ký/khóa lạ (chưa đổi gì); 3 thiếu điều kiện trước khi chuyển; 10 đã chuyển nhưng sức khỏe hỏng.
     # Chạy trong ngữ cảnh `|| rc=$?` nên set -e không có tác dụng ở đây: mọi lệnh phải tự `|| return`.
     chain() {
-        local t=$1 version=${1#v} body line rc=0 ready curl_tls=-fs
+        local t=$1 version=${1#v} rc=0 ready curl_tls=-fs viewer_digest=""
         cur=$t commit=- digest=- signed=no
 
         local signers=deploy/allowed_signers
@@ -198,22 +230,13 @@ MANUAL
         [[ $commit =~ ^[0-9a-f]{40}$ ]] || { echo "deploy.sh: không giải được commit của tag $t" >&2; commit=-; return 3; }
         git -c advice.detachedHead=false checkout --detach "$commit" || return 3
 
-        body=$(curl -fsSL "$repo_url/releases/download/$t/trust-core-image-$version.txt" --max-time 60) || {
-            echo "deploy.sh: không tải được trust-core-image-$version.txt từ Release $t" >&2
-            return 3
-        }
-        line=$(printf '%s\n' "$body" | tr -d '\r' | grep -F '@sha256:' | head -n 1 || true)
-        if [ -n "$line" ]; then
-            digest=${line##*@sha256:}
-        else
-            digest=$(printf '%s' "$body" | tr -d '\r\n ')
-        fi
-        if ! [[ $digest =~ ^[0-9a-f]{64}$ ]]; then
-            digest=-
-            echo "deploy.sh: digest trong trust-core-image-$version.txt không phải 64 chữ số hex; dừng trước khi gọi compose" >&2
-            return 3
-        fi
+        digest=$(release_digest "$t" "trust-core-image-$version.txt") || { digest=-; return 3; }
         printf 'DXOS_TRUST_CORE_DIGEST=%s\nDXOS_RELEASE_TAG=%s\n' "$digest" "$t" > "$release_env" || return 3
+        # Viewer (R28): chỉ khi p16 bật nó và overlay của tag có chỗ cho digest của nó.
+        if [ "$profile" = p16 ] && viewer_enabled && grep -q DXOS_VIEWER_DIGEST deploy/compose.release.yaml 2> /dev/null; then
+            viewer_digest=$(release_digest "$t" "viewer-image-$version.txt") || return 3
+            printf 'DXOS_VIEWER_DIGEST=%s\n' "$viewer_digest" >> "$release_env" || return 3
+        fi
 
         local compose=(docker compose -p dxos --env-file "$env_file" --env-file "$release_env"
             -f deploy/compose.yaml -f "deploy/compose.$profile.yaml")
@@ -221,7 +244,7 @@ MANUAL
         compose+=(-f deploy/compose.release.yaml)
 
         # Kéo image trước khi đụng tới SPA: pull hỏng (mã 3) thì chưa có gì đang chạy bị đổi.
-        echo "deploy.sh: docker compose pull (hồ sơ $profile, digest $digest)"
+        echo "deploy.sh: docker compose pull (hồ sơ $profile, digest $digest${viewer_digest:+, viewer $viewer_digest})"
         "${compose[@]}" pull --ignore-buildable || {
             echo "deploy.sh: docker compose pull hỏng; chưa đổi gì đang chạy" >&2
             return 3

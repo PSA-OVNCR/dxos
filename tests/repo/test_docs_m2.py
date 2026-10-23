@@ -121,8 +121,10 @@ def test_readme_en_legal_nature_section_translates_and_links():
 
 
 def test_readme_status_does_not_claim_the_release():
+    """v0.2.0 đã gắn tag (V18, 23/10): mục trạng thái nói thẳng điều đó và vẫn nói phần VPS chưa chạy."""
     sec = _section(_doc("README.md"), "## Trạng thái v0.2.0")
-    assert "chưa gắn tag" in sec
+    assert "đã gắn tag" in sec and "V18" in sec
+    assert "chưa có" in sec
 
 
 # ---------------------------------------------------------------- docs/runbook-pii-erasure.md

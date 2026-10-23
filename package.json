@@ -1,6 +1,6 @@
 {
   "name": "dxos-web",
-  "version": "0.3.0",
+  "version": "0.9.0",
   "private": true,
   "description": "Workspace npm của DX-OS Tầng 2: SDK trình duyệt, cổng xác minh, hai ứng dụng và ví dụ.",
   "license": "Apache-2.0",

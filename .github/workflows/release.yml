@@ -1,15 +1,20 @@
 # SPDX-FileCopyrightText: 2026 PSA_OVNCR
 # SPDX-License-Identifier: Apache-2.0
 #
-# Phát hành khi đẩy tag vX.Y.Z (Plan 01 Task 17; Plan 02 Task 15 thêm image). Chỉ chạy khi trưởng nhóm đẩy tag.
-# - Kiểm trước (job check): phiên bản các gói Python bằng tag; CHANGELOG.md có mục "## [X.Y.Z] - YYYY-MM-DD" (mục còn
-#   ghi "Chưa phát hành" thì dừng, không đẩy gì).
+# Phát hành khi đẩy tag vX.Y.Z (Plan 01 Task 17; Plan 02 Task 15 thêm image; Plan 04 Task 15 thêm Viewer). Chỉ chạy khi
+# trưởng nhóm đẩy tag.
+# - Kiểm trước (job check): phiên bản 5 gói Python (kể cả dxos-viewer) bằng tag; CHANGELOG.md có mục
+#   "## [X.Y.Z] - YYYY-MM-DD" (mục còn ghi "Chưa phát hành" thì dừng, không đẩy gì).
 # - Image trust-core build từ đúng commit của tag (core/Dockerfile), đẩy lên ghcr.io/psa-ovncr/trust-core:X.Y.Z bằng
 #   GITHUB_TOKEN (quyền packages: write chỉ cấp cho job image). Digest ghi vào mô tả Release và tệp
 #   trust-core-image-X.Y.Z.txt; VPS chạy image theo digest này (deploy/compose.release.yaml, AT-13).
+# - Image viewer (job image-viewer, cùng cách; ruling R28 của Plan 04): build từ viewer/Dockerfile, đẩy lên
+#   ghcr.io/psa-ovncr/viewer:X.Y.Z, digest ghi vào mô tả Release và tệp viewer-image-X.Y.Z.txt. VPS không dựng Viewer
+#   từ mã nguồn khi triển khai theo tag (compose.release.yaml thay build bằng digest, ops/deploy.sh đọc tệp này).
 # - Tệp đính kèm: dxos-X.Y.Z.tar.gz (git archive, định dạng mở — TL tr.2), sbom-X.Y.Z.cdx.json (syft, CycloneDX),
-#   wheel của dxos-proof, dxos-core, dxos-witness, dxos-cli, dxos-web-X.Y.Z.tar.gz (các SPA do ops/build_web.sh dựng
-#   từ đúng commit của tag, để người chấm tải về xem; VPS tự dựng lại từ mã nguồn bằng ops/deploy.sh).
+#   wheel của dxos-proof, dxos-core, dxos-witness, dxos-cli, dxos-viewer, dxos-web-X.Y.Z.tar.gz (các SPA do
+#   ops/build_web.sh dựng từ đúng commit của tag, để người chấm tải về xem; VPS tự dựng lại từ mã nguồn bằng
+#   ops/deploy.sh).
 #   Mô tả release = mục [X.Y.Z] của CHANGELOG.md + digest.
 name: release
 on:
@@ -30,10 +35,12 @@ jobs:
       - name: Phiên bản gói bằng tag
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          for f in libs/dxos-proof/pyproject.toml core/pyproject.toml witness/pyproject.toml cli/pyproject.toml; do
+          for f in libs/dxos-proof/pyproject.toml core/pyproject.toml witness/pyproject.toml cli/pyproject.toml \
+                   viewer/pyproject.toml; do
             grep -qx "version = \"${VERSION}\"" "$f" || { echo "$f không có version = \"${VERSION}\"" >&2; exit 1; }
           done
-          for f in core/src/dxos_core/__init__.py witness/src/dxos_witness/__init__.py cli/src/dxos_cli/__init__.py; do
+          for f in core/src/dxos_core/__init__.py witness/src/dxos_witness/__init__.py cli/src/dxos_cli/__init__.py \
+                   viewer/src/dxos_viewer/__init__.py; do
             grep -qx "__version__ = \"${VERSION}\"" "$f" || { echo "$f không có __version__ = \"${VERSION}\"" >&2; exit 1; }
           done
       - name: CHANGELOG có mục của phiên bản, đã ghi ngày phát hành
@@ -75,8 +82,40 @@ jobs:
           echo "digest=${digest}" >> "$GITHUB_OUTPUT"
           docker logout ghcr.io
 
+  image-viewer:
+    needs: check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.push.outputs.digest }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: { ref: "${{ github.ref }}" }
+      - name: Build image viewer từ commit của tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          docker build -f viewer/Dockerfile -t "ghcr.io/psa-ovncr/viewer:${VERSION}" \
+            --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
+            --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
+            --label "org.opencontainers.image.version=${VERSION}" \
+            --label "org.opencontainers.image.licenses=Apache-2.0" .
+      - name: Đẩy lên GHCR và lấy digest
+        id: push
+        env: { GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker push "ghcr.io/psa-ovncr/viewer:${VERSION}"
+          ref=$(docker inspect --format '{{index .RepoDigests 0}}' "ghcr.io/psa-ovncr/viewer:${VERSION}")
+          digest="${ref##*@sha256:}"
+          [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || { echo "không đọc được digest: $ref" >&2; exit 1; }
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+          docker logout ghcr.io
+
   release:
-    needs: image
+    needs: [image, image-viewer]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -88,7 +127,9 @@ jobs:
       - name: Phiên bản từ tag
         run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
       - name: Ghi chú phát hành (mục CHANGELOG + digest image)
-        env: { DIGEST: "${{ needs.image.outputs.digest }}" }
+        env:
+          DIGEST: "${{ needs.image.outputs.digest }}"
+          VIEWER_DIGEST: "${{ needs.image-viewer.outputs.digest }}"
         run: |
           python ops/changelog_section.py "$VERSION" > notes.md
           mkdir -p dist
@@ -99,13 +140,21 @@ jobs:
             echo "- Thẻ: \`ghcr.io/psa-ovncr/trust-core:${VERSION}\`"
             echo "- Digest: \`ghcr.io/psa-ovncr/trust-core@sha256:${DIGEST}\`"
             echo "- Dùng trên máy chủ: đặt \`DXOS_TRUST_CORE_DIGEST=${DIGEST}\` trong \`.env\` và thêm \`-f deploy/compose.release.yaml\`."
+            echo
+            echo "## Image viewer"
+            echo
+            echo "- Thẻ: \`ghcr.io/psa-ovncr/viewer:${VERSION}\`"
+            echo "- Digest: \`ghcr.io/psa-ovncr/viewer@sha256:${VIEWER_DIGEST}\`"
+            echo "- Dùng trên máy chủ (hồ sơ p16 có \`COMPOSE_PROFILES=viewer\`): đặt \`DXOS_VIEWER_DIGEST=${VIEWER_DIGEST}\` trong \`.env\`; \`ops/deploy.sh\` tự đọc tệp \`viewer-image-${VERSION}.txt\`."
           } >> notes.md
           printf 'ghcr.io/psa-ovncr/trust-core:%s\nghcr.io/psa-ovncr/trust-core@sha256:%s\n' "$VERSION" "$DIGEST" \
             > "dist/trust-core-image-${VERSION}.txt"
+          printf 'ghcr.io/psa-ovncr/viewer:%s\nghcr.io/psa-ovncr/viewer@sha256:%s\n' "$VERSION" "$VIEWER_DIGEST" \
+            > "dist/viewer-image-${VERSION}.txt"
       - name: Wheel
         run: |
           python -m pip install build
-          for pkg in libs/dxos-proof core witness cli; do python -m build --wheel --outdir dist "$pkg"; done
+          for pkg in libs/dxos-proof core witness cli viewer; do python -m build --wheel --outdir dist "$pkg"; done
       - name: Mã nguồn (.tar.gz)
         run: git archive --format=tar.gz --prefix="dxos-${VERSION}/" -o "dist/dxos-${VERSION}.tar.gz" "$GITHUB_REF_NAME"
       - name: SBOM CycloneDX (syft)

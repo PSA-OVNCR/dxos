@@ -78,3 +78,10 @@ python -m pytest viewer/tests -q
 DXOS_VIEWER_API_BASE=http://127.0.0.1:9080 uvicorn dxos_viewer.app:create_app --factory --port 8000
 docker build -f viewer/Dockerfile -t dxos-viewer .
 ```
+
+## Phát hành
+
+Workflow `release` (job `image-viewer`) dựng `viewer/Dockerfile` từ commit của tag, đẩy `ghcr.io/psa-ovncr/viewer:X.Y.Z` và ghi digest
+vào mô tả Release cùng tệp `viewer-image-X.Y.Z.txt`; wheel `dxos-viewer` nằm trong tệp đính kèm. Máy chủ không dựng Viewer từ mã
+nguồn: `deploy/compose.release.yaml` thay `build:` bằng image theo `DXOS_VIEWER_DIGEST` và `ops/deploy.sh` đọc tệp trên
+(`docs/runbook-deploy.md`). Chưa có Release nào kèm image Viewer; chạy thật là V40.

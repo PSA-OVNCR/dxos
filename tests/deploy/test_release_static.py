@@ -20,6 +20,8 @@ ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github/workflows/release.yml"
 DIGEST = "0123456789abcdef" * 4
 IMAGE = f"ghcr.io/psa-ovncr/trust-core@sha256:{DIGEST}"
+VIEWER_DIGEST = "fedcba9876543210" * 4
+VIEWER_IMAGE = f"ghcr.io/psa-ovncr/viewer@sha256:{VIEWER_DIGEST}"
 CORE = ("trust-core-api", "trust-core-worker")
 
 
@@ -44,12 +46,15 @@ def test_release_runs_only_on_version_tags_with_least_privilege():
     jobs = wf["jobs"]
     assert jobs["image"]["permissions"] == {"contents": "read", "packages": "write"}
     assert jobs["release"]["permissions"] == {"contents": "write"}
+    # Plan 04 Task 15
+    assert jobs["image-viewer"]["permissions"] == {"contents": "read", "packages": "write"}
     assert "permissions" not in jobs["check"]
-    assert jobs["image"]["needs"] == "check" and jobs["release"]["needs"] == "image"
+    assert jobs["image"]["needs"] == "check" and jobs["image-viewer"]["needs"] == "check"
+    assert jobs["release"]["needs"] == ["image", "image-viewer"]
 
 
 def test_every_job_builds_from_the_tag_commit():
-    for job in ("check", "image", "release"):
+    for job in ("check", "image", "image-viewer", "release"):
         checkout = _wf()["jobs"][job]["steps"][0]
         assert _is_action(checkout["uses"], "actions/checkout")
         assert checkout["with"]["ref"] == "${{ github.ref }}", job
@@ -67,9 +72,9 @@ def test_check_job_refuses_unreleased_changelog_and_version_mismatch():
     # Mục "## [X.Y.Z] - Chưa phát hành" không khớp mẫu ngày nên job dừng trước khi đẩy image.
     assert '- [0-9]{4}-[0-9]{2}-[0-9]{2}\\$" CHANGELOG.md' in runs
     for f in ("libs/dxos-proof/pyproject.toml", "core/pyproject.toml", "witness/pyproject.toml",
-              "cli/pyproject.toml",
+              "cli/pyproject.toml", "viewer/pyproject.toml",
               "core/src/dxos_core/__init__.py", "witness/src/dxos_witness/__init__.py",
-              "cli/src/dxos_cli/__init__.py"):
+              "cli/src/dxos_cli/__init__.py", "viewer/src/dxos_viewer/__init__.py"):
         assert f in runs, f
 
 
@@ -84,14 +89,42 @@ def test_image_job_pushes_trust_core_to_ghcr_with_github_token_and_outputs_diges
     assert job["outputs"] == {"digest": "${{ steps.push.outputs.digest }}"}
 
 
-def test_release_notes_carry_the_digest_and_assets_include_four_wheels():
+def test_image_viewer_job_mirrors_the_trust_core_job():
+    """Ruling R28: Viewer không dựng từ mã nguồn trên máy chủ; image lên GHCR như trust-core."""
+    wf = _wf()["jobs"]
+    job = wf["image-viewer"]
+    steps = _steps("image-viewer")
+    assert 'docker build -f viewer/Dockerfile -t \\"ghcr.io/psa-ovncr/viewer:${VERSION}\\"' in steps
+    assert 'docker push \\"ghcr.io/psa-ovncr/viewer:${VERSION}\\"' in steps
+    push = next(s for s in job["steps"] if s.get("id") == "push")
+    assert push["env"] == {"GH_TOKEN": "${{ secrets.GITHUB_TOKEN }}"}
+    assert "--password-stdin" in push["run"] and "$GH_TOKEN" not in push["run"].split("|", 1)[1]
+    assert job["outputs"] == {"digest": "${{ steps.push.outputs.digest }}"}
+    # cùng các bước, chỉ khác tên image và Dockerfile
+    def norm(j: str) -> list[str]:
+        out = []
+        for step in wf[j]["steps"]:
+            text = json.dumps(step, ensure_ascii=False)
+            text = text.replace("core/Dockerfile", "D").replace("viewer/Dockerfile", "D")
+            text = text.replace("trust-core", "X").replace("viewer", "X")
+            out.append(text.replace("Build image X từ commit của tag", "B"))
+        return out
+
+    assert norm("image") == norm("image-viewer")
+
+
+def test_release_notes_carry_the_digest_and_assets_include_five_wheels():
     job = _wf()["jobs"]["release"]
     notes = next(s for s in job["steps"] if s.get("name", "").startswith("Ghi chú phát hành"))
-    assert notes["env"] == {"DIGEST": "${{ needs.image.outputs.digest }}"}
+    assert notes["env"] == {"DIGEST": "${{ needs.image.outputs.digest }}",
+                            "VIEWER_DIGEST": "${{ needs.image-viewer.outputs.digest }}"}
+    assert "ghcr.io/psa-ovncr/viewer@sha256:${VIEWER_DIGEST}" in notes["run"]
+    assert "DXOS_VIEWER_DIGEST=${VIEWER_DIGEST}" in notes["run"]
+    assert '"dist/viewer-image-${VERSION}.txt"' in notes["run"]
     assert "ghcr.io/psa-ovncr/trust-core@sha256:${DIGEST}" in notes["run"]
     assert "DXOS_TRUST_CORE_DIGEST=${DIGEST}" in notes["run"]
     steps = _steps("release")
-    assert "for pkg in libs/dxos-proof core witness cli; do" in steps
+    assert "for pkg in libs/dxos-proof core witness cli viewer; do" in steps
     assert "anchore/syft:v1.18.1" in steps and "git archive --format=tar.gz" in steps
     assert "gh release create" in steps and "--verify-tag" in steps
 
@@ -116,15 +149,21 @@ def test_release_attaches_the_web_build_as_a_tarball():
 
 
 # ---------------------------------------------------------------- compose.release.yaml
-def _config(*overlays: str, digest: str | None) -> subprocess.CompletedProcess:
+def _config(*overlays: str, digest: str | None, viewer_digest: str | None = None,
+            profiles: str | None = None) -> subprocess.CompletedProcess:
     if shutil.which("docker") is None:
         pytest.skip("cần CLI docker compose")
     cmd = ["docker", "compose", "-p", "dxos", "--env-file", str(ROOT / ".env.example")]
     for o in overlays:
         cmd += ["-f", str(ROOT / "deploy" / o)]
-    env = {k: v for k, v in os.environ.items() if k != "DXOS_TRUST_CORE_DIGEST"}
+    env = {k: v for k, v in os.environ.items()
+           if k not in ("DXOS_TRUST_CORE_DIGEST", "DXOS_VIEWER_DIGEST", "COMPOSE_PROFILES")}
     if digest is not None:
         env["DXOS_TRUST_CORE_DIGEST"] = digest
+    if viewer_digest is not None:
+        env["DXOS_VIEWER_DIGEST"] = viewer_digest
+    if profiles is not None:
+        env["COMPOSE_PROFILES"] = profiles
     proc = subprocess.run([*cmd, "config", "--format", "json"], capture_output=True, text=True,  # noqa: S603
                           check=False, env=env)
     if proc.returncode != 0 and "is not a docker command" in proc.stderr:
@@ -146,8 +185,54 @@ def test_release_overlay_only_swaps_build_for_the_released_image(profile):
         strip = {"image", "build", "pull_policy"}
         assert {k: v for k, v in r.items() if k not in strip} == \
                {k: v for k, v in base["services"][svc].items() if k not in strip}, svc
-    others = set(base["services"]) - set(CORE)
+    others = set(base["services"]) - set(CORE) - {"viewer"}
     assert {s: rel["services"][s] for s in others} == {s: base["services"][s] for s in others}
+    # p8 không bao giờ dựng Viewer dù .env.example bật hồ sơ `viewer` (spec 16.1)
+    assert ("viewer" in rel["services"]) == (profile == "p16")
+
+
+def test_release_overlay_swaps_the_viewer_build_for_its_digest_on_p16():
+    """Ruling R28: Viewer chạy image đã phát hành theo digest, không dựng từ mã nguồn trên máy chủ."""
+    base = json.loads(_config("compose.yaml", "compose.p16.yaml", digest=None, profiles="viewer").stdout)
+    proc = _config("compose.yaml", "compose.p16.yaml", "compose.release.yaml", digest=DIGEST,
+                   viewer_digest=VIEWER_DIGEST, profiles="viewer")
+    assert proc.returncode == 0, proc.stderr
+    v = json.loads(proc.stdout)["services"]["viewer"]
+    assert "build" in base["services"]["viewer"]
+    assert v["image"] == VIEWER_IMAGE and "build" not in v and v["pull_policy"] == "missing"
+    strip = {"image", "build", "pull_policy"}
+    assert {k: x for k, x in v.items() if k not in strip} == \
+           {k: x for k, x in base["services"]["viewer"].items() if k not in strip}
+    # giữ nguyên các bảo đảm của Task 8
+    assert v["read_only"] is True and list(v["networks"]) == ["net-app"] and v["profiles"] == ["viewer"]
+
+
+def test_release_overlay_never_leaves_a_buildable_viewer_when_the_digest_is_missing():
+    """Thiếu DXOS_VIEWER_DIGEST mà hồ sơ `viewer` bật: không `build` để rơi về, image không phải digest."""
+    proc = _config("compose.yaml", "compose.p16.yaml", "compose.release.yaml", digest=DIGEST,
+                   profiles="viewer")
+    assert proc.returncode == 0, proc.stderr            # p8 và dev-lite không phải đặt digest không dùng
+    v = json.loads(proc.stdout)["services"]["viewer"]
+    assert "build" not in v
+    assert not re.fullmatch(r"ghcr\.io/psa-ovncr/viewer@sha256:[0-9a-f]{64}", v["image"])
+    assert v["image"].startswith("ghcr.io/psa-ovncr/viewer@sha256:")
+
+
+@pytest.mark.parametrize("profile", ["p8", "dev-lite"])
+def test_release_overlay_does_not_need_the_viewer_digest_when_the_profile_cannot_build_it(profile):
+    proc = _config("compose.yaml", f"compose.{profile}.yaml", "compose.release.yaml", digest=DIGEST,
+                   profiles="viewer")
+    assert proc.returncode == 0, proc.stderr
+    assert "viewer" not in json.loads(proc.stdout)["services"]
+
+
+def test_release_overlay_text_swaps_viewer_without_yaml_anchors():
+    """Kiểm tĩnh (không cần CLI docker): dịch vụ viewer của overlay có image theo digest, `build` bị bỏ."""
+    text = (ROOT / "deploy/compose.release.yaml").read_text(encoding="utf-8")
+    block = text[text.index("\n  viewer:\n"):]
+    assert "image: ghcr.io/psa-ovncr/viewer@sha256:${DXOS_VIEWER_DIGEST" in block
+    assert "build: !reset null" in block and "pull_policy: missing" in block
+    assert not re.search(r"(?m)^[^#\n]*[&*][A-Za-z]", text)         # không anchor/alias YAML
 
 
 def test_release_overlay_requires_the_digest():

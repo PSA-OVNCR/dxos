@@ -27,7 +27,7 @@ help:
 	@echo "make licenses     - quét giấy phép gói Python (runtime) và npm; ngoại lệ ở LICENSES-THIRD-PARTY.md"
 	@echo "make build       - dựng image của stack (docker compose build, theo PROFILE), không chạy"
 	@echo "make sbom VERSION=x - SBOM CycloneDX của mã nguồn bằng syft trong Docker -> dist/sbom-x.cdx.json (cùng image với workflow release)"
-	@echo "make release-check VERSION=x - chỉ đọc: phiên bản 4 gói + 3 __init__, CHANGELOG có ngày, cây sạch, HEAD = origin/main; không gắn tag"
+	@echo "make release-check VERSION=x - chỉ đọc: phiên bản 5 gói (kể cả viewer) + 4 __init__, CHANGELOG có ngày, cây sạch, HEAD = origin/main; không gắn tag"
 	@echo "make openapi      - sinh lại docs/api/openapi.json từ ứng dụng FastAPI (không cần dịch vụ)"
 	@echo "make web-check    - workspace npm: typecheck + test + build (cần Node 22 và npm 11.6.2, đã chạy npm ci)"
 	@echo "make web-build    - dựng các SPA trong container Node vào volume apps-static (cần Docker; digest đã ghim)"

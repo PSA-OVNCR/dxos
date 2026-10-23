@@ -6,16 +6,32 @@ Dự án dự thi **Olympic Tin học Sinh viên Việt Nam – Phần mềm ngu
 
 > English version: [README_EN.md](README_EN.md)
 
+## Trạng thái v0.9.0
+**Mã đã xong ở cloud; chưa gắn tag** (trưởng nhóm gắn tag ký sau `v0.2.0` và `v0.3.0`). Mốc M4 gồm bốn việc SHOULD, đã qua test
+đơn vị, integration và Vitest/jsdom, **chưa việc nào chạy thật** ngoài cloud:
+- **S1, dò dữ liệu cá nhân trong PDF**: bộ dò CCCD, số điện thoại, số tài khoản trên lớp chữ (heuristic, không OCR), bản che chỉ chứa
+  ảnh, bản gốc chỉ cho người có quyền `reveal_pii`; App A hiện số phát hiện và nút tải bản che. Chạy thật: V39 (Chromium), V44 (dữ liệu demo).
+- **S2, Viewer**: dịch vụ xem từng trang PDF thành ảnh có watermark, chỉ RAM, chỉ ở hồ sơ p16. Watermark **chỉ để răn đe**, không ngăn
+  được chụp màn hình. Chạy thật trong container: V40.
+- **S3, trang quản trị web** `/ui/` trên host quản trị: sức khỏe, sổ cái, duyệt app bằng hai quản trị viên, tệp bị cách ly. Chạy thật với Keycloak: V41.
+- **S4, vận hành**: `ops/deploy.sh` chỉ triển khai tag đã ký và tự quay lui khi health hỏng (V42), sao lưu mã hóa và diễn tập khôi phục
+  AT-21 (V43). Viewer cũng được phát hành thành image theo digest như `trust-core`.
+- Chỗ trống PoF: ghim phụ thuộc và quét giấy phép (V37), kiến trúc và trang tài liệu (V38, chưa bật), `make demo-seed` (V44).
+
+**Thay đổi phá vỡ của SDK**: `client.download` đổi thành `client.downloadObject(sha256, variant)`; xem [CHANGELOG.md](CHANGELOG.md).
+Mọi việc cần máy thật hay trưởng nhóm (V37 đến V44) và các quyết định (ruling R1 đến R28): `docs/progress/2026-10-21-tong-ket-tien-do.md` mục 14.
+Từ v0.3.0 vẫn còn: `ops/deploy.sh` trên VPS (V29), biên nhận OpenTimestamps (V32), AT-26 (V31).
+
 ## Trạng thái v0.3.0
-**Mã đã xong ở cloud; chưa gắn tag.** SDK, giao diện App A và App B, cổng đối soát Vue, triển khai theo tag và hướng dẫn
-30 phút đã có, kèm test đơn vị và Playwright với API giả. **Đã chạy trên stack dev (Docker Desktop, máy trưởng nhóm,
-22/10/2026)**: `make web-build`, bộ Playwright trên trình duyệt thật 10/10 (V27), bảng thử vượt rào 10/10 (V28), AT-20 (V36);
-xem `docs/progress/2026-10-22-web-live.md`. **Chưa chạy**: `ops/deploy.sh` trên VPS (V29), biên nhận OpenTimestamps (V32). Danh sách việc: `docs/progress/2026-10-21-tong-ket-tien-do.md` mục 13.
+**Đã chạy trên stack dev (Docker Desktop, máy trưởng nhóm, 22/10/2026)**: `make web-build`, bộ Playwright trên trình duyệt thật 10/10 (V27),
+bảng thử vượt rào 10/10 (V28), AT-20 (V36); xem `docs/progress/2026-10-22-web-live.md`. SDK, giao diện App A và App B, cổng đối soát Vue,
+triển khai theo tag và hướng dẫn 30 phút nằm trong bản này. **Chưa chạy**: `ops/deploy.sh` trên VPS (V29), biên nhận OpenTimestamps (V32).
+Danh sách việc: `docs/progress/2026-10-21-tong-ket-tien-do.md` mục 13.
 
 ## Trạng thái v0.2.0
-**Đang hoàn thiện; chưa gắn tag.** Mã của mốc M2 (Tier-0: workflow, niêm phong, đối soát, installer) đã có, kèm unit và
-integration test. E2E M2 đã đạt 13/13 trên Docker Desktop (22/10, AT-20 bỏ qua); phần chạy trên VPS (AT-13, AT-18,
-AT-19, AT-20) chưa có. v0.1.0 đã gắn tag (22/10). Tiến độ: `docs/progress/`.
+v0.2.0 (mốc M2: workflow, niêm phong, đối soát, installer) và v0.1.0 **đã gắn tag** (V18, 23/10; workflow `release` đã dựng Release và
+image `trust-core`). E2E M2 đã đạt 13/13 trên Docker Desktop (22/10, AT-20 bỏ qua); phần chạy trên VPS (AT-13, AT-18, AT-19, AT-20)
+chưa có. Tiến độ: `docs/progress/`.
 
 ## Thành phần
 | Thành phần | Trạng thái |
@@ -31,14 +47,18 @@ AT-19, AT-20) chưa có. v0.1.0 đã gắn tag (22/10). Tiến độ: `docs/prog
 | E2E mốc M2 (`tests/e2e`), `ops/at13_reuse.sh` | E2E đã chạy trên Docker Desktop 22/10: 13 passed, 1 skipped (AT-20 cần khóa OpenBao do trưởng nhóm nhập), [docs/progress/2026-10-22-e2e-m2-docker-desktop.md](docs/progress/2026-10-22-e2e-m2-docker-desktop.md); chưa chạy trên VPS. `ops/at13_reuse.sh` chưa chạy (cần tag `v0.2.0`) |
 | `sdk/js`: SDK TypeScript (client, OIDC PKCE, tự kiểm gói bằng chứng, thành phần Vue) | Có, kèm test (Plan 03); [sdk/js/README.md](sdk/js/README.md) |
 | `verify-portal/app`: cổng đối soát Vue `/apps/verify/` (trang tối giản cũ ở `/apps/verify-lite/`) | Có, kèm Playwright với API giả trong CI; đã kiểm trên stack dev 22/10 (V27) |
-| `ops/`: `deploy.sh` (triển khai theo tag), `vuot_rao.py` (bảng thử vượt rào), `build_web.sh` | Có; `vuot_rao.py` đã chạy trên stack dev 22/10 (V28: 10/10); `deploy.sh` chưa chạy trên VPS (V29) |
+| `ops/`: `deploy.sh` (triển khai theo tag đã ký, tự quay lui), `vuot_rao.py` (bảng thử vượt rào), `build_web.sh` | Có; `vuot_rao.py` đã chạy trên stack dev 22/10 (V28: 10/10); `deploy.sh` chưa chạy trên VPS (V29, V42) |
+| `viewer/`: Secure Viewer (S2), ảnh PNG từng trang có watermark chỉ để răn đe, chỉ p16; image phát hành theo digest | Có, kèm test; chưa chạy trong container (V40), [viewer/README.md](viewer/README.md) |
+| `admin-ui/`: trang quản trị web `/ui/` (S3) trên host quản trị | Có, kèm Vitest và Caddy thật không Keycloak; chưa chạy với Keycloak thật (V41) |
+| `ops/`: `backup.sh`, `restore.sh`, `at21_drill.sh` (S4), `demo_seed.py`, `license_scan.py`, `pin_actions.py` | Có, kiểm bằng lệnh giả; chưa chạy thật (V43, V44, V37) |
 | `examples/so-muon-sach` + hướng dẫn 30 phút | Có; AT-26 (người ngoài đội làm thử) chưa tổ chức (V31) |
 
 ## Kiến trúc tóm tắt
 - **Tầng 1, DX-OS Trust Core:**
   - Dịch vụ nguồn mở chạy độc lập: Keycloak (SSO), Apache APISIX (gateway), PostgreSQL, SeaweedFS, Flowable, ClamAV, OpenBao.
   - Phần đội tự viết: `trust-core` (Records API, kiểm dịch tệp, PDP, ledger Merkle, niêm phong) và thư viện `dxos-proof`.
-- **Tầng 2:** App A "Phòng hồ sơ số" và App B "Chứng nhận số". Cả hai được cài bằng manifest, **không sửa mã lõi**.
+- **Tầng 2:** App A "Phòng hồ sơ số" và App B "Chứng nhận số". Cả hai được cài bằng manifest, **không sửa mã lõi**. Viewer (xem trang PDF
+  có watermark chỉ để răn đe) là dịch vụ riêng ở hồ sơ p16, chỉ đi vào lõi qua APISIX.
 - **Kiến trúc trong vài phút đọc:** [ARCHITECTURE.md](ARCHITECTURE.md). Mục lục tài liệu trên trang GitHub Pages: <https://psa-ovncr.github.io/dxos/> (**chưa bật**, việc V38; nguồn trang là `docs/index.md`).
 - **Thiết kế chi tiết:** [`docs/superpowers/specs/2026-10-20-dxos-trust-core-design.md`](docs/superpowers/specs/2026-10-20-dxos-trust-core-design.md).
 

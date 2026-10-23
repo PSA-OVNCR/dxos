@@ -87,7 +87,8 @@ def test_changelog_030_is_dated_above_020():
     for v in ("V27", "V28", "V29", "V32", "V34"):
         assert v in sec, v
     # Plan 03 đã chuyển khỏi [Unreleased]
-    unreleased = text[text.index("## [Unreleased]"):i030]
+    start = text.index("## [Unreleased]")
+    unreleased = text[start:text.index("\n## [", start + 1)]      # tới mục kế tiếp ([0.9.0] trở đi)
     assert "vuot_rao" not in unreleased and "OpenTimestamps" not in unreleased
 
 

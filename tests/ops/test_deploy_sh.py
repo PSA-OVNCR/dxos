@@ -25,6 +25,10 @@ SIGNERS = "# chú thích\n\nrelease@example.test namespaces=\"git\" ssh-ed25519 
 RESULT_FAILED = "\tresult=failed\t"
 # Đúng nội dung release.yml ghi vào dist/trust-core-image-<X.Y.Z>.txt (có test đối chiếu bên dưới).
 RELEASE_TXT = "ghcr.io/psa-ovncr/trust-core:{v}\nghcr.io/psa-ovncr/trust-core@sha256:{d}\n"
+# Đúng nội dung release.yml ghi vào dist/viewer-image-<X.Y.Z>.txt (Plan 04 Task 15, ruling R28).
+VIEWER_DIGEST = "b" * 64
+VIEWER_TXT = "ghcr.io/psa-ovncr/viewer:{v}\nghcr.io/psa-ovncr/viewer@sha256:{d}\n"
+VIEWER_ENV = ENV + "COMPOSE_PROFILES=viewer\n"
 
 FAKE_GIT = r"""#!/bin/sh
 echo "git $*" >> "$FAKE_LOG"
@@ -66,6 +70,12 @@ is_bad() { case " ${FAKE_BAD_TAGS:-$cur} " in *" $cur "*) return 0 ;; *) return 
 FAKE_CURL = r"""#!/bin/sh
 echo "curl $*" >> "$FAKE_LOG"
 """ + BAD_TAG_SNIPPET + r"""case "$*" in
+  *viewer-image-*)
+    [ -z "${FAKE_VIEWER_CURL_FAIL:-}" ] || exit 22
+    t=$(printf '%s' "$*" | sed -n 's|.*/download/\(v[0-9.]*\)/.*|\1|p' | tr . _)
+    case " ${FAKE_VIEWER_CURL_FAIL_TAGS:-} " in *" $t "*) exit 22 ;; esac
+    body=$(printenv "FAKE_VDIGEST_$t" || true)
+    printf '%s' "${body:-$FAKE_VIEWER_BODY}" ;;
   *trust-core-image-*)
     [ -z "${FAKE_CURL_FAIL:-}" ] || exit 22
     t=$(printf '%s' "$*" | sed -n 's|.*/download/\(v[0-9.]*\)/.*|\1|p' | tr . _)
@@ -79,6 +89,7 @@ FAKE_DOCKER = r"""#!/bin/sh
 echo "docker $*" >> "$FAKE_LOG"
 if [ "$1" = compose ]; then
   echo "env digest=${DXOS_TRUST_CORE_DIGEST:-} tag=${DXOS_RELEASE_TAG:-}" >> "$FAKE_LOG.env"
+  echo "env viewer=${DXOS_VIEWER_DIGEST:-}" >> "$FAKE_LOG.env2"
 fi
 """ + BAD_TAG_SNIPPET + r"""case "$*" in
   *"exec -T trust-core-api"*)
@@ -140,11 +151,19 @@ class Stubs:
         self.signers: str | None = SIGNERS           # nội dung deploy/allowed_signers (None = không có tệp)
         self.readyz = "200"
         self.extra: dict[str, str] = {}
+        self.overlay: str | None = None              # deploy/compose.release.yaml của tag (None = không có)
+        self.viewer_body: str | None = None          # None = dựng từ tag theo định dạng của release.yml
+        self.viewer_digests: dict[str, str] = {}     # digest Viewer riêng theo tag (mặc định VIEWER_DIGEST)
 
     def environ(self, tag: str) -> dict[str, str]:
         body = self.digest_body if self.digest_body is not None else RELEASE_TXT.format(v=tag[1:], d=DIGEST)
+        vbody = self.viewer_body
+        if vbody is None:
+            vbody = VIEWER_TXT.format(v=tag[1:], d=VIEWER_DIGEST)
         env = {"FAKE_GIT_STATUS": self.git_status, "FAKE_COMMIT": COMMIT, "FAKE_DIGEST_BODY": body,
-               "FAKE_READYZ": self.readyz}
+               "FAKE_READYZ": self.readyz, "FAKE_VIEWER_BODY": vbody}
+        for t, d in self.viewer_digests.items():
+            env["FAKE_VDIGEST_" + t.replace(".", "_")] = VIEWER_TXT.format(v=t[1:], d=d)
         for t, c in self.commits.items():
             env["FAKE_COMMIT_" + t.replace(".", "_")] = c
         for t, d in self.digests.items():
@@ -176,6 +195,10 @@ def run(tmp_path, stubs):
     def _run(*args: str) -> Result:
         if stubs.env is not None:
             (repo / ".env").write_text(stubs.env, encoding="utf-8")
+        overlay = repo / "deploy/compose.release.yaml"
+        overlay.unlink(missing_ok=True)
+        if stubs.overlay is not None:
+            overlay.write_text(stubs.overlay, encoding="utf-8")
         signers = repo / "deploy/allowed_signers"
         signers.unlink(missing_ok=True)
         if stubs.signers is not None:
@@ -762,3 +785,136 @@ def test_script_header_syntax_and_shellcheck():
         proc = subprocess.run(["shellcheck", "-S", "warning", str(SCRIPT)],  # noqa: S603, S607
                               capture_output=True, text=True, check=False)
         assert proc.returncode == 0, proc.stdout
+
+
+# ---------- Viewer: digest từ Release như lõi (Plan 04 Task 15, ruling R28) ----------
+
+@pytest.fixture
+def vrun(run, stubs):
+    """``run`` với .env bật hồ sơ ``viewer`` và overlay phát hành THẬT của repo (có DXOS_VIEWER_DIGEST)."""
+    stubs.env = VIEWER_ENV
+    stubs.overlay = (ROOT / "deploy/compose.release.yaml").read_text(encoding="utf-8")
+    return run
+
+
+def _viewer_fetches(r):
+    return [c for c in r.calls if c.startswith("curl") and "viewer-image-" in c]
+
+
+def test_viewer_digest_is_read_from_the_release_like_the_core_digest(vrun):
+    r = vrun("v0.9.0")
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert r.order([
+        "releases/download/v0.9.0/trust-core-image-0.9.0.txt",
+        "releases/download/v0.9.0/viewer-image-0.9.0.txt",
+        " pull --ignore-buildable",
+        " up -d --wait --wait-timeout 600",
+    ]), r.text
+    assert r.file("deploy/release.env") == (
+        f"DXOS_TRUST_CORE_DIGEST={DIGEST}\nDXOS_RELEASE_TAG=v0.9.0\nDXOS_VIEWER_DIGEST={VIEWER_DIGEST}\n")
+    # compose chỉ thấy digest qua deploy/release.env, không qua môi trường tiến trình
+    seen = (r.repo.parent / "calls.log.env2").read_text(encoding="utf-8").split()
+    assert set(seen) == {"env", "viewer="}
+    # dòng log triển khai vẫn có đúng sáu cột, cột digest là digest lõi
+    assert r.log_last().split("\t")[3] == DIGEST and len(r.log_last().split("\t")) == 6
+
+
+def test_viewer_digest_exported_by_the_operator_cannot_override_the_release(vrun, stubs):
+    stubs.extra["DXOS_VIEWER_DIGEST"] = "f" * 64
+    r = vrun("v0.9.0")
+    assert r.returncode == 0
+    assert r.file("deploy/release.env").endswith(f"DXOS_VIEWER_DIGEST={VIEWER_DIGEST}\n")
+    assert "f" * 64 not in r.file("deploy/release.env")
+
+
+@pytest.mark.parametrize("body", [VIEWER_DIGEST, VIEWER_DIGEST + "\r\n",
+                                  f"ghcr.io/psa-ovncr/viewer@sha256:{VIEWER_DIGEST}\r\n"])
+def test_viewer_digest_accepts_the_formats_of_the_core_parser(vrun, stubs, body):
+    stubs.viewer_body = body
+    r = vrun("v0.9.0")
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert r.file("deploy/release.env").endswith(f"DXOS_VIEWER_DIGEST={VIEWER_DIGEST}\n")
+
+
+def test_missing_viewer_asset_stops_before_compose_with_exit_3(vrun, stubs):
+    stubs.extra["FAKE_VIEWER_CURL_FAIL"] = "1"
+    r = vrun("v0.9.0")
+    assert r.returncode == 3, r.stdout + r.stderr
+    assert "viewer-image-0.9.0.txt" in r.stderr
+    assert not any(c.startswith("docker") or c.startswith("web_build") for c in r.calls), r.text
+    assert RESULT_FAILED in r.log_last()
+
+
+@pytest.mark.parametrize("body", ["<html>404</html>", "", "g" * 64, "a" * 63,
+                                  "ghcr.io/psa-ovncr/viewer@sha256:xyz"])
+def test_malformed_viewer_digest_stops_before_compose_with_exit_3(vrun, stubs, body):
+    stubs.viewer_body = body
+    r = vrun("v0.9.0")
+    assert r.returncode == 3
+    assert "digest trong viewer-image-0.9.0.txt" in r.stderr
+    assert not any(c.startswith("docker") for c in r.calls)
+    assert RESULT_FAILED in r.log_last()
+
+
+def test_viewer_asset_not_fetched_when_the_profile_is_off(run, stubs):
+    stubs.overlay = (ROOT / "deploy/compose.release.yaml").read_text(encoding="utf-8")
+    for env in (ENV, ENV + "COMPOSE_PROFILES=\n", ENV + "COMPOSE_PROFILES=other\n"):
+        stubs.env = env
+        r = run("v0.9.0")
+        assert r.returncode == 0 and _viewer_fetches(r) == [], env
+        assert "DXOS_VIEWER_DIGEST" not in r.file("deploy/release.env")
+
+
+def test_viewer_asset_not_fetched_on_p8(vrun):
+    r = vrun("v0.9.0", "--profile", "p8")
+    assert r.returncode == 0 and _viewer_fetches(r) == []
+    assert "DXOS_VIEWER_DIGEST" not in r.file("deploy/release.env")
+
+
+def test_viewer_asset_not_fetched_for_a_tag_whose_overlay_has_no_viewer(vrun, stubs):
+    """Tag cũ (trước 0.9.0): overlay không nói tới DXOS_VIEWER_DIGEST, quay lui về nó vẫn chạy."""
+    stubs.overlay = "services:\n  trust-core-api:\n    image: x\n"
+    r = vrun("v0.3.0")
+    assert r.returncode == 0 and _viewer_fetches(r) == []
+    stubs.overlay = None                                              # không có cả tệp overlay
+    r = vrun("v0.3.0")
+    assert r.returncode == 0 and _viewer_fetches(r) == []
+
+
+def test_process_compose_profiles_wins_over_dotenv_like_compose(run, stubs):
+    stubs.overlay = (ROOT / "deploy/compose.release.yaml").read_text(encoding="utf-8")
+    stubs.env = VIEWER_ENV
+    stubs.extra["COMPOSE_PROFILES"] = ""                             # rỗng trong môi trường thắng .env
+    r = run("v0.9.0")
+    assert r.returncode == 0 and _viewer_fetches(r) == []
+    stubs.env = ENV
+    stubs.extra["COMPOSE_PROFILES"] = "x, viewer"                    # khoảng trắng được bỏ
+    r = run("v0.9.0")
+    assert r.returncode == 0 and len(_viewer_fetches(r)) == 1
+
+
+def test_rollback_reads_the_viewer_digest_of_the_target_tag(vrun, stubs):
+    stubs.previous_ok_tag = "v0.8.0"
+    stubs.viewer_digests = {"v0.8.0": "c" * 64}
+    stubs.extra.update({"FAKE_BAD_TAGS": "v0.9.0", "FAKE_VERIFY_FAIL": "1"})
+    r = vrun("v0.9.0")
+    assert r.returncode == 4, r.stdout + r.stderr
+    assert [c.rsplit("/", 1)[-1].split()[0] for c in _viewer_fetches(r)] == ["viewer-image-0.9.0.txt",
+                                                                        "viewer-image-0.8.0.txt"]
+    assert r.file("deploy/release.env").endswith(f"DXOS_VIEWER_DIGEST={'c' * 64}\n")
+
+
+def test_rollback_target_without_a_viewer_asset_is_not_taken_silently(vrun, stubs):
+    stubs.previous_ok_tag = "v0.8.0"
+    stubs.extra.update({"FAKE_BAD_TAGS": "v0.9.0", "FAKE_VERIFY_FAIL": "1",
+                        "FAKE_VIEWER_CURL_FAIL_TAGS": "v0_8_0"})
+    r = vrun("v0.9.0")
+    assert r.returncode == 5, r.stdout + r.stderr
+
+
+def test_release_yml_writes_the_viewer_file_the_parser_expects():
+    wf = yaml.safe_load((ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8"))
+    steps = wf["jobs"]["release"]["steps"]
+    run_text = next(s["run"] for s in steps if "viewer-image-" in s.get("run", ""))
+    assert "printf 'ghcr.io/psa-ovncr/viewer:%s\\nghcr.io/psa-ovncr/viewer@sha256:%s\\n'" in run_text
+    assert '"dist/viewer-image-${VERSION}.txt"' in run_text

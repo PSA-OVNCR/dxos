@@ -5,7 +5,8 @@
     python ops/release_check.py X.Y.Z [--no-fetch]
 
 Kiểm, theo đúng BUILD.md mục "Phát hành":
-1. `version = "X.Y.Z"` trong pyproject.toml của 4 gói và `__version__ = "X.Y.Z"` trong 3 tệp `__init__.py`;
+1. `version = "X.Y.Z"` trong pyproject.toml của 5 gói (kể cả `dxos-viewer`) và `__version__ = "X.Y.Z"` trong
+   4 tệp `__init__.py` (Plan 04 Task 15: Viewer vào danh sách, cùng với bước `check` của workflow `release`);
 2. CHANGELOG.md có dòng `## [X.Y.Z] - YYYY-MM-DD` (đã ghi ngày);
 3. cây làm việc sạch (`git status --porcelain` rỗng);
 4. `HEAD` đúng là `origin/main` (chạy `git fetch origin main` trước, bỏ qua bằng --no-fetch).
@@ -25,9 +26,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 PYPROJECTS = (
     "libs/dxos-proof/pyproject.toml", "core/pyproject.toml", "witness/pyproject.toml", "cli/pyproject.toml",
+    "viewer/pyproject.toml",
 )
 INITS = (
     "core/src/dxos_core/__init__.py", "witness/src/dxos_witness/__init__.py", "cli/src/dxos_cli/__init__.py",
+    "viewer/src/dxos_viewer/__init__.py",
 )
 SEMVER = re.compile(r"^\d+\.\d+\.\d+$")
 
@@ -97,7 +100,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"release-check {args.version}: {p}", file=sys.stderr)
     if problems:
         return 1
-    print(f"release-check {args.version}: đạt (4 pyproject, 3 __init__, CHANGELOG có ngày, "
+    print(f"release-check {args.version}: đạt (5 pyproject, 4 __init__, CHANGELOG có ngày, "
           "cây sạch, HEAD = origin/main)")
     return 0
 
