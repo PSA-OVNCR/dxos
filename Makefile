@@ -36,7 +36,7 @@ help:
 
 dev-install:
 	$(PYTHON) -m pip install -c constraints.txt -r requirements-dev.txt
-	$(PYTHON) -m pip install -c constraints.txt -e libs/dxos-proof -e core -e witness -e cli
+	$(PYTHON) -m pip install -c constraints.txt -e libs/dxos-proof -e core -e witness -e cli -e viewer
 
 lint:
 	ruff check .

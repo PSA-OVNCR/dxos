@@ -1,13 +1,13 @@
 # SPDX-FileCopyrightText: 2026 PSA_OVNCR
 # SPDX-License-Identifier: Apache-2.0
-"""constraints.txt ghim phụ thuộc runtime của bốn gói Python (Plan 04 Task 1)."""
+"""constraints.txt ghim phụ thuộc runtime của các gói Python (Plan 04 Task 1; thêm viewer ở Task 7)."""
 
 import re
 import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-PACKAGES = ["libs/dxos-proof", "core", "witness", "cli"]
+PACKAGES = ["libs/dxos-proof", "core", "witness", "cli", "viewer"]
 PIN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*==\d+(\.\d+)*((\.post|\.dev|a|b|rc)\d+)?$")
 
 

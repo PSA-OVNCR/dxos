@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 PSA_OVNCR
 # SPDX-License-Identifier: Apache-2.0
-# Ghim phụ thuộc runtime của 4 gói dxos-* (dùng với `pip install -c constraints.txt`). Sinh lại: trong venv đã `make dev-install`, chạy `python ops/license_scan.py --freeze-runtime` và chép kết quả xuống dưới dòng này (cùng commit khi đổi phụ thuộc).
+# Ghim phụ thuộc runtime của các gói dxos-* (proof, core, witness, cli, viewer) (dùng với `pip install -c constraints.txt`). Sinh lại: trong venv đã `make dev-install`, chạy `python ops/license_scan.py --freeze-runtime` và chép kết quả xuống dưới dòng này (cùng commit khi đổi phụ thuộc).
 annotated-doc==0.0.5
 annotated-types==0.8.0
 anyio==4.15.1

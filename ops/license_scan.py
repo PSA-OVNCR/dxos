@@ -17,8 +17,9 @@ duyệt):
   lúc build/test, không vào bundle). Gói chạy thật (không `dev`) phải thuộc danh sách cho phép.
 Phần khác của tệp không có hiệu lực miễn.
 
-Phạm vi quét Python mặc định là bao đóng phụ thuộc runtime của bốn gói dxos-* (đúng cái được cài vào
-image và máy người dùng); công cụ phát triển như `reuse` (GPL) nằm ngoài. `--all-python` quét mọi dist.
+Phạm vi quét Python mặc định là bao đóng phụ thuộc runtime của các gói dxos-* (gồm dxos-viewer; đúng cái
+được cài vào image và máy người dùng); công cụ phát triển như `reuse` (GPL) nằm ngoài.
+`--all-python` quét mọi dist.
 Đọc giấy phép bằng importlib.metadata: `License-Expression`, rồi `License`, rồi classifier `License ::`.
 Chỉ dùng thư viện chuẩn (CI cài venv chỉ có phụ thuộc runtime).
 
@@ -36,7 +37,7 @@ from pathlib import Path
 from typing import NamedTuple
 
 ALLOWED = {"mit", "bsd-2-clause", "bsd-3-clause", "apache-2.0", "psf-2.0", "isc"}
-TEAM = {"dxos-proof", "dxos-core", "dxos-witness", "dxos-cli"}
+TEAM = {"dxos-proof", "dxos-core", "dxos-witness", "dxos-cli", "dxos-viewer"}
 SECTION = "Ngoại lệ đã duyệt"
 
 # Chuỗi `License` kiểu cũ (tự do) và classifier về id SPDX.
@@ -270,7 +271,7 @@ def main(argv: list[str] | None = None) -> int:
     repo = Path(__file__).resolve().parents[1]
     ap = argparse.ArgumentParser(
         description="Quét giấy phép gói npm và gói Python; phạm vi Python mặc định là bao đóng phụ thuộc "
-        "runtime của bốn gói dxos-* (công cụ dev nằm ngoài, --all-python để quét hết)")
+        "runtime của các gói dxos-*, kể cả dxos-viewer (công cụ dev nằm ngoài, --all-python để quét hết)")
     ap.add_argument("--npm-lock", type=Path, default=repo / "package-lock.json")
     ap.add_argument("--allow-file", type=Path, default=repo / "LICENSES-THIRD-PARTY.md")
     ap.add_argument("--python-path", action="append",

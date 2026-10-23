@@ -1,0 +1,24 @@
+# SPDX-FileCopyrightText: 2026 PSA_OVNCR
+# SPDX-License-Identifier: Apache-2.0
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dxos-viewer"
+version = "0.9.0"
+description = "DX-OS Secure Viewer: stateless, RAM-only PDF page renderer with a deterrent watermark"
+license = "Apache-2.0"
+requires-python = ">=3.12"
+# Chỉ bốn phụ thuộc (Plan 04 P4-D1, P4-D6); không phụ thuộc dxos-core: Viewer chỉ gọi API qua APISIX.
+# Phiên bản ghim ở constraints.txt ở thư mục gốc (pip install -c constraints.txt).
+# pypdfium2: wheel nhúng PDFium; xem LICENSES-THIRD-PARTY.md.
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "httpx>=0.27",
+    "pypdfium2>=5.14,<6",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]

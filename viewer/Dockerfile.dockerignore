@@ -1,0 +1,11 @@
+# SPDX-FileCopyrightText: 2026 PSA_OVNCR
+# SPDX-License-Identifier: Apache-2.0
+# Chỉ đưa vào build context những gì viewer/Dockerfile cần.
+*
+!viewer/
+!constraints.txt
+viewer/tests/
+**/__pycache__/
+**/*.pyc
+**/*.egg-info/
+**/build/
