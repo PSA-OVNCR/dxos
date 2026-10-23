@@ -39,6 +39,11 @@ nằm ở README và `docs/progress/` trong kho.
 - [Xóa dữ liệu cá nhân](runbook-pii-erasure.md).
 - [Năng lực và RAM theo hồ sơ](capacity.md).
 
+## Chung kết và nộp bài
+
+- [Kịch bản demo 15 phút và danh sách video dự phòng](demo/kich-ban.md).
+- [Hồ sơ nộp bài: mẫu email, checklist PoF cuối, thủ tục đóng băng 1.0.0](nop-bai.md).
+
 ## Nghiệm thu và pháp lý
 
 - [Ma trận nghiệm thu AT-01..AT-28](acceptance.md).

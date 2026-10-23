@@ -19,6 +19,12 @@
   lui về bản tốt gần nhất. Mã thoát: 0 đạt; 2 từ chối trước khi đổi gì; 3 thiếu điều kiện (digest, compose, fetch); 4 hỏng
   đã quay lui; 5 hỏng và không quay lui được. Xem `docs/runbook-deploy.md` (Plan 03 Task 12, Plan 04 Task 11, S4). Chạy
   thật là việc V29 và V42
+- `doctor.sh`: `ops/doctor.sh [--profile p16|p8|dev-lite] [--web]` kiểm điều kiện của máy trước khi dựng (Plan 04 Task 16, M5, AT-23): Docker >= 24,
+  Compose >= 2.24, Python >= 3.12 có venv, git, make, RAM đủ cho hồ sơ, cổng 443 trống (hoặc do stack `dxos` giữ) và với `--web` Node 22 cùng npm đúng 11.6.2.
+  Chỉ đọc, không đọc `.env`, không in bí mật; liệt kê mọi điều kiện thiếu rồi thoát 3 (0 đạt, 2 tham số sai). Chạy thật trên máy sạch: V45
+- `demo_preflight.sh`: `ops/demo_preflight.sh [--strict] [--skip-network]` checklist 60 phút trước demo (Plan 04 Task 16): OpenBao đã mở khóa
+  (khóa thì thoát 1 và in lệnh mở khóa của `docs/runbook-openbao.md`, **không tự mở khóa**), container khỏe, `/readyz` và khóa công khai, STH mới nhất đã neo
+  (cảnh báo nếu chưa), mạng, dữ liệu demo App A có mà App B chưa nạp; in cuối danh sách việc kiểm tay. Chỉ đọc. Mã thoát 0/1/2. Chạy thật: V48
 - `backup.sh`, `restore.sh`, `at21_drill.sh` (và `backup_lib.sh`, chỉ để `source`): sao lưu mã hóa, khôi phục có chốt chặn, diễn tập
   AT-21 (Plan 04 Task 12, S4, P4-D9). `ops/backup.sh <thư mục ra>` ghi `dxos-backup-<UTC>.tar.enc` (`openssl enc -aes-256-cbc
   -pbkdf2 -iter 600000 -salt`, mật khẩu ở `.secrets/backup-passphrase`) và `.sha256`: `pg_dump -Fc` ba DB và tar hai volume

@@ -1,6 +1,6 @@
 # Hướng dẫn build từ mã nguồn
 
-> Tài liệu này được cập nhật theo từng mốc (bản này: M3, Plan 03). Phần web (Node) ở các mục "Công cụ web" và "Dựng SPA Tầng 2" bên dưới; những bước chưa chạy trên máy thật được đánh dấu rõ.
+> Tài liệu này được cập nhật theo từng mốc (bản này: M5, Plan 04). Máy mới cài và chưa có gì: đi thẳng tới mục "Máy Ubuntu 24.04 sạch, từng lệnh" (chưa chạy trên máy sạch, V45). Phần web (Node) ở các mục "Công cụ web" và "Dựng SPA Tầng 2" bên dưới; những bước chưa chạy trên máy thật được đánh dấu rõ.
 
 ## Yêu cầu
 | Công cụ | Phiên bản | Ghi chú |
@@ -13,6 +13,102 @@
 | npm | **đúng 11.6.2** (`npm@11.6.2`) | npm 10.9 (đi kèm Node 22) không cài được bộ phụ thuộc này; `engine-strict` bật nên phiên bản khác bị từ chối |
 
 Toàn bộ công cụ build đều là phần mềm nguồn mở.
+
+## Máy Ubuntu 24.04 sạch, từng lệnh
+
+> **Trạng thái: chưa chạy trên máy sạch — kiểm ở AT-23 (V45).** Các lệnh dưới đây được soạn từ `BUILD.md`, `docs/runbook-openbao.md`, `ops/doctor.sh` và
+> tài liệu cài Docker chính thức, nhưng **chưa có ai chạy từ một máy Ubuntu 24.04 mới cài**. Người thử AT-23 là người ngoài đội; mọi chỗ
+> vướng ghi vào biên bản (mẫu cùng cấu trúc với `docs/at26-checklist.md`) và sửa tại đây. Ở cloud chỉ kiểm được rằng mọi mục tiêu `make` và tệp
+> được nhắc tới có thật (`tests/repo/test_docs_m5.py`).
+
+Mục tiêu: từ một máy Ubuntu 24.04 vừa cài xong tới stack `p8` (máy 8 GB) hoặc `p16` (máy 16 GB) đang chạy. Cần tài khoản có `sudo` và mạng tới
+Docker Hub, quay.io, ghcr.io, PyPI. Không cần cài Node: `make web-build` dựng giao diện trong một container Node dùng một lần.
+
+**1. Công cụ cơ bản**
+```bash
+sudo apt update
+sudo apt install -y git make curl ca-certificates openssl python3 python3-venv
+```
+
+**2. Docker Engine và Compose (kho apt chính thức của Docker)**
+```bash
+sudo install -m 0755 -d /etc/apt/keyrings
+sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+sudo chmod a+r /etc/apt/keyrings/docker.asc
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+sudo apt update
+sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+sudo usermod -aG docker "$USER"
+```
+Nhóm `docker` chỉ có hiệu lực ở phiên mới: **đăng xuất rồi đăng nhập lại** (hoặc chạy `newgrp docker` trong terminal đang dùng). Kiểm: `docker run --rm hello-world`.
+
+**3. Lấy mã nguồn**
+```bash
+git clone https://github.com/PSA-OVNCR/dxos.git && cd dxos
+git checkout v1.0.0        # bản nộp; khi chưa có tag này thì bỏ dòng này và dùng nhánh main
+```
+
+**4. Kiểm máy** (chỉ đọc, không cài gì; liệt kê mọi điều kiện thiếu cùng cách xử lý, mã thoát 3 nếu thiếu)
+```bash
+ops/doctor.sh --profile p8        # máy 8 GB; máy 16 GB: --profile p16
+```
+
+**5. Python và kiểm thử đơn vị**
+```bash
+python3 -m venv .venv && . .venv/bin/activate
+make dev-install
+make check
+```
+`make check` phải thoát 0 (ruff, `reuse lint`, test đơn vị).
+
+**6. Cấu hình** (mọi cấu hình qua `.env`, không sửa mã)
+```bash
+cp .env.example .env
+```
+Mở `.env` và đặt `DXOS_ORG_NAME` thành tên tổ chức thật (còn giá trị `changeme...` thì lõi **từ chối niêm phong**; tên này ghi vĩnh viễn vào tuyên bố khóa
+của lần niêm phong đầu). Các mật khẩu mẫu `changeme-...` chạy được trên `localhost`; muốn dùng ngoài máy này phải đổi hết và đổi `DXOS_DOMAIN`.
+`COMPOSE_PROFILES=viewer` chỉ có tác dụng ở `p16`.
+
+**7. Ghim image rồi dựng stack**
+```bash
+make pin-images             # bỏ qua được nếu kho đã ghim sẵn digest (chạy xong mà `git status` sạch là đã ghim)
+make up PROFILE=p8          # máy 16 GB: make up PROFILE=p16
+make ps                     # chờ mọi container "healthy"; lần đầu kéo và dựng image nên lâu (chưa đo, ghi thời gian vào biên bản AT-23)
+```
+`make up` dựng `trust-core` từ mã nguồn trên máy này; chạy bằng image đã phát hành theo digest là cách khác, ở mục "Chạy bằng image đã phát hành".
+
+**8. OpenBao: khởi tạo một lần, mở khóa sau mỗi lần khởi động lại** (đầy đủ và giải thích: `docs/runbook-openbao.md` mục 1 đến 3)
+```bash
+mkdir -p -m 700 .secrets
+docker compose -p dxos exec openbao bao operator init -key-shares=1 -key-threshold=1 -format=json > .secrets/openbao-init.json
+chmod 600 .secrets/openbao-init.json
+docker compose -p dxos exec openbao bao operator unseal      # hỏi unseal key (trường unseal_keys_b64 trong tệp trên); gõ không hiện
+read -rs BAO_TOKEN && export BAO_TOKEN                       # dán root_token trong tệp trên
+docker compose -p dxos exec -e BAO_TOKEN openbao sh /openbao/dxos/init.sh    # dòng cuối in token của trust-core
+unset BAO_TOKEN
+```
+Ghi token đó vào `.env` (dòng `OPENBAO_CORE_TOKEN=`), rồi tạo lại hai container lõi:
+```bash
+docker compose -p dxos --env-file .env -f deploy/compose.yaml -f deploy/compose.p8.yaml up -d --force-recreate trust-core-api trust-core-worker
+```
+(`p16`: thay `compose.p8.yaml` bằng `compose.p16.yaml`.) Sau đó **chép `.secrets/openbao-init.json` ra USB hoặc trình quản lý mật khẩu rồi xóa khỏi máy** (nó chứa unseal key và
+root token). Mỗi lần OpenBao khởi động lại thì phải mở khóa lại, nếu không niêm phong bị từ chối.
+
+**9. Dựng giao diện web và kiểm mạng**
+```bash
+make web-build              # npm ci và build các SPA trong container Node, chép vào volume apps-static
+make netcheck               # ma trận mạng (AT-01): mọi dòng phải PASS
+curl -k https://localhost/verify/v1/keys     # phải thấy seal-key và sth-key (-k vì chứng chỉ nội bộ của Caddy)
+```
+Nếu muốn tự dựng web trên máy (không dùng container) thì cần Node 22 và npm đúng 11.6.2; `ops/doctor.sh --web` kiểm hai thứ này.
+
+**10. Mở trình duyệt**: `https://localhost/auth/` (Keycloak; đăng nhập quản trị `admin` với `KEYCLOAK_ADMIN_PASSWORD` trong `.env`), trình duyệt sẽ cảnh báo chứng
+chỉ vì Caddy dùng CA nội bộ cho `localhost`. Realm `dxos` của p8 và p16 **không có người dùng**: tạo hai người dùng (ví dụ `admin1`, `admin2`) trong console Keycloak
+(realm `dxos`, Users, Add user, đặt mật khẩu ở tab Credentials, gán vai trò realm `dxos-admin` ở tab Role mapping). Cài ứng dụng bằng hai người đó theo mục "Cài ứng dụng
+bằng CLI" bên dưới; gán vai trò ứng dụng cho người dùng theo `docs/tutorial-app-30-phut.md`. Muốn có sẵn người dùng thử (mật khẩu `dev-only-password`) thì dựng
+`make up PROFILE=dev-lite`, nhưng hồ sơ đó dùng `fake-av` nên **không dùng để nghiệm thu**.
+
+Trước buổi demo, sau khi đã nạp dữ liệu demo (`demo/README.md`), chạy `ops/demo_preflight.sh`. Gặp lỗi ở bước nào, ghi nguyên văn thông báo vào biên bản AT-23.
 
 ## Build và kiểm thử phần đã có
 ```bash

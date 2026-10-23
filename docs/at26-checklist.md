@@ -1,10 +1,22 @@
-# Checklist AT-26 cho trưởng nhóm (V31)
+# Checklist AT-26 cho trưởng nhóm (V46, thay V31)
 
 **AT-26** (Design Spec, bảng AT; hạng mục H13, R-5): *một người ngoài đội làm theo hướng dẫn H13, tạo được một app mới qua
 manifest mà không sửa `core/`.* Hướng dẫn: [docs/tutorial-app-30-phut.md](tutorial-app-30-phut.md). Đây là kiểm thử **thủ
 công**; kết quả ghi vào `docs/progress/` (mục 6) rồi cập nhật dòng AT-26 ở [docs/acceptance.md](acceptance.md).
 
 Nhãn: **[BB]** bắt buộc theo Design Spec; **[ĐX]** đề xuất của đội, trưởng nhóm quyết định.
+
+## 0. Làm mới ở M5 (Plan 04 Task 16): việc V46 thay V31
+
+AT-26 giờ là việc **V46** (thay V31 của Plan 03), chạy ở **M5, trên bản nộp `v1.0.0`** chứ không trên commit tùy ý: người thử làm theo
+hướng dẫn trên đúng thứ giám khảo sẽ thấy. Hai thay đổi so với bản đầu của checklist:
+
+- **Máy thử là Ubuntu 24.04 sạch** khi có thể, cùng máy hay cùng loại máy của AT-23 (V45, `BUILD.md`, mục "Máy Ubuntu 24.04 sạch, từng lệnh").
+  Cho người thử chạy `ops/doctor.sh` trước (chỉ đọc, liệt kê điều kiện thiếu); biên bản ghi đầu ra của nó. AT-23 và AT-26 có thể do **cùng một người** làm
+  liền nhau trên cùng một máy, nhưng ghi hai biên bản riêng.
+- **Bản thử**: `git checkout v1.0.0` (tag ký, V50). Chưa có tag thì thử trên `main` và ghi rõ commit, nhưng AT-26 chỉ được đóng sau khi chạy lại trên tag.
+
+Trạng thái hiện tại: **chưa tổ chức** (V46). Mọi dòng "*chưa kiểm ở cloud — kiểm trong AT-26*" trong hướng dẫn còn nguyên.
 
 ## 1. Chọn người thử
 
@@ -17,7 +29,7 @@ Nhãn: **[BB]** bắt buộc theo Design Spec; **[ĐX]** đề xuất của đ�
 
 | Mục | Yêu cầu | Nguồn |
 |---|---|---|
-| Hệ điều hành | Linux, macOS hoặc Windows với WSL2 | [BUILD.md](../BUILD.md) |
+| Hệ điều hành | Ubuntu 24.04 (ưu tiên, V45/V46); Linux khác, macOS hoặc Windows với WSL2 cũng được nhưng ghi lại | [BUILD.md](../BUILD.md) |
 | Docker | Docker Engine hoặc Docker Desktop, Compose v2 ≥ 2.24, chạy được hồ sơ `dev-lite` | BUILD.md |
 | Công cụ | Git, GNU Make, Python 3.12. **Không cần Node** (`make web-build` build trong container) | BUILD.md |
 | Bộ nhớ | Hồ sơ `dev-lite` cho laptop; nếu máy chỉ có 8 GB thì dùng `PROFILE=p8` (máy 16 GB: `p16`). **Ghi lại RAM và CPU thực tế** vào biên bản | BUILD.md |
@@ -29,7 +41,7 @@ Hồ sơ `dev-lite` dùng `fake-av` thay ClamAV: **được phép** cho AT-26 (k
 
 ## 3. Trưởng nhóm chuẩn bị (trước ngày thử)
 
-1. Chọn commit thử và ghi lại: `git rev-parse HEAD`. Commit phải chứa `docs/tutorial-app-30-phut.md`, `examples/so-muon-sach/`
+1. Chọn bản thử và ghi lại: `git rev-parse HEAD` (đã `git checkout v1.0.0`, mục 0). Commit phải chứa `docs/tutorial-app-30-phut.md`, `examples/so-muon-sach/`
    và `make web-build` đã gồm `so-muon-sach` (kiểm: `grep so-muon-sach ops/build_web.sh`).
 2. Trên máy của bạn, chạy qua **một lần** toàn bộ hướng dẫn (bạn là người thử "không tính điểm") để mọi dòng
    "*chưa kiểm ở cloud — kiểm trong AT-26*" thành đã kiểm, hoặc ghi lại chỗ sai. Sửa hướng dẫn trước khi mời người ngoài.
