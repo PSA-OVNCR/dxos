@@ -107,9 +107,6 @@ def test_phone_country_code_box_includes_prefix():
     text = "ĐT (+84) 912.345.678 nhé"
     (f,) = run(text)
     boxes = layout(text)
-    for i in range(text.index("("), text.index("8", text.index(")") + 1) + 12):
-        if text[i] in "(+)84 912.345.678"[:0] or i > text.index("8", 12):
-            break
     assert covered(f, boxes[text.index("(")])
     assert covered(f, boxes[text.index("+")])
     assert covered(f, boxes[text.rindex("8")])
@@ -170,7 +167,7 @@ def test_adjacent_numbers_in_a_table_are_both_found():
     text = "079203012345\n0912345678\nSTK: 12345678901"
     assert [f.type for f in run(text)] == ["CCCD", "PHONE", "BANK_ACCOUNT"]
     assert [f.type for f in run("079203012345\n0912345678", types={"PHONE"})] == ["PHONE"]
-    assert run("079203012345\n0912345678\n5") == []  # còn dư số lạ thì không đoán
+    assert [f.type for f in run("079203012345\n0912345678\n5")] == ["CCCD", "PHONE"]  # nhóm lẻ bị bỏ
 
 
 def test_separator_is_one_character_at_most():
@@ -250,3 +247,76 @@ def test_long_digit_run_does_not_blow_up():
     text = "\n".join(["079203012345"] * 300)
     assert len(run(text)) == 300
     assert run("1" * 5000) == []
+
+
+@pytest.mark.parametrize("text,types", [
+    ("1 Nguyễn A 079203012345 0912345678\r\n2 Trần B", ["CCCD", "PHONE"]),
+    ("1 Nguyễn A 079203012345 0912345678\r\n2 Trần B 079203012346 0912345679", ["CCCD", "PHONE"] * 2),
+    ("CCCD\n079203012345\n12/10/2026", ["CCCD"]),
+    ("Điều 3\n079203012345", ["CCCD"]),
+    ("CCCD số 079203012345\n2. Địa chỉ", ["CCCD"]),
+    ("079203012345 2026", ["CCCD"]),
+    ("0912345678\n5", ["PHONE"]),
+    ("1\n0912345678", ["PHONE"]),
+    ("3 079203012345 7", ["CCCD"]),
+    ("2026 12 0912345678", ["PHONE"]),
+])
+def test_stray_digit_groups_do_not_hide_a_valid_number(text, types):
+    assert [f.type for f in run(text)] == types
+
+
+def test_stray_group_is_not_covered_by_the_box():
+    text = "1\n0912345678"
+    (f,) = run(text)
+    boxes = layout(text)
+    assert not covered(f, boxes[0])
+    assert covered(f, boxes[2])
+
+
+def test_dot_and_dash_joined_groups_are_atomic():
+    assert run("0312345678-001") == []
+    assert run("0312345678.001") == []
+    assert run("0912345678-5") == []  # nối bằng "-" thì không tách phần dư ra
+    assert [f.type for f in run("0912345678 -5")] == ["PHONE"]
+
+
+@pytest.mark.parametrize("text", [
+    "MST: 0312345678",
+    "MST 0312 345 678",
+    "Mã số thuế 0312345678 - 001",
+    "mã số thuế: 0312345678",
+    "MST: 079203012345",
+])
+def test_tax_code_after_keyword_is_not_phone_or_cccd(text):
+    assert run(text) == []
+
+
+def test_tax_keyword_does_not_hide_a_later_phone():
+    text = "MST: 0312345678, ĐT 0912345678"
+    (f,) = run(text)
+    assert f.type == "PHONE"
+    boxes = layout(text)
+    assert covered(f, boxes[-1]) and not covered(f, boxes[text.index("0")])
+    assert [x.type for x in run("Mã số thuế\n0312345678\nSĐT 0987654321")] == ["PHONE"]
+
+
+def test_tax_keyword_far_away_does_not_apply():
+    assert [f.type for f in run("MST" + " " * 31 + "0312345678")] == ["PHONE"]
+
+
+def test_country_code_may_follow_a_letter():
+    found = run("ĐT(+84)912345678")
+    assert [f.type for f in found] == ["PHONE"]
+    assert run("ĐT+84 912 345 678")[0].type == "PHONE"
+    assert run("5(+84)912345678") == []  # chữ số liền trước thì không
+    assert run("+84 0912345678") == []  # giới hạn đã biết
+    assert run("0084 912345678") == []  # giới hạn đã biết
+
+
+@pytest.mark.parametrize("text", ["50m² 079203012345", "①079203012345", "² 0912345678"])
+def test_superscript_and_circled_digits_are_not_digits(text):
+    assert len(run(text)) == 1
+
+
+def test_superscript_does_not_join_digits():
+    assert run("07920301234²5") == []  # 11 số + ² + 5: ² không nối thành 13 số
