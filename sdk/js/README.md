@@ -121,6 +121,11 @@ else console.log(res.code, res.message)    // res.code là FailCode: FORMAT, SIG
   không theo chuyển hướng và chỉ gọi đúng host của `base`.
 - Người gọi phải giải mã gói bằng UTF-8 nghiêm ngặt (`new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })`) nếu tự
   đọc từ tệp. `client.bundle` đã trả văn bản.
+- `allowPendingAnchor: true` (chỉ có nghĩa khi có `anchor`; mặc định tắt, tức chặt như `dxos-witness verify-bundle --anchor-dir`):
+  niêm phong vừa ban hành thường chưa có STH phủ nó trên repo neo. Khi gói không có `anchored`, STH đã neo chưa phủ lá, hoặc
+  repo neo chưa có `sth/<n>.json` đó, kết quả là `ok: true, pinned: true, pendingAnchor: true` thay vì `NOT_ANCHORED`; nơi gọi
+  phải hiện như "chưa neo", không như "đã neo". Khóa vẫn phải khớp repo neo, chữ ký, inclusion và consistency vẫn kiểm đủ, và
+  `sth/<n>.json` đã có trong repo mà khác `anchored.sth` vẫn là `NOT_ANCHORED`. Không dùng tùy chọn này để kiểm ngoại tuyến.
 - Cổng đối soát đầy đủ (rơi về không ghim khi repo neo không truy cập được, nhãn kết quả): `verify-portal/app/src/verify.ts`.
 
 ## Thành phần Vue (`dxos-sdk-js/vue`)

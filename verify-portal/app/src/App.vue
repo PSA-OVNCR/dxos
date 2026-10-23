@@ -204,6 +204,7 @@ const localText = computed(() => {
     if (bundleError.value !== null) return 'không lấy được gói bằng chứng'
     return requireFile.value ? 'chờ bạn chọn tệp để lấy gói bằng chứng' : 'chưa có gói bằng chứng'
   }
+  if (l.result.ok && l.result.pendingAnchor) return 'đạt, khóa đã đối chiếu repo neo; STH phủ niêm phong chưa được công bố ở repo neo'
   if (l.result.ok) return `đạt, ${l.result.pinned ? 'đã đối chiếu repo neo' : 'chưa đối chiếu repo neo'}`
   if (l.result.code === 'UNSUPPORTED_CRYPTO') return 'trình duyệt này không có Ed25519, không tự kiểm được chữ ký'
   return 'không đạt'

@@ -77,7 +77,7 @@ người xem thấy "Không hợp lệ"; runbook yêu cầu chạy `anchor:run` 
 
 ## Chưa làm
 
-- Sửa cổng cho niêm phong chưa neo (Plan 04 Task 14), rồi chạy lại bộ trình duyệt với repo neo GitHub.
+- ~~Sửa cổng cho niêm phong chưa neo~~ — đã sửa ở Plan 04 Task 14 (`allowPendingAnchor`, nhãn "Hợp lệ — chưa neo công khai"). Còn chạy lại bộ trình duyệt với repo neo GitHub (V39).
 - Trên VPS: dùng repo chính `dxos-transparency-log` với khóa deploy riêng của VPS, `DXOS_ANCHOR_REPO_DIR` mới (runbook mục 3).
 - Witness độc lập theo dõi repo neo chính.
 

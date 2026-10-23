@@ -4,6 +4,7 @@
 // `witness/src/dxos_witness/bundle.py` (CÙNG thứ tự, CÙNG mã lỗi; docs/api/contract-tier2.md mục 6.5–6.6).
 // Đọc gói như CLI `dxos-witness verify-bundle` (khóa JSON trùng → MALFORMED). Có `anchor` thì đối chiếu
 // từng byte với repo neo như `--anchor-dir`. Trường `status` của gói không được ký nên bị bỏ qua.
+// Mặc định chặt như `--anchor-dir`; cổng đối soát bật `allowPendingAnchor` để "chưa neo kịp" là `pendingAnchor`, không phải lỗi.
 // Mọi lỗi bất ngờ → MALFORMED, không bao giờ ok. Không có Ed25519 trong WebCrypto → UNSUPPORTED_CRYPTO.
 import type { AnchorSource } from './anchor'
 import { canonicalBytes, JsonFloat, nfcEntries, parseJson, type Json } from './canonical'
@@ -22,6 +23,11 @@ export interface BundleResult {
   code: FailCode | null
   /** Hỏng: `"<MÃ>: <chi tiết>"` như `detail` của witness; hợp lệ: các ghi chú bắt đầu bằng "OK". */
   message: string
+  /**
+   * true chỉ khi `ok` và đã ghim, `allowPendingAnchor` được bật và STH đã neo CHƯA có/chưa phủ lá/chưa được công bố ở
+   * repo neo (mọi bước khác đều đạt, khóa đã khớp repo neo). Nơi gọi phải hiển thị như "chưa neo", không như "đã neo".
+   */
+  pendingAnchor?: boolean
   /** Payload đã ký (chỉ khi ok). */
   payload: Json | null
   /** Bên niêm phong theo tuyên bố khóa (chỉ khi ok). */
@@ -32,6 +38,14 @@ export interface VerifyOptions {
   anchor?: AnchorSource
   /** SHA-256 (hex) của tệp gốc người dùng chọn, như `--file`. */
   fileSha256?: string
+  /**
+   * Chỉ có nghĩa khi có `anchor`. Mặc định (false) giữ nguyên kiểm chặt của `dxos-witness verify-bundle --anchor-dir`
+   * (ruling C8): gói không có `anchored`, STH đã neo chưa phủ lá, hoặc repo neo chưa có `sth/<n>.json` đều là
+   * NOT_ANCHORED. Bật lên (cổng đối soát, Plan 04 R11) thì ba trường hợp "chưa neo kịp" đó cho `ok: true,
+   * pendingAnchor: true`; mọi bước khác vẫn chặt (khóa phải khớp repo neo, chữ ký, inclusion, consistency, và
+   * `sth/<n>.json` CÓ trong repo mà khác `anchored.sth` vẫn là NOT_ANCHORED).
+   */
+  allowPendingAnchor?: boolean
 }
 
 const BUNDLE_FORMAT = 'dxos-seal-bundle/1'
@@ -267,7 +281,9 @@ function checkStatement(st: Obj, version: number | bigint, sealPub: Uint8Array, 
 }
 
 // ---------------------------------------------------------------- kiểm
-async function verify(subtle: SubtleCrypto, b: unknown, anchor: AnchorSource | null, fileSha256: string | null): Promise<BundleResult> {
+async function verify(
+  subtle: SubtleCrypto, b: unknown, anchor: AnchorSource | null, fileSha256: string | null, allowPending: boolean,
+): Promise<BundleResult> {
   // 1. định dạng
   b = obj(b, 'gói')
   if (get(b, 'format') !== BUNDLE_FORMAT) fail('FORMAT', `format phải là ${BUNDLE_FORMAT}`)
@@ -355,14 +371,29 @@ async function verify(subtle: SubtleCrypto, b: unknown, anchor: AnchorSource | n
 
   // 7. neo
   const covered = anchoredSth !== null && anchoredSth.tree_size > leafIndex
+  let pendingWhy: string | null = null // chỉ khi allowPendingAnchor: lý do "chưa neo kịp"
   if (anchor !== null) {
-    if (anchoredSth === null) return fail('NOT_ANCHORED', 'gói không có STH đã neo')
-    const aSize = anchoredSth.tree_size
-    if (!covered) fail('NOT_ANCHORED', `STH đã neo (cỡ ${aSize}) chưa phủ lá ${leafIndex}`)
-    const path = `sth/${pad12(aSize)}.json`
-    const data = await anchor.file(path)
-    if (data === null || !bytesEqual(data, cb(anchoredSth))) {
-      fail('NOT_ANCHORED', `${path} trong repo neo thiếu hoặc khác anchored.sth`)
+    if (anchoredSth === null) {
+      if (!allowPending) fail('NOT_ANCHORED', 'gói không có STH đã neo')
+      pendingWhy = 'gói chưa kèm STH đã neo'
+    } else {
+      const aSize = anchoredSth.tree_size
+      const path = `sth/${pad12(aSize)}.json`
+      if (!allowPending) {
+        if (!covered) fail('NOT_ANCHORED', `STH đã neo (cỡ ${aSize}) chưa phủ lá ${leafIndex}`)
+        const data = await anchor.file(path)
+        if (data === null || !bytesEqual(data, cb(anchoredSth))) {
+          fail('NOT_ANCHORED', `${path} trong repo neo thiếu hoặc khác anchored.sth`)
+        }
+      } else {
+        // Tệp CÓ trong repo neo mà khác anchored.sth là hỏng thật, kể cả khi STH chưa phủ lá; chỉ "chưa có" mới là chờ.
+        const data = await anchor.file(path)
+        if (data !== null && !bytesEqual(data, cb(anchoredSth))) {
+          fail('NOT_ANCHORED', `${path} trong repo neo khác anchored.sth`)
+        }
+        if (!covered) pendingWhy = `STH đã neo (cỡ ${aSize}) chưa phủ lá ${leafIndex}`
+        else if (data === null) pendingWhy = `${path} chưa có trong repo neo`
+      }
     }
   }
   if (anchoredSth !== null) {
@@ -387,21 +418,26 @@ async function verify(subtle: SubtleCrypto, b: unknown, anchor: AnchorSource | n
 
   // 9. kết quả; status của gói không được dùng
   const notes = ['OK']
-  if (anchor !== null) {
+  if (anchor !== null && pendingWhy !== null) {
+    notes.push(`khóa đã ghim từ repo neo; chưa neo công khai: ${pendingWhy}`)
+  } else if (anchor !== null) {
     notes.push(`khóa đã ghim từ repo neo; đã neo: sth/${pad12(anchoredSth!.tree_size)}.json`)
   } else {
     notes.push('chưa ghim khóa: khóa lấy từ chính gói (không có repo neo)')
     notes.push(covered ? 'STH đã neo theo gói, chưa đối chiếu repo neo' : 'chưa neo: chưa có STH đã neo phủ lá')
   }
   notes.push(`trạng thái thu hồi cần tra trực tuyến: GET /verify/v1/seals/${sealId}`)
-  return { ok: true, pinned: anchor !== null, code: null, message: notes.join('; '), payload: payload as Json, issuer }
+  return {
+    ok: true, pinned: anchor !== null, pendingAnchor: pendingWhy !== null, code: null, message: notes.join('; '),
+    payload: payload as Json, issuer,
+  }
 }
 
 /** Nội bộ (cho test): như `verifyBundle` nhưng dùng `subtle` được truyền vào. */
 export async function verifyBundleWith(subtle: SubtleCrypto, text: string, o: VerifyOptions = {}): Promise<BundleResult> {
   const anchor = o.anchor ?? null
   const bad = (code: FailCode, message: string): BundleResult =>
-    ({ ok: false, pinned: anchor !== null, code, message, payload: null, issuer: null })
+    ({ ok: false, pinned: anchor !== null, pendingAnchor: false, code, message, payload: null, issuer: null })
   try {
     let b: unknown
     try {
@@ -409,7 +445,7 @@ export async function verifyBundleWith(subtle: SubtleCrypto, text: string, o: Ve
     } catch (e) {
       return bad('MALFORMED', `MALFORMED: không đọc được gói: ${(e as Error).name}: ${(e as Error).message}`)
     }
-    return await verify(subtle, b, anchor, o.fileSha256 ?? null)
+    return await verify(subtle, b, anchor, o.fileSha256 ?? null, o.allowPendingAnchor === true)
   } catch (e) {
     if (e instanceof Fail) return bad(e.code, e.message)
     if (e instanceof Unsupported) {

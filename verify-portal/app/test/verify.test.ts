@@ -128,6 +128,84 @@ describe('verifyInBrowser', () => {
   })
 })
 
+// Plan 04 R11: niêm phong vừa ban hành, STH phủ nó chưa kịp lên repo neo → chờ, không phải "Không hợp lệ". Mọi bước khác chặt.
+describe('verifyInBrowser: STH chưa neo kịp', () => {
+  const edit = (v: Vector, fn: (b: Record<string, any>) => void): string => { // eslint-disable-line @typescript-eslint/no-explicit-any
+    const b = JSON.parse(v.bundle_text) as Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
+    fn(b)
+    return JSON.stringify(b)
+  }
+  const without = (v: Vector, path: string): Vector => {
+    const { [path]: _drop, ...rest } = v.anchor_files
+    return { ...v, anchor_files: rest }
+  }
+
+  test('STH đã neo chưa phủ lá (khóa đã ghim) → ok, pendingAnchor, pinned, không ghi chú "chưa đối chiếu"', async () => {
+    const v = vec('leaf-after-last-anchor')
+    const r = await verifyInBrowser(v.bundle_text, { anchor: fromVector(v) })
+    expect(r.result.ok).toBe(true)
+    expect(r.result.pinned).toBe(true)
+    expect(r.result.pendingAnchor).toBe(true)
+    expect(r.anchorNote).toBe('')
+  })
+
+  test('gói không có anchored → pendingAnchor', async () => {
+    const v = vec('ok-anchored')
+    const r = await verifyInBrowser(edit(v, (b) => { delete b.anchored }), { anchor: fromVector(v) })
+    expect([r.result.ok, r.result.pinned, r.result.pendingAnchor]).toEqual([true, true, true])
+  })
+
+  test('sth/<n>.json trong repo neo khác anchored.sth → hỏng thật (NOT_ANCHORED), kể cả khi chưa phủ lá', async () => {
+    const v = vec('anchor-sth-mismatch')
+    const r = await verifyInBrowser(v.bundle_text, { anchor: fromVector(v) })
+    expect([r.result.ok, r.result.code, r.result.pendingAnchor]).toEqual([false, 'NOT_ANCHORED', false])
+    const lv = vec('leaf-after-last-anchor')
+    const size = (JSON.parse(lv.bundle_text) as { anchored: { sth: { tree_size: number } } }).anchored.sth.tree_size
+    const path = `sth/${String(size).padStart(12, '0')}.json`
+    const differs = { ...lv, anchor_files: { ...lv.anchor_files, [path]: lv.anchor_files['keys/sth-key/v1.pub']! } }
+    const r2 = await verifyInBrowser(lv.bundle_text, { anchor: fromVector(differs) })
+    expect([r2.result.ok, r2.result.code]).toEqual([false, 'NOT_ANCHORED'])
+  })
+
+  test('khóa chưa neo trong repo → hỏng thật dù STH chưa neo kịp; máy chủ không dùng "chờ" để né việc ghim khóa', async () => {
+    const lv = vec('leaf-after-last-anchor')
+    for (const path of ['keys/seal-key/v1.pub', 'keys/sth-key/v1.pub']) {
+      const r = await verifyInBrowser(lv.bundle_text, { anchor: fromVector(without(lv, path)) })
+      expect([r.result.ok, r.result.code, r.result.pendingAnchor], path).toEqual([false, 'KEY_NOT_ANCHORED', false])
+      expect(r.anchorNote).toBe('')
+    }
+    const km = vec('key-mismatch')
+    const r = await verifyInBrowser(km.bundle_text, { anchor: fromVector(km) })
+    expect([r.result.ok, r.result.code]).toEqual([false, 'KEY_MISMATCH'])
+  })
+
+  test('chữ ký, inclusion, consistency vẫn hỏng thật khi chờ neo', async () => {
+    for (const [name, code] of [['tampered-payload', 'SIGNATURE'], ['tampered-proof', 'INCLUSION'],
+      ['sth-signature', 'STH_SIGNATURE'], ['consistency', 'CONSISTENCY']] as const) {
+      const v = vec(name)
+      const r = await verifyInBrowser(v.bundle_text, { anchor: fromVector(v) })
+      expect([r.result.ok, r.result.code], name).toEqual([false, code])
+    }
+  })
+
+  test('đã neo thật: không pending', async () => {
+    const v = vec('ok-anchored')
+    expect((await verifyInBrowser(v.bundle_text, { anchor: fromVector(v) })).result.pendingAnchor).toBe(false)
+  })
+
+  test('chưa cấu hình repo neo: không bao giờ pending', async () => {
+    const v = vec('leaf-after-last-anchor')
+    const r = await verifyInBrowser(v.bundle_text, {})
+    expect([r.result.ok, r.result.pinned, r.result.pendingAnchor]).toEqual([true, false, false])
+  })
+
+  test('niêm phong khác mã đang kiểm vẫn bị loại khi đang chờ neo', async () => {
+    const v = vec('leaf-after-last-anchor')
+    const r = await verifyInBrowser(v.bundle_text, { anchor: fromVector(v), sealId: 'ZZZZZZZZZZZZZZZZZZZZZZZZZZ' })
+    expect([r.result.ok, r.result.code, r.result.pendingAnchor]).toEqual([false, 'MALFORMED', false])
+  })
+})
+
 describe('explainFailure', () => {
   const codes = ['FORMAT', 'KEY_VERSION', 'KEY_MISSING', 'KEY_NOT_ANCHORED', 'KEY_MISMATCH', 'KEY_STATEMENT',
     'KEY_STATEMENT_MISSING', 'KEY_STATEMENT_NOT_ANCHORED', 'KEY_NOT_VALID_AT_ISSUE', 'SIGNATURE', 'LEAF_LINK',

@@ -94,6 +94,16 @@ test('anchor repo answers 404 for the key → Không hợp lệ (genuine pinned 
   await expect(page.getByText('Không truy cập được repo neo')).toHaveCount(0)
 })
 
+test('STH phủ niêm phong chưa kịp lên repo neo → "Hợp lệ — chưa neo công khai" kèm lời nhắc, không phải Không hợp lệ (R11)', async ({ page }) => {
+  // Vector `leaf-after-last-anchor`: khóa khớp repo neo, mọi chữ ký và chứng minh đạt, nhưng STH đã neo chưa phủ lá.
+  await mockVerifyApi(page, { requireFile: false, bundleVector: 'leaf-after-last-anchor' })
+  await page.goto(PAGE)
+  await expect(page.getByTestId('verdict')).toHaveText('Hợp lệ — chưa neo công khai')
+  await expect(page.getByText(/chưa được công bố ở repo neo/).first()).toBeVisible()
+  await expect(page.getByText('Không hợp lệ')).toHaveCount(0)
+  await expect(page.getByText('Đơn vị niêm phong: ')).toBeVisible()
+})
+
 test('valid seal shows issuer, labelled public fields and Vietnam time, and downloads the server bundle', async ({ page }) => {
   await mockVerifyApi(page, { requireFile: false })
   await page.goto(PAGE)

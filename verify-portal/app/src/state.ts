@@ -105,6 +105,8 @@ const NEEDS_LOCAL: ReadonlySet<PortalState> = new Set(['VALID_UNANCHORED', 'VALI
  * Nhãn cuối cùng. `local` là kết quả `verifyBundle` trên gói do máy chủ trả (null: chưa có gói).
  * - tự kiểm hỏng (trừ UNSUPPORTED_CRYPTO) → "Không hợp lệ", bất kể máy chủ báo gì;
  * - UNSUPPORTED_CRYPTO → nhãn của máy chủ kèm lời giải thích;
+ * - đạt nhưng khóa đã ghim còn STH phủ niêm phong chưa được công bố ở repo neo (`pendingAnchor`, Plan 04 R11) →
+ *   "Hợp lệ — chưa neo công khai" như trạng thái chưa neo, kèm lời nhắc kiểm lại sau vài phút;
  * - đạt → "Hợp lệ — đã/chưa đối chiếu repo neo", trừ khi máy chủ báo đã thu hồi (thu hồi không nằm trong
  *   gói đã ký nên chỉ máy chủ biết; máy chủ chỉ được phép hạ nhãn);
  * - chưa có kết quả tự kiểm mà máy chủ báo VALID → "Chưa tự kiểm", không bao giờ "Hợp lệ" trần.
@@ -123,6 +125,13 @@ export function finalVerdict(state: PortalState, local: BundleResult | null): Ve
   if (local !== null && local.ok) {
     if (state === 'REVOKED') return { ...server, note: `${server.note} Chữ ký trong gói đã được trình duyệt kiểm đạt.` }
     if (!NEEDS_LOCAL.has(state)) return server
+    if (local.pendingAnchor === true) {
+      return {
+        ...SERVER_VERDICT.VALID_UNANCHORED,
+        note: 'Chữ ký, chứng minh thuộc sổ cái và khóa đã được đối chiếu với repo neo, nhưng STH phủ niêm phong này chưa được '
+          + 'công bố ở repo neo. Hãy kiểm tra lại sau vài phút.',
+      }
+    }
     return local.pinned
       ? { label: 'Hợp lệ — đã đối chiếu repo neo', tone: 'ok',
           note: 'Trình duyệt tự kiểm chữ ký, chứng minh thuộc sổ cái và so STH với repo neo.' }

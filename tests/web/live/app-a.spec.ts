@@ -109,7 +109,11 @@ test.describe.serial('App A: từ nháp đến văn bản ban hành', () => {
     })
     await page.setInputFiles('#file-input', PII_PDF_PATH)
     await expect(page.getByText('Khớp: tệp này đúng là tệp đã được niêm phong.')).toBeVisible()
-    await expect(page.getByTestId('verdict')).toHaveText(/^Hợp lệ/)
+    // Cổng dựng với repo neo (chế độ ghim) thì niêm phong vừa ban hành chưa có STH phủ nó trên repo neo: nhãn là
+    // "Hợp lệ — chưa neo công khai" (Plan 04 R11), không phải "Không hợp lệ" (lần chạy V34 lần 2, 23/10/2026). Chấp nhận
+    // cả ba nhãn hợp lệ; "Không hợp lệ" và "Chưa tự kiểm" không khớp mẫu này.
+    await expect(page.getByTestId('verdict')).toHaveText(
+      /^Hợp lệ — (đã đối chiếu repo neo|chưa neo công khai|chưa đối chiếu repo neo)$/)
     await expect(page.getByRole('heading', { name: 'Trình duyệt tự kiểm' })).toBeVisible()
     await shot(page, 'app-a-4-doi-soat-hop-le')
   })

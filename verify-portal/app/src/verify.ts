@@ -19,6 +19,11 @@ export interface LocalCheck {
  * `text` là văn bản gói đúng như máy chủ trả (không qua JSON.parse). Có `anchor` thì kiểm ghim. Nếu kiểm ghim
  * hỏng VÌ nguồn neo ném lỗi (mạng, CORS, 5xx), thì đó là "chưa đối chiếu được" chứ không phải "không hợp lệ":
  * kiểm lại không ghim và báo kèm ghi chú. Repo neo trả 404 (→ *_NOT_ANCHORED) hay tệp khác gói là hỏng thật.
+ *
+ * Plan 04 R11: kiểm ghim bật `allowPendingAnchor`. Khóa vẫn phải khớp repo neo, chữ ký, inclusion, consistency vẫn đủ,
+ * và `sth/<n>.json` có trong repo mà khác gói vẫn là hỏng; chỉ riêng "STH phủ niêm phong chưa kịp lên repo neo" (gói
+ * không có `anchored`, STH đã neo chưa phủ lá, hay repo chưa có tệp STH đó) trả `ok` kèm `pendingAnchor` (nhãn "Hợp
+ * lệ — chưa neo công khai"), vì niêm phong vừa ban hành luôn đi qua trạng thái này. `dxos-witness --anchor-dir` vẫn chặt.
  */
 export async function verifyInBrowser(
   text: string, o: { anchor?: AnchorSource; fileSha256?: string; sealId?: string },
@@ -30,7 +35,7 @@ export async function verifyInBrowser(
   if (o.sealId !== undefined && r.ok && !(isObj(r.payload) && r.payload.seal_id === o.sealId)) {
     return {
       ...check,
-      result: { ...r, ok: false, code: 'MALFORMED', message: `MALFORMED: ${NOTE_SEAL_ID_MISMATCH}`,
+      result: { ...r, ok: false, pendingAnchor: false, code: 'MALFORMED', message: `MALFORMED: ${NOTE_SEAL_ID_MISMATCH}`,
         payload: null, issuer: null },
     }
   }
@@ -55,7 +60,7 @@ async function verifyPinnedOrNot(
       }
     },
   }
-  const pinned = await verifyBundle(text, { anchor: watched, fileSha256 })
+  const pinned = await verifyBundle(text, { anchor: watched, fileSha256, allowPendingAnchor: true })
   if (!pinned.ok && threw && !(await anchorReachable(anchor))) {
     return { result: await verifyBundle(text, { fileSha256 }), anchorNote: NOTE_ANCHOR_UNREACHABLE }
   }

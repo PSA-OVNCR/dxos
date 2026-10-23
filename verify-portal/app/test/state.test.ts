@@ -3,7 +3,7 @@
 // Bảng trạng thái của verify-portal/minimal/README.md ("Trạng thái hiển thị"), thêm 429, và nhãn cuối cùng.
 import type { BundleResult, Json } from 'dxos-sdk-js'
 import { describe, expect, test } from 'vitest'
-import { finalVerdict, formatVn, SEAL_ID, serverSays, viewState, type PortalState } from '../src/state'
+import { finalVerdict, formatVn, SEAL_ID, serverSays, serverVerdict, viewState, type PortalState } from '../src/state'
 
 const anchored = { tree_size: 8, repo: 'r', commit_sha: 'c' }
 function view(over: Record<string, unknown> = {}): Json {
@@ -53,7 +53,29 @@ const bad = (code: BundleResult['code']): BundleResult => ({
   ok: false, pinned: true, code, message: `${code}: x`, payload: null, issuer: null,
 })
 
+const pendingOk = (): BundleResult => ({ ...ok(true), pendingAnchor: true })
+
 describe('finalVerdict', () => {
+  test('khóa đã ghim nhưng STH chưa neo kịp → "Hợp lệ — chưa neo công khai", không phải "Không hợp lệ" (Plan 04 R11)', () => {
+    for (const s of ['VALID_UNANCHORED', 'VALID_ANCHORED'] as const) {
+      const v = finalVerdict(s, pendingOk())
+      expect(v.label).toBe('Hợp lệ — chưa neo công khai')
+      expect(v.label).toBe(serverVerdict('VALID_UNANCHORED').label) // cùng nhãn và cùng huy hiệu với trạng thái chưa neo
+      expect(v.tone).toBe(serverVerdict('VALID_UNANCHORED').tone)
+      expect(v.tone).toBe('unanchored')
+      expect(v.note).toContain('chưa được công bố')
+      expect(v.note).toContain('vài phút')
+    }
+  })
+  test('chờ neo không nâng nhãn: máy chủ báo thu hồi thì vẫn "Đã thu hồi"; tự kiểm hỏng vẫn "Không hợp lệ"', () => {
+    expect(finalVerdict('REVOKED', pendingOk()).label).toBe('Đã thu hồi')
+    expect(finalVerdict('VALID_UNANCHORED', bad('NOT_ANCHORED')).label).toBe('Không hợp lệ')
+    expect(finalVerdict('VALID_UNANCHORED', bad('KEY_NOT_ANCHORED')).label).toBe('Không hợp lệ')
+  })
+  test('đã neo thật (pendingAnchor false/vắng) vẫn là "Hợp lệ — đã đối chiếu repo neo"', () => {
+    expect(finalVerdict('VALID_ANCHORED', { ...ok(true), pendingAnchor: false }).label).toBe('Hợp lệ — đã đối chiếu repo neo')
+    expect(finalVerdict('VALID_ANCHORED', ok(true)).label).toBe('Hợp lệ — đã đối chiếu repo neo')
+  })
   test('server VALID nhưng gói SIGNATURE sai → Không hợp lệ', () => {
     const v = finalVerdict('VALID_ANCHORED', bad('SIGNATURE'))
     expect(v.label).toBe('Không hợp lệ')

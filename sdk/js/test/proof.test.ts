@@ -203,6 +203,134 @@ test('base64 decoding follows Python b64decode(validate=True)', () => {
   expect(b64decodePy('AA=A')).toBeNull()
 })
 
+// ---------------------------------------------------------------- Plan 04 R11: "chưa neo kịp" là chờ, không phải lỗi
+describe('verifyBundle allowPendingAnchor (cổng đối soát)', () => {
+  const pad = (n: number) => String(n).padStart(12, '0')
+  const strip = (v: Vector, files: Record<string, string | null>): Vector => ({
+    ...v, anchor_files: Object.fromEntries(Object.entries({ ...v.anchor_files, ...files }).filter(([, x]) => x !== null)) as Record<string, string>,
+  })
+  const edit = (v: Vector, fn: (b: Record<string, any>) => void): string => { // eslint-disable-line @typescript-eslint/no-explicit-any
+    const b = JSON.parse(v.bundle_text) as Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
+    fn(b)
+    return JSON.stringify(b)
+  }
+  const b64Of = (u: Uint8Array) => btoa(String.fromCharCode(...u))
+  const flipHex = (h: string) => (h[0] === '0' ? '1' : '0') + h.slice(1)
+  const pending = (v: Vector, text = v.bundle_text) => verifyBundle(text, { anchor: anchorOf(v), allowPendingAnchor: true })
+  const strict = (v: Vector, text = v.bundle_text) => verifyBundle(text, { anchor: anchorOf(v) })
+
+  test('STH đã neo chưa phủ lá: strict → NOT_ANCHORED; allowPendingAnchor → ok, pendingAnchor, vẫn pinned', async () => {
+    const v = loadVec('leaf-after-last-anchor.json')
+    expect((await strict(v)).code).toBe('NOT_ANCHORED')
+    const r = await pending(v)
+    expect(r.ok).toBe(true)
+    expect(r.code).toBeNull()
+    expect(r.pinned).toBe(true)
+    expect(r.pendingAnchor).toBe(true)
+    expect(r.payload).not.toBeNull()
+    expect(r.issuer).not.toBeNull()
+    expect(r.message).toMatch(/^OK; /)
+    expect(r.message).toContain('chưa phủ lá')
+  })
+
+  test('gói không có anchored: strict → NOT_ANCHORED; allowPendingAnchor → pendingAnchor', async () => {
+    const v = loadVec('ok-anchored.json')
+    const text = edit(v, (b) => { delete b.anchored })
+    const s = await strict(v, text)
+    expect([s.ok, s.code]).toEqual([false, 'NOT_ANCHORED'])
+    const r = await pending(v, text)
+    expect([r.ok, r.pinned, r.pendingAnchor]).toEqual([true, true, true])
+    const nul = await pending(v, edit(v, (b) => { b.anchored = null }))
+    expect([nul.ok, nul.pendingAnchor]).toEqual([true, true])
+  })
+
+  test('repo neo chưa có sth/<n>.json của STH đã neo (đẩy chưa kịp): chờ; strict vẫn NOT_ANCHORED', async () => {
+    const v = loadVec('ok-anchored.json')
+    const size = (JSON.parse(v.bundle_text) as { anchored: { sth: { tree_size: number } } }).anchored.sth.tree_size
+    const missing = strip(v, { [`sth/${pad(size)}.json`]: null })
+    expect((await strict(missing)).code).toBe('NOT_ANCHORED')
+    const r = await pending(missing)
+    expect([r.ok, r.pendingAnchor]).toEqual([true, true])
+    expect(r.message).toContain('chưa có trong repo neo')
+  })
+
+  test('đã neo và khớp repo: không pending (allowPendingAnchor không đổi kết quả của gói đã neo)', async () => {
+    for (const f of ['ok-anchored.json', 'ok-newer-sth.json']) {
+      const v = loadVec(f)
+      const r = await pending(v)
+      expect([r.ok, r.pinned, r.pendingAnchor], f).toEqual([true, true, false])
+      expect(r.message).toContain('đã neo: sth/')
+    }
+  })
+
+  test('sth/<n>.json CÓ trong repo nhưng khác anchored.sth → hỏng thật, kể cả khi STH chưa phủ lá', async () => {
+    const v = loadVec('anchor-sth-mismatch.json')
+    expect((await pending(v)).code).toBe('NOT_ANCHORED')
+    const lv = loadVec('leaf-after-last-anchor.json')
+    const size = (JSON.parse(lv.bundle_text) as { anchored: { sth: { tree_size: number } } }).anchored.sth.tree_size
+    const other = Object.values(lv.anchor_files).find((x) => x !== undefined)!
+    const differs = strip(lv, { [`sth/${pad(size)}.json`]: other })
+    const r = await pending(differs)
+    expect([r.ok, r.code, r.pendingAnchor]).toEqual([false, 'NOT_ANCHORED', false])
+  })
+
+  test('khóa chưa neo / khóa khác khóa đã neo → hỏng thật, không bao giờ pending', async () => {
+    const cases: [string, string][] = [['seal-key-not-anchored.json', 'KEY_NOT_ANCHORED'],
+      ['sth-key-not-anchored.json', 'KEY_NOT_ANCHORED'], ['key-mismatch.json', 'KEY_MISMATCH'],
+      ['statement-not-anchored.json', 'KEY_STATEMENT_NOT_ANCHORED'], ['statement-differs.json', 'KEY_STATEMENT']]
+    for (const [f, code] of cases) {
+      const r = await pending(loadVec(f))
+      expect([r.ok, r.code, r.pendingAnchor], f).toEqual([false, code, false])
+    }
+    // Cùng gói "chưa neo kịp" nhưng khóa sth không có trong repo neo: máy chủ không thể dùng chờ để né việc ghim khóa.
+    const lv = loadVec('leaf-after-last-anchor.json')
+    const noKey = await pending(strip(lv, { 'keys/sth-key/v1.pub': null }))
+    expect([noKey.ok, noKey.code]).toEqual([false, 'KEY_NOT_ANCHORED'])
+    const noSeal = await pending(strip(lv, { 'keys/seal-key/v1.pub': null }))
+    expect([noSeal.ok, noSeal.code]).toEqual([false, 'KEY_NOT_ANCHORED'])
+    // Và với gói không có anchored.
+    const ok = loadVec('ok-anchored.json')
+    const text = edit(ok, (b) => { delete b.anchored })
+    expect((await pending(strip(ok, { 'keys/sth-key/v1.pub': null }), text)).code).toBe('KEY_NOT_ANCHORED')
+    expect((await pending(strip(ok, { 'keys/seal-key/v1.json': null }), text)).code).toBe('KEY_STATEMENT_NOT_ANCHORED')
+  })
+
+  test('chữ ký niêm phong, inclusion, chữ ký STH, STH đã neo và consistency vẫn kiểm đủ khi chờ neo', async () => {
+    const lv = loadVec('leaf-after-last-anchor.json')
+    expect((await pending(loadVec('tampered-payload.json'))).code).toBe('SIGNATURE')
+    expect((await pending(loadVec('tampered-proof.json'))).code).toBe('INCLUSION')
+    expect((await pending(loadVec('sth-signature.json'))).code).toBe('STH_SIGNATURE')
+    // consistency của STH đã neo cũ bị sửa
+    const bad = edit(lv, (b) => { b.anchored.consistency[0] = flipHex(b.anchored.consistency[0] as string) })
+    const c = await pending(lv, bad)
+    expect([c.ok, c.code]).toEqual([false, 'CONSISTENCY'])
+    // chữ ký của STH đã neo cũ bị sửa (và tệp trong repo sửa theo để qua bước đối chiếu tệp)
+    let sig = ''
+    const text = edit(lv, (b) => {
+      const raw = Uint8Array.from(atob(b.anchored.sth.signature as string), (ch) => ch.charCodeAt(0))
+      raw[0] = raw[0]! ^ 1
+      sig = b64Of(raw)
+      b.anchored.sth.signature = sig
+    })
+    const size = (JSON.parse(text) as { anchored: { sth: { tree_size: number } } }).anchored.sth.tree_size
+    const file = b64Of(canonicalBytes(parseJsonLossless(JSON.stringify((JSON.parse(text) as { anchored: { sth: unknown } }).anchored.sth))))
+    const a = await pending(strip(lv, { [`sth/${pad(size)}.json`]: file }), text)
+    expect([a.ok, a.code]).toEqual([false, 'ANCHORED_SIGNATURE'])
+    expect(sig).not.toBe('')
+    // gói không có STH nào phủ lá vẫn là NO_STH
+    expect((await pending(loadVec('no-sth.json'))).code).toBe('NO_STH')
+    // tệp không thuộc niêm phong vẫn hỏng
+    const fv = loadVec('file-not-in-seal.json')
+    expect((await verifyBundle(fv.bundle_text, { anchor: anchorOf(fv), fileSha256: fv.file_sha256, allowPendingAnchor: true })).code)
+      .toBe('FILE_NOT_IN_SEAL')
+  })
+
+  test('không có repo neo thì allowPendingAnchor vô nghĩa: pendingAnchor luôn false', async () => {
+    const r = await verifyBundle(loadVec('ok-anchored.json').bundle_text, { allowPendingAnchor: true })
+    expect([r.ok, r.pinned, r.pendingAnchor]).toEqual([true, false, false])
+  })
+})
+
 describe('rawAnchor', () => {
   const fake = (status: number, body = 'x') => {
     const calls: { url: string; init?: RequestInit }[] = []

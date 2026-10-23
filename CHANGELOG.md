@@ -34,6 +34,16 @@ Mọi thay đổi đáng kể được ghi tại đây, theo định dạng [Kee
 - `make build`, `make sbom VERSION=x` (syft cùng image với workflow release, ra `dist/sbom-x.cdx.json`) và
   `make release-check VERSION=x` (`ops/release_check.py`, chỉ đọc, không gắn tag).
 
+### Fixed
+- **Cổng đối soát không còn báo "Không hợp lệ" cho niêm phong vừa ban hành (Plan 04 Task 14, R11)**: ở chế độ ghim
+  (`VITE_ANCHOR_RAW_BASE`), niêm phong mà STH phủ nó chưa lên repo neo bị báo `NOT_ANCHORED: STH đã neo (cỡ 754) chưa phủ lá 791`
+  (laptop trưởng nhóm 23/10, `docs/progress/2026-10-23-anchor-lab-github.md`). `verifyBundle` có tùy chọn
+  `allowPendingAnchor` (mặc định tắt, nên vẫn chặt như `dxos-witness verify-bundle --anchor-dir`, ruling C8) trả
+  `ok: true, pinned: true, pendingAnchor: true` cho ba trường hợp "chưa neo kịp" (gói không có `anchored`, STH đã neo chưa phủ lá,
+  repo neo chưa có `sth/<n>.json`); cổng bật tùy chọn này và hiện "Hợp lệ — chưa neo công khai" kèm lời nhắc kiểm lại sau vài phút.
+  Khóa phải khớp repo neo; chữ ký, inclusion, consistency vẫn kiểm đủ; `sth/<n>.json` đã có trong repo mà khác gói vẫn là
+  "Không hợp lệ". Test App A trên trình duyệt thật chấp nhận nhãn này (chạy thật: V39).
+
 ## [0.3.0] - 2026-10-23
 Mốc M3 (Tầng 1 hoàn tất cho client: SDK, hai ứng dụng Tầng 2 có giao diện, cổng đối soát Vue, triển khai theo tag).
 Mã đã qua test đơn vị, integration và Playwright với API giả ở cloud, và đã chạy trên stack dev ở máy trưởng nhóm
