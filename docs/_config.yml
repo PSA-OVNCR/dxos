@@ -1,0 +1,18 @@
+# SPDX-FileCopyrightText: 2026 PSA_OVNCR
+# SPDX-License-Identifier: Apache-2.0
+#
+# Trang tài liệu GitHub Pages: nguồn là thư mục /docs của nhánh main (Plan 04 Task 2).
+# Chỉ tài liệu cho người đọc ngoài đội; thư mục nội bộ bị loại khỏi trang.
+title: DX-OS Trust Core
+description: Tài liệu DX-OS Trust Core (OLP Phần mềm nguồn mở 2026, đội PSA_OVNCR)
+lang: vi
+theme: jekyll-theme-minimal
+plugins:
+  - jekyll-relative-links
+relative_links:
+  enabled: true
+  collections: false
+exclude:
+  - superpowers
+  - handoff
+  - spikes

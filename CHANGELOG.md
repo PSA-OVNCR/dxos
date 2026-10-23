@@ -4,6 +4,13 @@ Mọi thay đổi đáng kể được ghi tại đây, theo định dạng [Kee
 
 ## [Unreleased]
 
+### Added
+- `ARCHITECTURE.md` (tóm tắt kiến trúc, trỏ về spec), trang tài liệu GitHub Pages (`docs/index.md`, `docs/_config.yml`; chưa bật, V38),
+  `docs/capacity.md` (chỉ số có nguồn đo), `.github/ISSUE_TEMPLATE/config.yml` (tắt issue trống, trỏ Discussions), mục
+  "Thành viên đóng góp" trong `CONTRIBUTING.md`.
+- `make build`, `make sbom VERSION=x` (syft cùng image với workflow release, ra `dist/sbom-x.cdx.json`) và
+  `make release-check VERSION=x` (`ops/release_check.py`, chỉ đọc, không gắn tag).
+
 ## [0.3.0] - 2026-10-23
 Mốc M3 (Tầng 1 hoàn tất cho client: SDK, hai ứng dụng Tầng 2 có giao diện, cổng đối soát Vue, triển khai theo tag).
 Mã đã qua test đơn vị, integration và Playwright với API giả ở cloud, và đã chạy trên stack dev ở máy trưởng nhóm

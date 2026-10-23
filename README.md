@@ -39,6 +39,7 @@ AT-19, AT-20) chưa có. v0.1.0 đã gắn tag (22/10). Tiến độ: `docs/prog
   - Dịch vụ nguồn mở chạy độc lập: Keycloak (SSO), Apache APISIX (gateway), PostgreSQL, SeaweedFS, Flowable, ClamAV, OpenBao.
   - Phần đội tự viết: `trust-core` (Records API, kiểm dịch tệp, PDP, ledger Merkle, niêm phong) và thư viện `dxos-proof`.
 - **Tầng 2:** App A "Phòng hồ sơ số" và App B "Chứng nhận số". Cả hai được cài bằng manifest, **không sửa mã lõi**.
+- **Kiến trúc trong vài phút đọc:** [ARCHITECTURE.md](ARCHITECTURE.md). Mục lục tài liệu trên trang GitHub Pages: <https://psa-ovncr.github.io/dxos/> (**chưa bật**, việc V38; nguồn trang là `docs/index.md`).
 - **Thiết kế chi tiết:** [`docs/superpowers/specs/2026-10-20-dxos-trust-core-design.md`](docs/superpowers/specs/2026-10-20-dxos-trust-core-design.md).
 
 ## Tầng 2: SDK, ứng dụng và cổng đối soát

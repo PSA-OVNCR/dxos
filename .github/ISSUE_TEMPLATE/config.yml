@@ -1,0 +1,10 @@
+# SPDX-FileCopyrightText: 2026 PSA_OVNCR
+# SPDX-License-Identifier: Apache-2.0
+blank_issues_enabled: false
+contact_links:
+  - name: Hỏi đáp và thảo luận
+    url: https://github.com/PSA-OVNCR/dxos/discussions
+    about: Câu hỏi sử dụng, ý tưởng và trao đổi chung nên đặt ở Discussions, không mở Issue
+  - name: Báo lỗ hổng bảo mật
+    url: https://github.com/PSA-OVNCR/dxos/security/advisories/new
+    about: Báo riêng tư, đừng mở Issue công khai (xem SECURITY.md)

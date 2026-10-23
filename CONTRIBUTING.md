@@ -16,3 +16,6 @@ Cảm ơn bạn quan tâm. Quy trình:
 8. Ghi thay đổi vào mục `[Unreleased]` của `CHANGELOG.md`.
 
 Pull Request cần CI xanh và ít nhất 1 người duyệt.
+
+## Thành viên đóng góp
+Ba tài khoản GitHub của đội PSA_OVNCR (cùng là Owner của tổ chức PSA-OVNCR): `UI-UX-USHP` (trưởng nhóm), `Levminh`, `kirito99152`.

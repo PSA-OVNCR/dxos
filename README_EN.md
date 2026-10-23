@@ -15,6 +15,11 @@ Entry for the **Vietnam Student Informatics Olympiad – Open Source Software 20
   `docs/progress/2026-10-22-web-live.md`. **Not run yet:** `ops/deploy.sh` on the VPS (V29) and OpenTimestamps receipts (V32).
   The to-do list (Vietnamese) is in section 13 of `docs/progress/2026-10-21-tong-ket-tien-do.md`.
 
+## Architecture and documentation
+A short architecture overview (three tiers, networks, upload flow, sealing and ledger, trust boundaries; Vietnamese):
+[ARCHITECTURE.md](ARCHITECTURE.md). Documentation index on GitHub Pages: <https://psa-ovncr.github.io/dxos/> (**not enabled yet**, task V38; the page source is `docs/index.md`).
+The detailed design is `docs/superpowers/specs/2026-10-20-dxos-trust-core-design.md` (Vietnamese).
+
 ## Layer 2: SDK, applications and verification portal
 The user interfaces are static Vue 3 single-page apps built with Vite and served by Caddy from the `apps-static` volume.
 They are clients of the core API only; every security decision stays in the core.

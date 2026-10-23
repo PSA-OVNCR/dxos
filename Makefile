@@ -7,7 +7,7 @@ PROFILE ?= p16
 ENV_FILE ?= .env
 COMPOSE = docker compose -p dxos --env-file $(ENV_FILE) -f deploy/compose.yaml -f deploy/compose.$(PROFILE).yaml
 
-.PHONY: help dev-install lint test reuse check up down ps logs netcheck test-infra test-db-up test-integration pin-images pin-actions licenses \
+.PHONY: help dev-install lint test reuse check up down ps logs netcheck test-infra test-db-up test-integration pin-images pin-actions licenses build sbom release-check \
 	openapi web-check web-build web-live vuot-rao
 
 help:
@@ -25,6 +25,9 @@ help:
 	@echo "make pin-images   - ghim digest mọi image trong deploy/ (cần Docker có buildx)"
 	@echo "make pin-actions  - ghim mọi uses: trong .github/workflows theo SHA commit (cần ra được github.com)"
 	@echo "make licenses     - quét giấy phép gói Python (runtime) và npm; ngoại lệ ở LICENSES-THIRD-PARTY.md"
+	@echo "make build       - dựng image của stack (docker compose build, theo PROFILE), không chạy"
+	@echo "make sbom VERSION=x - SBOM CycloneDX của mã nguồn bằng syft trong Docker -> dist/sbom-x.cdx.json (cùng image với workflow release)"
+	@echo "make release-check VERSION=x - chỉ đọc: phiên bản 4 gói + 3 __init__, CHANGELOG có ngày, cây sạch, HEAD = origin/main; không gắn tag"
 	@echo "make openapi      - sinh lại docs/api/openapi.json từ ứng dụng FastAPI (không cần dịch vụ)"
 	@echo "make web-check    - workspace npm: typecheck + test + build (cần Node 22 và npm 11.6.2, đã chạy npm ci)"
 	@echo "make web-build    - dựng các SPA trong container Node vào volume apps-static (cần Docker; digest đã ghim)"
@@ -81,6 +84,21 @@ licenses:
 
 openapi:
 	$(PYTHON) ops/openapi.py
+
+build: $(ENV_FILE)
+	$(COMPOSE) build
+
+# Cùng image syft với bước SBOM của .github/workflows/release.yml (một chỗ ghim; ghim digest: V37).
+# Quét cả thư mục hiện tại: chạy trên bản checkout sạch, vì node_modules/.venv sẽ làm SBOM phình.
+SYFT_IMAGE = anchore/syft:v1.18.1
+sbom:
+	@test -n "$(VERSION)" || { echo "Thiếu VERSION: make sbom VERSION=0.3.0" >&2; exit 1; }
+	@mkdir -p dist
+	docker run --rm -v "$$PWD:/src:ro" $(SYFT_IMAGE) dir:/src -o cyclonedx-json > "dist/sbom-$(VERSION).cdx.json"
+
+release-check:
+	@test -n "$(VERSION)" || { echo "Thiếu VERSION: make release-check VERSION=0.3.0" >&2; exit 1; }
+	$(PYTHON) ops/release_check.py "$(VERSION)"
 
 netcheck:
 	$(PYTHON) ops/netcheck.py --matrix deploy/network-matrix.yaml --project dxos
