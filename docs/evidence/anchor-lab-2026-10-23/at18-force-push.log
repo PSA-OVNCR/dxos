@@ -1,0 +1,18 @@
+== AT-18: force-push bang deploy key ==
+Warning: Permanently added 'github.com' (ED25519) to the list of known hosts.
+== log truoc ==
+5d364b8 Initial commit
+== git push --force origin main (phai bi tu choi) ==
+remote: error: GH013: Repository rule violations found for refs/heads/main.
+remote: Review all repository rules at https://github.com/PSA-OVNCR/dxos-transparency-log-lab/rules?ref=refs%2Fheads%2Fmain
+remote:
+remote: - Cannot force-push to this branch
+remote:
+To github.com:PSA-OVNCR/dxos-transparency-log-lab.git
+ ! [remote rejected] main -> main (push declined due to repository rule violations)
+error: failed to push some refs to 'github.com:PSA-OVNCR/dxos-transparency-log-lab.git'
+(push exit 1)
+== log tren GitHub sau khi thu (phai khong doi) ==
+5d364b8 Initial commit
+DONE-SH
+(exit 0)

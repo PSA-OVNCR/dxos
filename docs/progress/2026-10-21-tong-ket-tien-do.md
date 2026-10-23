@@ -180,7 +180,7 @@ Test gần nhất (`2b78542`): `make check` 1125 passed (không cảnh báo), in
 | V24 | Bật NTP trên VPS (lệch giờ giữa API và worker làm niêm phong bị báo "khóa hết hạn", job sẽ thử lại) | VPS | — |
 | V25 | Viết runbook xử lý bản ghi bị chặn `workflow-inconsistent` (task bị xóa/hoàn thành ngoài lõi trên Flowable) | Trưởng nhóm | Cần quyết định nghiệp vụ |
 | V26 | Chụp lại minh chứng trang `/apps/verify/`: tiêu đề giờ là "Hợp lệ — chưa neo công khai" cho tới khi STH được neo; kịch bản demo phải tính tới | dev-lite / VPS | Tài liệu minh chứng cũ còn tiêu đề "Hợp lệ" |
-| V13 | (Từ Plan 01) Task 7 đo RAM (laptop p8 đã đo 22/10: đỉnh 5 080 MiB = 62% của 8 GB, `docs/progress/2026-10-22-p8-ram-laptop.md`; còn VPS/p16); E2E Task 17 trên VPS; ~~tag `v0.1.0`~~ (trưởng nhóm gắn 22/10 trên `5b14e7c`+`7247fe8`, Release có tar.gz, SBOM, 3 wheel); repo neo + ruleset + khóa deploy + ảnh AT-18; witness độc lập; duyệt giấy phép pypdfium2; duyệt push GHCR | VPS / trưởng nhóm | Hành động công khai hoặc cần máy thật |
+| V13 | (Từ Plan 01) Task 7 đo RAM (laptop p8 đã đo 22/10: đỉnh 5 080 MiB = 62% của 8 GB, `docs/progress/2026-10-22-p8-ram-laptop.md`; còn VPS/p16); E2E Task 17 trên VPS; ~~tag `v0.1.0`~~ (trưởng nhóm gắn 22/10 trên `5b14e7c`+`7247fe8`, Release có tar.gz, SBOM, 3 wheel); repo neo + ruleset + khóa deploy + ảnh AT-18 (repo thử `dxos-transparency-log-lab` 22/10: AT-18 đạt, AT-17 với GitHub đạt, `docs/progress/2026-10-23-anchor-lab-github.md`; còn repo chính với khóa deploy của VPS); witness độc lập; duyệt giấy phép pypdfium2; duyệt push GHCR | VPS / trưởng nhóm | Hành động công khai hoặc cần máy thật |
 
 ---
 
@@ -231,7 +231,7 @@ Cột "Review" ghi kết quả vòng đầu và số vòng sửa. "Test" là s�
 | V31 | Tổ chức AT-26 theo `docs/at26-checklist.md` (người ngoài đội làm hướng dẫn 30 phút) | Trưởng nhóm | Mọi lệnh trong hướng dẫn chưa chạy thật, ghi "chưa kiểm ở cloud — kiểm trong AT-26" |
 | V32 | OpenTimestamps: **đã chạy 22/10 trên laptop** với calendar thật và repo neo cục bộ; `ots upgrade` xong, khối Bitcoin 972609, merkle root khớp mempool.space (`docs/progress/2026-10-22-ots-laptop.md`). Còn: bật trên VPS và với repo neo GitHub | VPS | `docs/runbook-anchor.md` mục 6 |
 | V33 | Gắn tag `v0.3.0` sau `v0.2.0` (xem 13.4) | Trưởng nhóm | Hành động công khai |
-| V34 | Đặt `VITE_ANCHOR_RAW_BASE` (lúc build) và `DXOS_ANCHOR_RAW_ORIGIN` (`.env`, hai giá trị phải khớp) theo repo neo thật khi repo đó có trên GitHub | VPS | Chưa đặt thì cổng đối soát nói rõ là chưa đối chiếu repo neo |
+| V34 | Đặt `VITE_ANCHOR_RAW_BASE` (lúc build) và `DXOS_ANCHOR_RAW_ORIGIN` (`.env`, hai giá trị phải khớp) theo repo neo thật khi repo đó có trên GitHub. Laptop 22/10 với repo thử: đã đặt, build và nối được; bộ trình duyệt 8/10 vì test chạy cùng phút với lần neo đầu (`docs/progress/2026-10-23-anchor-lab-github.md`), cần chạy lại `chay-m3-12-web-lab2.bat` | VPS | Chưa đặt thì cổng đối soát nói rõ là chưa đối chiếu repo neo |
 | V35 | ~~Chạy `make pin-images` trên máy có Docker để ghim digest `NODE_IMAGE` và `PLAYWRIGHT_IMAGE`~~ — đã chạy 22/10 trên máy trưởng nhóm (`ops/pin_images.py`, exit 0); digest commit từ cloud | — | Xong |
 | V36 | ~~Chạy lại AT-20 sau bản sửa `40d6d64`~~ — đã chạy 22/10 trên máy trưởng nhóm: **14 passed** gồm AT-20; OpenBao mở khóa lại (`sealed: false`) (`docs/progress/2026-10-22-web-live.md`) | — | Xong |
 

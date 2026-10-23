@@ -4,7 +4,8 @@
 
 | AT | Tệp | Trạng thái |
 |---|---|---|
-| AT-18 (deploy key không force-push được nhánh `main` của repo neo) | `at18-force-push-rejected.png` | Chưa có: repo neo và ruleset đã tạo 21/10; chờ deploy key trên VPS (`docs/runbook-anchor.md`) |
+| AT-18 (deploy key không force-push được nhánh `main` của repo neo) | `anchor-lab-2026-10-23/at18-force-push.log` (repo thử); `at18-force-push-rejected.png` (repo chính, VPS) | Có trên repo thử `dxos-transparency-log-lab`: 22/10 GitHub từ chối force-push bằng khóa deploy (`GH013 … Cannot force-push`), ghi ở `docs/progress/2026-10-23-anchor-lab-github.md`. Repo chính: chờ deploy key trên VPS (`docs/runbook-anchor.md`) |
+| AT-17 với repo neo GitHub thật | `anchor-lab-2026-10-23/at17-verify-bundle-github.log` | Có trên repo thử: `dxos-witness verify-bundle --anchor-dir` → `VALID OK`, 22/10 (`docs/progress/2026-10-23-anchor-lab-github.md`) |
 | Witness độc lập (spec 11.4) | ghi tên người chạy, link repo witness, ngày bắt đầu | Chưa có: repo mẫu https://github.com/PSA-OVNCR/dxos-witness-kit đã tạo 21/10 |
 | Trang đối soát tối giản (Plan 02 Task 10) | `verify-page-live-check.md`, `verify-page-1..8-*.png` | Có: chạy 21/10 trên Caddy 2.10.0 + API thật (không qua Docker, xem tệp); cần chụp lại trên dev-lite khi có Docker |
 | E2E mốc M2 (Plan 02 Task 15): AT-05, 07, 08, 11, 12, 17, 19, 27, 28 | `docs/progress/2026-11-xx-m2-e2e.md` (theo mẫu `docs/progress/2026-10-20-task17-e2e.md`) + `e2e-junit.xml` | Có (Docker Desktop, chưa phải VPS): 22/10 chạy `pytest -m e2e tests/e2e` trên máy trưởng nhóm, 13 passed, 1 skipped (AT-20), ghi ở `docs/progress/2026-10-22-e2e-m2-docker-desktop.md`; chưa chạy trên VPS |

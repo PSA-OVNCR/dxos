@@ -49,6 +49,13 @@ docker compose -p dxos --env-file .env -f deploy/compose.yaml -f deploy/compose.
 Kiểm: `POST /admin/v1/anchor:run` (token `dxos-admin`) rồi xem `GET /admin/v1/ledger/status` → `last_anchor.commit_sha`
 trùng commit mới nhất trên repo neo.
 
+**Repo neo mới (chưa có commit nào của DX-OS):** worker chỉ neo khi sổ cái có lá mới, và lần neo đầu mới đẩy `keys/`.
+Cho tới lúc đó, cổng đối soát build với `VITE_ANCHOR_RAW_BASE` báo niêm phong là "Không hợp lệ — khóa niêm phong chưa
+có trong repo neo" (cố ý: khóa chưa neo không được coi là đã đối chiếu). Vì vậy, ngay sau khi nối repo neo mới, hãy chạy
+`anchor:run` như trên, chờ `keys/seal-key/v<n>.pub` xuất hiện trên GitHub, rồi chờ thêm khoảng 5 phút (CDN của
+raw.githubusercontent.com giữ cả câu trả lời 404) trước khi phát hoặc kiểm niêm phong. Lần chạy trên laptop 22/10
+gặp đúng trường hợp này: `docs/progress/2026-10-23-anchor-lab-github.md`.
+
 ## 4. AT-18: deploy key không force-push được
 Trên VPS, trong một bản clone dùng deploy key:
 ```bash

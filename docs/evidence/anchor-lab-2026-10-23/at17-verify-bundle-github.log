@@ -1,0 +1,26 @@
+anchor:run 200 {'tree_size': 754, 'anchor_job_id': 169}
+lan 0 sth 754 200
+ledger/status last_anchor: {"tree_size": 754, "repo": "git@github.com:PSA-OVNCR/dxos-transparency-log-lab.git", "commit_sha": "572b84360faf2e0cac3568621b20217bad66c2d0", "anchored_at": "2026-10-22T17:33:01.881014+00:00"}
+bundle ZW7SM467PVY66YKNHGMRSQIJOE 200 3694
+== git clone repo neo thu (https, cong khai) ==
+572b843 sth 754
+421ea2c ots 710
+4ee7056 sth 710
+1d6d45e ots 753
+273aa2d sth 753
+02cfa66 ots 721
+/tmp/anchor:
+README.md
+keys
+ots
+sth
+
+/tmp/anchor/keys:
+seal-key
+sth-key
+== dxos-witness verify-bundle --anchor-dir (AT-17 voi repo GitHub that) ==
+VALID OK; khóa đã ghim từ repo neo; đã neo: sth/000000000754.json; OTS: biên nhận OpenTimestamps cho sth/000000000754.json đang chờ xác nhận trên Bitcoin — kiểm bằng `ots upgrade` rồi `ots verify`; trạng thái thu hồi cần tra trực tuyến: GET /verify/v1/seals/ZW7SM467PVY66YKNHGMRSQIJOE
+Niêm phong bởi: Đội PSA_OVNCR — môi trường thử nghiệm
+(witness exit 0)
+DONE-SH
+(exit 0)
