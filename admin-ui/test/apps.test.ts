@@ -5,7 +5,7 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { ApiError } from 'dxos-sdk-js'
 import { fakeFetch } from 'dxos-sdk-js/testing'
 import { describe, expect, test } from 'vitest'
-import { ADMIN_API_KEY, createAdminApi } from '../src/api'
+import { ADMIN_API_KEY, createAdminApi, type PermissionDiff } from '../src/api'
 import AppDiffView from '../src/views/AppDiffView.vue'
 import AppsView from '../src/views/AppsView.vue'
 import { APPS_OK, appRow, click, DIFF_OK, fakeApi, mountView } from './helpers'
@@ -151,6 +151,8 @@ describe('AppDiffView', () => {
     }), PROPS)
     expect(w.text()).toContain('Chưa có bản đang hoạt động để so sánh')
     expect(w.find('[data-key="pii_reveal_roles"]').attributes('data-floor')).toBe('changed')
+    expect(w.find('[data-key="pii_reveal_roles"]').text()).toContain('Mới') // chưa có bản cũ: "Mới", không phải "Đổi"
+    expect(w.find('[data-key="pii_reveal_roles"]').text()).not.toContain('Đổi')
     expect(w.find('[data-key="pii_erase_roles"]').attributes('data-floor')).toBe('changed') // [] khác "chưa có"
     expect(w.find('[data-key="seal"]').attributes('data-floor')).toBe('same')
   })
@@ -221,7 +223,7 @@ describe('AppDiffView', () => {
     expect(w.findAll('button').find((b) => b.text().trim() === 'Duyệt phiên bản này')!.attributes('disabled')).toBeUndefined()
   })
 
-  test('an approve failure from the server (not pending any more) is shown and the page reloads on demand', async () => {
+  test('an approve failure from the server (not pending any more) is shown through ProblemMessage', async () => {
     const w = await mountView(AppDiffView, fakeApi({
       approveApp: async () => { throw new ApiError(409, 'app-version-not-pending', 'Phiên bản này không còn chờ duyệt', undefined, null) },
     }), PROPS)
@@ -241,5 +243,66 @@ describe('AppDiffView', () => {
     const w = await mountView(AppDiffView, fakeApi({ apps: async () => [appRow({ version: '9.9.9' })] }), PROPS)
     expect(w.find('[data-key="roles_added"]').exists()).toBe(true)
     expect(w.findAll('button').some((b) => b.text().includes('Duyệt'))).toBe(false)
+  })
+
+  test('changing the route params reloads the diff and approve posts the version that is displayed', async () => {
+    const diffs: Record<string, PermissionDiff> = {
+      '1.1.0': { ...DIFF_OK, version: '1.1.0', roles_added: ['vai-tro-cua-1-1-0'] },
+      '1.2.0': { ...DIFF_OK, version: '1.2.0', roles_added: ['vai-tro-cua-1-2-0'] },
+    }
+    const rows = [
+      appRow({ version: '1.1.0', status: 'PENDING' }), appRow({ version: '1.2.0', status: 'PENDING' }),
+      appRow({ version: '1.0.0', status: 'ACTIVE' }),
+    ]
+    let releaseSecond!: () => void
+    const gate = new Promise<void>((r) => { releaseSecond = r })
+    const api = fakeApi({
+      apps: async () => rows,
+      appDiff: async (_id, v) => {
+        if (v === '1.2.0') await gate // phản hồi của phiên bản mới về chậm
+        return diffs[v]!
+      },
+    })
+    const w = await mountView(AppDiffView, api, { id: 'so-muon-sach', version: '1.1.0' })
+    expect(w.text()).toContain('vai-tro-cua-1-1-0')
+
+    await w.setProps({ version: '1.2.0' })
+    await flushPromises()
+    // Đang chờ diff mới: không còn diff cũ dưới tiêu đề mới, và không thể duyệt cái chưa thấy.
+    expect(w.find('h1').text()).toContain('1.2.0')
+    expect(w.text()).not.toContain('vai-tro-cua-1-1-0')
+    expect(w.findAll('button').some((b) => b.text().includes('Duyệt'))).toBe(false)
+    await w.vm.$nextTick()
+    releaseSecond()
+    await flushPromises()
+    expect(api.appDiff).toHaveBeenLastCalledWith('so-muon-sach', '1.2.0')
+    expect(w.text()).toContain('vai-tro-cua-1-2-0')
+    expect(w.text()).not.toContain('vai-tro-cua-1-1-0')
+
+    await click(w, 'Duyệt phiên bản này')
+    expect(api.approveApp).toHaveBeenCalledTimes(1)
+    expect(api.approveApp).toHaveBeenCalledWith('so-muon-sach', '1.2.0')
+  })
+
+  test('a slow response for the previous version is dropped after the params change', async () => {
+    let releaseFirst!: () => void
+    const gate = new Promise<void>((r) => { releaseFirst = r })
+    const api = fakeApi({
+      appDiff: async (_id, v) => {
+        if (v === '1.1.0') await gate
+        return { ...DIFF_OK, version: v, roles_added: [`vai-tro-${v}`] }
+      },
+      apps: async () => [appRow({ version: '1.1.0', status: 'PENDING' }), appRow({ version: '1.2.0', status: 'PENDING' })],
+    })
+    const w = await mountView(AppDiffView, api, { id: 'so-muon-sach', version: '1.1.0' })
+    await w.setProps({ version: '1.2.0' })
+    await flushPromises()
+    expect(w.text()).toContain('vai-tro-1.2.0')
+    releaseFirst() // diff của 1.1.0 về muộn
+    await flushPromises()
+    expect(w.text()).toContain('vai-tro-1.2.0')
+    expect(w.text()).not.toContain('vai-tro-1.1.0')
+    await click(w, 'Duyệt phiên bản này')
+    expect(api.approveApp).toHaveBeenCalledWith('so-muon-sach', '1.2.0')
   })
 })

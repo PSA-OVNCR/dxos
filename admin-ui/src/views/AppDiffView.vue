@@ -5,11 +5,13 @@ SPDX-License-Identifier: Apache-2.0
 <script setup lang="ts">
 // Diff quyền của một phiên bản (GET apps/{id}/versions/{v}/diff) và nút duyệt (POST apps/{id}:approve {"version"}).
 // Mọi dòng diff là VĂN BẢN (nội suy {{ }}, không chèn HTML): tên role/trường do người nộp đặt, có thể chứa mã HTML.
-// "Chính sách sàn" ở đây là các chính sách an toàn của manifest (PII, niêm phong, đối soát): dòng đổi được làm nổi
-// bằng nhãn "Đổi" (chữ) cùng viền màu. Bốn mắt do máy chủ quyết định: SPA không tự chặn, chỉ hiện câu trả lời.
+// Chỉ các chính sách an toàn của manifest (PII, niêm phong, đối soát) được làm nổi khi đổi: nhãn "Đổi" (hoặc "Mới" khi
+// trước đó chưa có) bằng chữ cùng viền màu. Quyền `access` của bộ dữ liệu và `guards` của bước quy trình KHÔNG được làm nổi:
+// chúng hiện như dòng thường, người duyệt phải đọc. Bốn mắt do máy chủ quyết định: SPA không tự chặn, chỉ hiện câu trả lời.
+// Khi tham số route đổi, trang xóa sạch và tải lại; nút duyệt luôn gửi đúng phiên bản của diff đang hiện (`shown`).
 import { formatVn } from 'dxos-sdk-js'
 import { ProblemMessage } from 'dxos-sdk-js/vue'
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useAdminApi, type AppVersionRow, type InstalledView, type PermissionDiff } from '../api'
 import StateBadge from '../StateBadge.vue'
 import { appStatusState, short } from '../status'
@@ -21,6 +23,8 @@ const diff = ref<PermissionDiff | null>(null)
 const row = ref<AppVersionRow | null>(null)
 const error = ref<unknown>(null)
 const loading = ref(false)
+/** Phiên bản mà diff/dòng trạng thái đang hiện thuộc về; null khi chưa tải xong. Nút duyệt chỉ dùng giá trị này. */
+const shown = ref<{ id: string; version: string } | null>(null)
 
 let run = 0
 let alive = true
@@ -28,20 +32,35 @@ onBeforeUnmount(() => { alive = false })
 
 async function load(): Promise<void> {
   const mine = ++run
+  const id = props.id
+  const version = props.version
   loading.value = true
   error.value = null
   // Danh sách trước, diff sau (thứ tự gọi cố định); hai lời gọi độc lập nhau.
-  const [list, d] = await Promise.allSettled([api.apps(), api.appDiff(props.id, props.version)])
+  const [list, d] = await Promise.allSettled([api.apps(), api.appDiff(id, version)])
   if (mine !== run || !alive) return
   row.value = list.status === 'fulfilled'
-    ? (list.value.find((r) => r.app_id === props.id && r.version === props.version) ?? null)
+    ? (list.value.find((r) => r.app_id === id && r.version === version) ?? null)
     : null
   diff.value = d.status === 'fulfilled' ? d.value : null
+  shown.value = { id, version }
   const failed = [d, list].find((r): r is PromiseRejectedResult => r.status === 'rejected')
   error.value = failed ? failed.reason : null
   loading.value = false
 }
 onMounted(() => { void load() })
+
+// Đổi phiên bản khi trang còn mở: bỏ ngay diff cũ (không để diff cũ dưới tiêu đề mới) rồi tải lại; phản hồi của lần
+// tải trước bị loại bởi `run`.
+watch(() => [props.id, props.version], () => {
+  diff.value = null
+  row.value = null
+  shown.value = null
+  error.value = null
+  approved.value = null
+  approveError.value = null
+  void load()
+})
 
 // ---- dòng diff -----------------------------------------------------------------------------------
 interface Line {
@@ -51,6 +70,8 @@ interface Line {
   floor?: 'changed' | 'same'
   /** Dòng thêm mới (nhãn "Thêm"). */
   add?: boolean
+  /** Chính sách chưa có giá trị cũ để so (bản đầu tiên): nhãn "Mới" thay cho "Đổi". */
+  fresh?: boolean
 }
 
 function canon(v: unknown): unknown {
@@ -94,7 +115,10 @@ const lines = computed<Line[]>(() => {
   }
   for (const [k, label] of POLICIES) {
     const p = d[k]
-    out.push({ key: k, floor: sameValue(p.old, p.new) ? 'same' : 'changed', text: `${label}: ${show(p.old)} → ${show(p.new)}` })
+    out.push({
+      key: k, floor: sameValue(p.old, p.new) ? 'same' : 'changed', fresh: p.old === null,
+      text: `${label}: ${show(p.old)} → ${show(p.new)}`,
+    })
   }
   for (const [t, spec] of Object.entries(d.tasks)) {
     out.push({ key: 'tasks', text: `Bước quy trình ${t}: vai trò ${spec.role}; điều kiện kiểm soát [${show(spec.guards)}]` })
@@ -116,15 +140,20 @@ const approveError = ref<unknown>(null)
 const approved = ref<InstalledView | null>(null)
 
 async function approve(): Promise<void> {
-  if (approving.value) return
+  const target = shown.value
+  if (approving.value || !target) return
   approving.value = true
   approveError.value = null
   approved.value = null
   try {
-    approved.value = await api.approveApp(props.id, props.version) // ghi: đúng một lần mỗi lần bấm
-    await load()
+    // Ghi: đúng một lần mỗi lần bấm; gửi phiên bản của diff đang hiện, không phải tham số route hiện tại.
+    const result = await api.approveApp(target.id, target.version)
+    if (shown.value === target) { // trang chưa chuyển sang phiên bản khác trong lúc chờ
+      approved.value = result
+      await load()
+    }
   } catch (e) {
-    approveError.value = e
+    if (shown.value === target) approveError.value = e
   } finally {
     approving.value = false
   }
@@ -171,7 +200,7 @@ async function approve(): Promise<void> {
           :data-floor="l.floor"
           :class="{ 'dx-diff-floor': l.floor === 'changed', 'dx-diff-add': l.add }"
         >
-          <span v-if="l.floor === 'changed'" class="dx-diff-tag">Đổi</span>
+          <span v-if="l.floor === 'changed'" class="dx-diff-tag">{{ l.fresh ? 'Mới' : 'Đổi' }}</span>
           <span v-else-if="l.floor === 'same'" class="dx-diff-tag dx-diff-tag-same">Không đổi</span>
           <span v-else-if="l.add" class="dx-diff-tag">Thêm</span>
           <span class="dx-wrap">{{ l.text }}</span>
