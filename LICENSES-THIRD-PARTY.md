@@ -84,7 +84,7 @@ Phiên bản ghim chính xác trong `package-lock.json` (đếm từ lockfile ng
 | 0BSD | 1 | `tslib` (tùy chọn) |
 
 - **MPL-2.0 (lightningcss):** chỉ dùng lúc build/test, không vào bundle và không được phân phối kèm kho này; dự án không sửa mã của nó, nên không phát sinh nghĩa vụ chia sẻ mã nguồn. Cùng nhóm với OpenBao (MPL-2.0) ở bảng dịch vụ.
-- **BlueOak-1.0.0, MIT-0, CC0-1.0 (BlueOak-1.0.0 và MIT-0 là giấy phép cho phép; xuất hiện từ Task 3 do thêm jsdom, nay thêm `glob`, `minimatch`, `minipass`, `path-scurry` do `@vue/test-utils` ở Task 5):** cả chín gói (`lru-cache`, `glob`, `minimatch`, `minipass`, `path-scurry`, hai gói `@csstools/*`, `mdn-data`) đều đánh dấu `dev` trong lockfile: chỉ dùng lúc test, không vào bundle và không phân phối. **CC0-1.0 (`mdn-data`) cần trưởng nhóm xác nhận (V30)**; nếu không chấp nhận, cách gỡ là bỏ jsdom và chạy test auth trong môi trường node với `sessionStorage` giả (khi đó test thành phần Vue cũng cần một môi trường DOM khác, nên V30 phải được chốt sớm).
+- **BlueOak-1.0.0, MIT-0, CC0-1.0 (BlueOak-1.0.0 và MIT-0 là giấy phép cho phép; xuất hiện từ Task 3 do thêm jsdom, nay thêm `glob`, `minimatch`, `minipass`, `path-scurry` do `@vue/test-utils` ở Task 5):** cả chín gói (`lru-cache`, `glob`, `minimatch`, `minipass`, `path-scurry`, hai gói `@csstools/*`, `mdn-data`) đều đánh dấu `dev` trong lockfile: chỉ dùng lúc test, không vào bundle và không phân phối. **CC0-1.0 (`mdn-data`)** không nằm trong danh sách OSI, nhưng là dữ liệu chỉ dùng lúc test, do `npm ci` tải về, không có trong kho mã và không vào bundle; theo giải đáp G4 của BTC, chỉ thứ nhúng vào kho mã mới phải tương thích OSI. Trưởng nhóm duyệt ngày 23/10/2026 (V30).
 
 ## Ngoại lệ đã duyệt
 `make licenses` (`ops/license_scan.py`, job `licenses` của CI, Plan 04 Task 1) chỉ cho qua giấy phép **MIT, BSD-2-Clause, BSD-3-Clause, Apache-2.0, PSF-2.0, ISC** (biểu thức `OR` đạt khi một nhánh đạt, `AND` đạt khi mọi nhánh đạt). Gói nào khác phải có tên trong bảng dưới đây; **máy quét đọc đúng bảng này**, nên thêm một dòng là trưởng nhóm đã duyệt gói đó.
@@ -113,8 +113,8 @@ Phiên bản ghim chính xác trong `package-lock.json` (đếm từ lockfile ng
 | npm | `path-scurry` | BlueOak-1.0.0 | dev | giấy phép cho phép; chỉ test (V30) |
 | npm | `@csstools/color-helpers` | MIT-0 | dev | giấy phép cho phép; chỉ test (V30) |
 | npm | `@csstools/css-syntax-patches-for-csstree` | MIT-0 | dev | giấy phép cho phép; chỉ test (V30) |
-| npm | `mdn-data` | CC0-1.0 | dev | chỉ test; **cần trưởng nhóm xác nhận (V30)** |
-| python | `certifi` | MPL-2.0 | runtime (httpx kéo vào; chỉ chứa gói chứng chỉ CA, dùng nguyên bản, không sửa mã) | chờ trưởng nhóm xác nhận cùng V30. File-level copyleft, nghĩa vụ chỉ là giữ nguyên tệp; cùng nhóm với lightningcss và OpenBao |
+| npm | `mdn-data` | CC0-1.0 | dev | chỉ test, không trong kho mã, không vào bundle (G4); trưởng nhóm duyệt 23/10/2026 (V30) |
+| python | `certifi` | MPL-2.0 | runtime (httpx kéo vào; chỉ chứa gói chứng chỉ CA, dùng nguyên bản, không sửa mã) | Trưởng nhóm duyệt 23/10/2026 (V30). MPL-2.0 là giấy phép OSI, copyleft theo từng tệp; dùng nguyên bản, không sửa, không chép vào kho mã nên tương thích Apache-2.0 (MPL-2.0 mục 3.3); cùng nhóm với lightningcss và OpenBao |
 | python | `cffi` | MIT-0 | runtime (cryptography kéo vào) | MIT-0 là giấy phép OSI, cho phép hơn MIT; điều phối viên duyệt 23/10/2026 |
 | npm | `tslib` | 0BSD | dev (tùy chọn) | 0BSD là giấy phép OSI, cho phép hơn MIT; chỉ build/test; điều phối viên duyệt 23/10/2026 |
 
