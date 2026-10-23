@@ -101,6 +101,23 @@ def test_web_live_runs_in_the_pinned_playwright_image_and_is_opt_in():
     assert "DXOS_WEB_LIVE=1" in sh
 
 
+def test_live_suite_pins_the_caddy_spki_instead_of_ignoring_https_errors():
+    """Plan 04 Task 14: không còn ``ignoreHTTPSErrors``; Chromium chỉ bỏ qua lỗi của đúng CA Caddy."""
+    live = ROOT / "tests/web/live"
+    helpers = (live / "helpers.ts").read_text(encoding="utf-8")
+    config = (live / "playwright.config.ts").read_text(encoding="utf-8")
+    sh = (ROOT / "ops/web_live.sh").read_text(encoding="utf-8")
+    for name in ("helpers.ts", "playwright.config.ts", "app-a.spec.ts", "app-b.spec.ts", "verify.spec.ts"):
+        assert "ignoreHTTPSErrors" not in (live / name).read_text(encoding="utf-8"), name
+    assert "ignoreHTTPSErrors: true" not in helpers
+    assert "--ignore-certificate-errors-spki-list=${DXOS_CADDY_SPKI}" in config
+    # Thiếu biến (khi chạy thật) thì dừng với lỗi rõ, không lặng lẽ chạy không ghim.
+    assert re.search(r"if \(LIVE && !DXOS_CADDY_SPKI\) \{\s*throw new Error\('thiếu DXOS_CADDY_SPKI", config)
+    assert "openssl x509 -pubkey" in sh and "openssl pkey -pubin -outform der" in sh
+    assert "openssl dgst -sha256 -binary" in sh and "base64" in sh
+    assert '-e "DXOS_CADDY_SPKI=$' in sh or "-e DXOS_CADDY_SPKI" in sh
+
+
 def test_makefile_has_web_build_and_web_live_targets():
     make = (ROOT / "Makefile").read_text(encoding="utf-8")
     assert re.search(r"^web-build:\n\tbash ops/web_build_docker\.sh", make, re.M)

@@ -32,6 +32,8 @@ export function parseJsonLossless(text: string): Json {
 const LONE_SURROGATE = /[\uD800-\uDFFF]/u
 const NUMBER = /-?(?:0|[1-9][0-9]*)(\.[0-9]+)?([eE][-+]?[0-9]+)?/y
 const SAFE_MAX = BigInt(Number.MAX_SAFE_INTEGER)
+/** Giới hạn mặc định của Python 3.11+ (`sys.get_int_max_str_digits()`): `json.loads` từ chối số nguyên dài hơn thế. */
+const MAX_INT_DIGITS = 4300
 const ESCAPES: Record<string, string> = { '"': '"', '\\': '\\', '/': '/', b: '\b', f: '\f', n: '\n', r: '\r', t: '\t' }
 
 /** Bộ đọc JSON theo ngữ pháp `json.loads` của Python (chặt: không ký tự điều khiển thô trong chuỗi). */
@@ -129,6 +131,8 @@ export function parseJson(text: string, o: ParseOptions): unknown {
     if (!m) return fail('cần giá trị')
     i += m[0].length
     if (m[1] !== undefined || m[2] !== undefined) return float(m[0])
+    // Như Python: dấu trừ không tính vào số chữ số; quá giới hạn thì cả gói không đọc được (CLI báo MALFORMED).
+    if (m[0].length - (m[0].startsWith('-') ? 1 : 0) > MAX_INT_DIGITS) fail(`số nguyên dài hơn ${MAX_INT_DIGITS} chữ số`)
     const n = BigInt(m[0])
     if (n > SAFE_MAX || n < -SAFE_MAX) return n
     return Number(n) // BigInt("-0") === 0n nên không có -0

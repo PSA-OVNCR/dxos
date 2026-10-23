@@ -5,12 +5,19 @@
 // mọi test được bỏ qua.
 import { defineConfig } from '@playwright/test'
 import { join } from 'node:path'
-import { BASE_URL, CONTEXT_OPTIONS, LIVE, OUT_DIR } from './helpers'
+import { BASE_URL, LIVE, OUT_DIR } from './helpers'
 
 // Chromium luôn coi `localhost` là loopback, bỏ qua /etc/hosts. Trong container, ops/web_live.sh đặt DXOS_GATEWAY_IP
 // (địa chỉ host.docker.internal) để ép `localhost` và `admin.localhost` về máy chủ Docker.
 const gateway = process.env.DXOS_GATEWAY_IP
-const args = gateway ? [`--host-resolver-rules=MAP localhost ${gateway}, MAP admin.localhost ${gateway}`] : []
+// Ghim SPKI của CA nội bộ Caddy thay cho việc bỏ qua mọi lỗi HTTPS (Plan 04 Task 14). ops/web_live.sh tính danh sách
+// (SHA-256 của khóa công khai, base64, cách nhau bằng dấu phẩy) từ root.crt và intermediate.crt của Caddy.
+const DXOS_CADDY_SPKI = process.env.DXOS_CADDY_SPKI ?? ''
+if (LIVE && !DXOS_CADDY_SPKI) {
+  throw new Error('thiếu DXOS_CADDY_SPKI: chạy bằng `make web-live` (ops/web_live.sh tính SPKI của CA Caddy) hoặc đặt biến này tay')
+}
+const args = DXOS_CADDY_SPKI ? [`--ignore-certificate-errors-spki-list=${DXOS_CADDY_SPKI}`] : []
+if (gateway) args.push(`--host-resolver-rules=MAP localhost ${gateway}, MAP admin.localhost ${gateway}`)
 
 export default defineConfig({
   testDir: '.',
@@ -26,7 +33,6 @@ export default defineConfig({
   outputDir: join(OUT_DIR, 'artifacts'),
   use: {
     baseURL: BASE_URL,
-    ignoreHTTPSErrors: CONTEXT_OPTIONS.ignoreHTTPSErrors,
     trace: 'retain-on-failure',
     launchOptions: { args },
   },

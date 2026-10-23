@@ -12,8 +12,10 @@ test. Hợp đồng HTTP mà SDK bám theo: [docs/api/contract-tier2.md](../../d
   Vite), không trỏ vào `dist/`. Ai dùng `dist/` ngoài repo phải tự trỏ đường dẫn tới đó.
 - Đã kiểm bằng test đơn vị (Vitest + jsdom) và Playwright với API giả. Đã chạy qua App A, App B và cổng đối soát với
   Keycloak và lõi thật trên Chromium (stack dev, 22/10/2026, V27: `docs/progress/2026-10-22-web-live.md`).
-- `verifyBundle` bám `dxos-witness verify-bundle` và chạy chung bộ vector, nhưng **không** hứa trùng tuyệt đối với Python. Hai khác biệt đã
-  biết: JS chỉ nhận tối đa 2 dấu `=` đệm base64, và số nguyên dài hơn 4300 chữ số cho `MALFORMED` ở Python nhưng JS vẫn chấp nhận.
+- `verifyBundle` bám `dxos-witness verify-bundle` và chạy chung bộ vector (`sdk/js/test/vectors/`, do
+  `witness/tests/test_web_vectors.py` sinh), gồm cả giải mã base64 (`b64/validate.json`, nhận cả nhiều dấu `=` thừa sau nhóm đủ
+  như Python) và giới hạn 4300 chữ số của số nguyên (gói có số dài hơn là `MALFORMED`). Ngoại lệ có chủ ý duy nhất là tùy chọn
+  `allowPendingAnchor` (mục "Tự kiểm gói bằng chứng"), mặc định tắt.
 - SDK chỉ để hiển thị và gọi API cho tiện. Mọi quyết định về quyền, guard, niêm phong đều do lõi; vai trò trong token
   (`auth.roles()`) chỉ dùng để ẩn hiện nút.
 
@@ -96,7 +98,7 @@ Các phương thức khác: `whoami`, `list`, `get`, `bulk`, `attachments`, `tas
 
 ## Tự kiểm gói bằng chứng: `verifyBundle`
 Bản dịch từng bước của `dxos-witness verify-bundle` sang TypeScript, dùng WebCrypto (Ed25519, SHA-256); hai bên chạy chung
-một bộ vector trong test để phát hiện lệch kết quả (còn hai khác biệt đã biết ở mục "Phạm vi và giới hạn"). Tệp gốc của người dùng chỉ được băm tại máy, không được tải lên.
+một bộ vector trong test để phát hiện lệch kết quả. Tệp gốc của người dùng chỉ được băm tại máy, không được tải lên.
 
 ```ts
 import { DxosClient, rawAnchor, sha256Hex, verifyBundle } from 'dxos-sdk-js'

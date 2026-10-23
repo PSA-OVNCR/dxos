@@ -25,8 +25,9 @@ export const APP_B = '/apps/chung-nhan/'
 /** Ngữ cảnh trình duyệt dựng tay không thừa hưởng `use` của cấu hình, nên các tuỳ chọn nằm ở đây và cấu hình dùng lại. */
 export const CONTEXT_OPTIONS: BrowserContextOptions = {
   baseURL: BASE_URL,
-  // CA nội bộ của Caddy (dev) không có trong kho tin cậy của Chromium; NODE_EXTRA_CA_CERTS chỉ lo phía Node.
-  ignoreHTTPSErrors: true,
+  // CA nội bộ của Caddy (dev) không có trong kho tin cậy của Chromium. Không tắt kiểm chứng chỉ: playwright.config.ts
+  // truyền --ignore-certificate-errors-spki-list với SPKI của CA đó (DXOS_CADDY_SPKI, do ops/web_live.sh tính), nên
+  // chứng chỉ của bên khác vẫn bị từ chối. NODE_EXTRA_CA_CERTS chỉ lo phía Node.
   locale: 'vi-VN',
   timezoneId: 'Asia/Ho_Chi_Minh',
   acceptDownloads: true,

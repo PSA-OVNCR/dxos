@@ -11,6 +11,10 @@
 # - stack dev-lite đang chạy kèm overlay e2e, đã `make web-build`, App A và App B đã cài và ACTIVE (ops/e2e/install_apps.sh);
 # - người dùng dev (realm dev, mật khẩu dev-only-password; DXOS_E2E_PASSWORD để đổi).
 # Kết quả ở ${DXOS_WEB_LIVE_DIR:-test-results/web-live}: web-live-junit.xml, shots/*.png, artifacts/ (trace khi lỗi).
+# Chromium không tin CA nội bộ của Caddy, nhưng bộ kiểm KHÔNG tắt kiểm chứng chỉ: script tính SPKI (SHA-256 của khóa công
+# khai, base64) của CA gốc và CA trung gian của Caddy rồi truyền qua DXOS_CADDY_SPKI; tests/web/live/playwright.config.ts
+# đưa chúng vào --ignore-certificate-errors-spki-list, nên chứng chỉ do bên khác cấp vẫn bị từ chối. (Caddy chỉ gửi chứng
+# chỉ lá và CA trung gian, không gửi CA gốc, nên cần ghim cả hai.)
 # Cách trỏ `localhost` về máy chủ Docker giống ops/e2e/run_e2e.sh; riêng Chromium bỏ qua /etc/hosts cho `localhost`
 # nên cấu hình Playwright còn ép bằng --host-resolver-rules (DXOS_GATEWAY_IP).
 set -euo pipefail
@@ -29,6 +33,7 @@ if ! printf '%s' "$PLAYWRIGHT_IMAGE" | grep -Eq '@sha256:[0-9a-f]{64}$'; then
     exit 3
 fi
 command -v docker >/dev/null || { echo "web_live.sh: không tìm thấy docker" >&2; exit 3; }
+command -v openssl >/dev/null || { echo "web_live.sh: không tìm thấy openssl (cần để tính SPKI của CA Caddy)" >&2; exit 3; }
 
 mkdir -p "$OUT"
 # CA nội bộ của Caddy (dev) để phía Node tin chứng chỉ của https://localhost.
@@ -36,6 +41,27 @@ docker compose -p dxos cp caddy:/data/caddy/pki/authorities/local/root.crt "$OUT
     echo "web_live.sh: không lấy được CA của Caddy; stack dev-lite (project dxos) đã chạy chưa?" >&2
     exit 3
 }
+
+# CA trung gian: Caddy chỉ gửi chứng chỉ lá và CA này nên Chromium chỉ thấy SPKI của nó trong chuỗi.
+docker compose -p dxos cp caddy:/data/caddy/pki/authorities/local/intermediate.crt "$OUT/caddy-intermediate.crt" || {
+    echo "web_live.sh: không lấy được CA trung gian của Caddy; stack dev-lite (project dxos) đã chạy chưa?" >&2
+    exit 3
+}
+
+# SPKI = base64(SHA-256(DER của SubjectPublicKeyInfo)), đúng định dạng của --ignore-certificate-errors-spki-list.
+spki_of() {
+    openssl x509 -pubkey -noout -in "$1" | openssl pkey -pubin -outform der | openssl dgst -sha256 -binary \
+        | base64 | tr -d '\n'
+}
+CADDY_SPKI=""
+for crt in "$OUT/caddy-root.crt" "$OUT/caddy-intermediate.crt"; do
+    one=$(spki_of "$crt") || one=""
+    if ! printf '%s' "$one" | grep -Eq '^[A-Za-z0-9+/]{43}=$'; then
+        echo "web_live.sh: không tính được SPKI của $crt (không phải chứng chỉ hợp lệ?)" >&2
+        exit 3
+    fi
+    CADDY_SPKI="${CADDY_SPKI:+$CADDY_SPKI,}$one"
+done
 
 # Chép nguồn bằng tar nhưng không chép bí mật (.env*, .secrets/, deploy/release.env): npm ci chạy lifecycle script
 # của bên thứ ba có mạng. Chặn mặc định mọi tệp .env* (kể cả .env.example: không mã nào trong container đọc nó).
@@ -60,6 +86,6 @@ npm_config_engine_strict=false npm ci
 npx playwright test -c tests/web/live'
 
 docker run --rm --ipc=host --add-host=host.docker.internal:host-gateway \
-    -e DXOS_WEB_LIVE=1 -e DXOS_BASE_URL=https://localhost -e DXOS_E2E_PASSWORD \
+    -e DXOS_WEB_LIVE=1 -e DXOS_BASE_URL=https://localhost -e DXOS_E2E_PASSWORD -e "DXOS_CADDY_SPKI=$CADDY_SPKI" \
     -e DXOS_WEB_LIVE_OUT=/out -e DXOS_SHOT_DIR=/out/shots -e NODE_EXTRA_CA_CERTS=/out/caddy-root.crt \
     -v "$REPO":/src:ro -v "$OUT":/out "$PLAYWRIGHT_IMAGE" bash -c "$INNER"

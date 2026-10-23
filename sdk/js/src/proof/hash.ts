@@ -54,12 +54,14 @@ export function b64encode(u8: Uint8Array): string {
 }
 
 /**
- * Như `base64.b64decode(s, validate=True)` của Python 3.12: chỉ bảng chữ chuẩn và tối đa hai `=` ở cuối;
- * số ký tự dữ liệu d: d % 4 == 0 (d > 0 thì `=` thừa được bỏ qua), d % 4 == 2 cần đúng `==`, d % 4 == 3 cần
- * đúng `=`; bit thừa cuối được bỏ qua. Sai → null.
+ * Như `base64.b64decode(s, validate=True)` của Python 3.12 (`binascii.a2b_base64(strict_mode=True)`): chỉ bảng chữ
+ * chuẩn, rồi toàn dấu `=` ở cuối; số ký tự dữ liệu d: d % 4 == 0 thì số `=` nào cũng được nếu d > 0 (nhóm đủ rồi
+ * thì `=` thừa bị bỏ qua, 3 dấu trở lên cũng vậy; d == 0 chỉ nhận chuỗi rỗng), d % 4 == 2 cần đúng `==`, d % 4 == 3
+ * cần đúng `=`, d % 4 == 1 luôn sai; bit thừa cuối được bỏ qua. Sai → null. Vector dùng chung với Python:
+ * sdk/js/test/vectors/b64/validate.json.
  */
 export function b64decodePy(s: string): Uint8Array | null {
-  const m = /^([A-Za-z0-9+/]*)(={0,2})$/.exec(s)
+  const m = /^([A-Za-z0-9+/]*)(=*)$/.exec(s)
   if (!m) return null
   const data = m[1]!
   const pads = m[2]!.length

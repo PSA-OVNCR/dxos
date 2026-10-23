@@ -19,6 +19,7 @@ import copy
 import hashlib
 import json
 import os
+import sys
 import unicodedata
 from pathlib import Path
 
@@ -82,6 +83,23 @@ def _lenient_b64_hint(env, b, files):
     b["seal_key"]["public_key"] = s[:42] + alphabet[alphabet.index(s[42]) | 1] + "="
 
 
+def _three_pad_b64_hint(env, b, files):
+    # 44 ký tự dữ liệu (nhóm đủ, 33 byte) + "===": Python (validate=True) nhận thừa dấu "=" sau nhóm đủ,
+    # giải ra 33 byte nên khóa bị bỏ vì sai độ dài; JS phải ra cùng kết quả (KEY_MISMATCH/KEY_MISSING).
+    s = b["seal_key"]["public_key"]
+    b["seal_key"]["public_key"] = s[:43] + "A" + "==="
+
+
+INT_4301 = "@@INT-4301-DIGITS@@"
+
+
+def _int_4301_digits(env, b, files):
+    # Python: json.loads từ chối số nguyên dài hơn 4300 chữ số (giới hạn đổi sang chuỗi), CLI báo MALFORMED,
+    # kể cả ở trường không được ký. json.dumps chịu cùng giới hạn nên ghi chỗ giữ chỗ rồi thay vào văn bản.
+    b["ghi_chu"] = INT_4301
+    return {"text_replace": {json.dumps(INT_4301): "1" * 4301}}
+
+
 def _re_anchor(b, files, size):
     files[f"sth/{size:012d}.json"] = canonical_bytes(b["anchored"]["sth"])
 
@@ -142,6 +160,8 @@ MUTATIONS = {
     "key_version": (_nothing, lambda e, b, f: b["seal_key"].update(version=2)),
     "swap_bundle_key": (_nothing, _swap_bundle_key),
     "lenient_b64_hint": (_nothing, _lenient_b64_hint),
+    "three_pad_b64_hint": (_nothing, _three_pad_b64_hint),
+    "int_4301_digits": (_nothing, _int_4301_digits),
     "bad_b64_hint": (_nothing, lambda e, b, f: b["seal_key"].update(public_key="!!not-base64!!")),
     "bundle_keys_absent": (_nothing, lambda e, b, f: (b["seal_key"].update(public_key=None),
                                                        b.pop("sth_keys"))),
@@ -199,6 +219,8 @@ EXTRA_CASES = [
     ("key-mismatch", "anchored_is_sth", "swap_bundle_key", "KEY_MISMATCH"),
     ("lenient-b64-key-hint", "anchored_is_sth", "lenient_b64_hint", None),
     ("bad-b64-key-hint", "anchored_is_sth", "bad_b64_hint", "KEY_MISMATCH"),
+    ("b64-three-pad", "anchored_is_sth", "three_pad_b64_hint", "KEY_MISMATCH"),
+    ("int-4301-digits", "anchored_is_sth", "int_4301_digits", "MALFORMED"),
     ("bundle-keys-absent", "newer_sth", "bundle_keys_absent", None),
     ("seal-key-not-anchored", "anchored_is_sth", "seal_key_not_anchored", "KEY_NOT_ANCHORED"),
     ("sth-key-not-anchored", "anchored_is_sth", "sth_key_not_anchored", "KEY_NOT_ANCHORED"),
@@ -225,7 +247,7 @@ UNPINNED = {
     "anchor-sth-mismatch": None, "key-mismatch": None, "seal-key-not-anchored": None,
     "sth-key-not-anchored": None, "anchored-key-no-newline": None, "statement-not-anchored": None,
     "statement-differs": None, "leaf-after-last-anchor": None,
-    "bad-b64-key-hint": "KEY_MISSING", "bundle-keys-absent": "KEY_MISSING",
+    "bad-b64-key-hint": "KEY_MISSING", "b64-three-pad": "KEY_MISSING", "bundle-keys-absent": "KEY_MISSING",
     "statement-only-anchored": "KEY_STATEMENT_MISSING",
 }
 
@@ -240,7 +262,11 @@ def make_vector(env, layout: str, mutation) -> dict:
     files = {p.relative_to(anchor).as_posix(): p.read_bytes() for p in anchor.rglob("*") if p.is_file()}
     opts = post(env, bundle, files) if post else None
     opts = opts if isinstance(opts, dict) else {}
-    vec = {"bundle_text": json.dumps(bundle, ensure_ascii=bool(opts.get("ascii")), separators=(",", ":")),
+    text = json.dumps(bundle, ensure_ascii=bool(opts.get("ascii")), separators=(",", ":"))
+    for old, new in opts.get("text_replace", {}).items():
+        assert text.count(old) == 1, old
+        text = text.replace(old, new)
+    vec = {"bundle_text": text,
            "anchor_files": {k: _b64(files[k]) for k in sorted(files)}}
     if "file_sha256" in opts:
         vec["file_sha256"] = opts["file_sha256"]
@@ -258,7 +284,11 @@ def python_verdicts(vec: dict, root: Path) -> tuple[str | None, str | None]:
     """(mã khi ghim, mã khi chưa ghim) của witness; gói phân tích JSON đúng như CLI ``verify-bundle``."""
     out = []
     for anchor_dir in (write_anchor(vec, root), None):
-        bundle = json.loads(vec["bundle_text"], object_pairs_hook=_no_duplicate_keys)
+        try:
+            bundle = json.loads(vec["bundle_text"], object_pairs_hook=_no_duplicate_keys)
+        except Exception:  # noqa: BLE001 — như CLI ``verify-bundle``: gói không đọc được → INVALID MALFORMED
+            out.append("MALFORMED")
+            continue
         res = verify_bundle(bundle, anchor_dir=anchor_dir, file_sha256=vec.get("file_sha256"))
         assert res.pinned == (anchor_dir is not None)
         out.append(None if res.ok else res.detail.split(":")[0])
@@ -291,6 +321,57 @@ def test_big_integers_are_written_exactly():
 def test_no_stray_vectors():
     names = {c[0] for c in CASES + EXTRA_CASES}
     assert {p.stem for p in VEC_DIR.glob("*.json")} == names
+
+
+# -------------------------------------------- base64 (``b64decode(validate=True)``) và giới hạn số nguyên
+B64_VEC = VEC_DIR / "b64" / "validate.json"
+B64_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+
+
+def _b64_vectors() -> list[dict]:
+    """Chuỗi → byte (hex) mà ``b64decode(s, validate=True)`` của Python 3.12 trả, hoặc ``None`` nếu từ chối.
+
+    Gồm mọi (số ký tự dữ liệu 0…9) × (số dấu ``=`` 0…7), nhất là nhóm đủ kèm 3 dấu ``=`` trở lên: Python vẫn
+    nhận (``b64-three-pad``), cùng các chuỗi lạ (khoảng trắng, ``=`` giữa chuỗi, URL-safe, chữ số Unicode)."""
+    inputs = []
+    for d in range(10):
+        data = "".join(B64_ALPHABET[(7 * i + 3 * d + 1) % 64] for i in range(d))   # bit thừa cuối khác 0
+        inputs += [data + "=" * p for p in range(8)]
+    inputs += [f"AAAA{'=' * p}" for p in range(8)] + ["AAA===", "AA====", "A==="]
+    inputs += ["", "=", "====", "AAAA\n", " AAAA", "AA AA", "AAAA ==", "AAAA==\n", "AA-_", "AA==AA==",
+               "AAAA=AAA", "AAAA===\n", "AAA=\u0663", "é", "AAAA\u00a0", "QUJD", "QUJD===", "QUI=", "QUI====",
+               "QQ==", "QQ=====", "AAAA" * 11 + "=" * 3, "A" * 43 + "=", "A" * 43 + "===", "A" * 44 + "==="]
+    out = []
+    for s in dict.fromkeys(inputs):
+        try:
+            out.append({"input": s, "hex": base64.b64decode(s, validate=True).hex()})
+        except (ValueError, TypeError):   # binascii.Error là ValueError; chuỗi non-ASCII → ValueError
+            out.append({"input": s, "hex": None})
+    return out
+
+
+def test_b64_vectors():
+    vec = _b64_vectors()
+    by = {c["input"]: c["hex"] for c in vec}
+    assert by["AAAA==="] == "000000" and by["AAAA======="] == "000000"       # thừa "=" sau nhóm đủ: nhận
+    assert by["AAA==="] is None and by["AA===="] is None and by["A==="] is None
+    assert sum(c["hex"] is not None for c in vec) > 20 and sum(c["hex"] is None for c in vec) > 20
+    if os.environ.get("DXOS_WRITE_VECTORS") == "1":
+        B64_VEC.parent.mkdir(parents=True, exist_ok=True)
+        B64_VEC.write_text(json.dumps(vec, ensure_ascii=False, indent=0) + "\n", encoding="utf-8")
+    assert json.loads(B64_VEC.read_text(encoding="utf-8")) == vec, "sinh lại bằng DXOS_WRITE_VECTORS=1"
+
+
+def test_python_integer_limit_is_4300_digits_without_the_sign():
+    """JS (parseJson) phải khớp: 4300 chữ số nhận (kể cả dấu trừ), 4301 từ chối (mặc định Python 3.11+)."""
+    assert sys.get_int_max_str_digits() == 4300, "đặt lại PYTHONINTMAXSTRDIGITS về mặc định để chạy vector"
+    for ok in ("1" * 4300, "-" + "1" * 4300):
+        assert len(json.loads(ok).__str__().lstrip("-")) == 4300
+    for bad in ("1" * 4301, "-" + "1" * 4301):
+        with pytest.raises(ValueError, match="4300 digits"):
+            json.loads(bad)
+    # Số thực không chịu giới hạn này (float() không đổi qua int).
+    assert json.loads("1" * 4301 + ".5") == float("inf") or json.loads("1" * 4301 + ".5") > 1e300
 
 
 # ---------------------------------------------------------------- Merkle (RFC 9162) cho cây 1…9 lá

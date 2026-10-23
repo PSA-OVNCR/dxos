@@ -43,6 +43,12 @@ Mọi thay đổi đáng kể được ghi tại đây, theo định dạng [Kee
   repo neo chưa có `sth/<n>.json`); cổng bật tùy chọn này và hiện "Hợp lệ — chưa neo công khai" kèm lời nhắc kiểm lại sau vài phút.
   Khóa phải khớp repo neo; chữ ký, inclusion, consistency vẫn kiểm đủ; `sth/<n>.json` đã có trong repo mà khác gói vẫn là
   "Không hợp lệ". Test App A trên trình duyệt thật chấp nhận nhãn này (chạy thật: V39).
+- **Bộ Playwright live ghim SPKI của CA Caddy thay cho `ignoreHTTPSErrors`**: `ops/web_live.sh` tính SPKI của CA gốc và CA trung
+  gian bằng `openssl`, truyền `DXOS_CADDY_SPKI`; cấu hình đưa vào `--ignore-certificate-errors-spki-list` và dừng với lỗi rõ khi
+  thiếu biến. Chạy thật trên Chromium là V39.
+- **`verifyBundle` (JS) khớp `dxos-witness verify-bundle` (Python) ở hai chỗ còn lệch**: base64 nhận nhiều dấu `=` thừa sau nhóm
+  đủ như `b64decode(validate=True)` (vector `b64-three-pad`, `b64/validate.json`) và số nguyên dài hơn 4300 chữ số làm gói
+  `MALFORMED` (vector `int-4301-digits`).
 
 ## [0.3.0] - 2026-10-23
 Mốc M3 (Tầng 1 hoàn tất cho client: SDK, hai ứng dụng Tầng 2 có giao diện, cổng đối soát Vue, triển khai theo tag).
@@ -58,7 +64,7 @@ Mã đã qua test đơn vị, integration và Playwright với API giả ở clo
 - **SDK `dxos-sdk-js`** (`sdk/js/`, npm workspace; chưa công bố lên npm): client HTTP `DxosClient` (`If-Match` luôn
   lấy từ một lần GET ngay trước, không tự thử lại yêu cầu ghi), đăng nhập OIDC Authorization Code + PKCE `createAuth`
   (token chỉ nằm trong `sessionStorage`, làm mới single-flight), bộ kiểm gói bằng chứng trên trình duyệt `verifyBundle`
-  (dịch từng bước `dxos-witness verify-bundle`, hai bên chạy chung một bộ vector; còn hai khác biệt đã biết, xem Known limitations), thành phần Vue
+  (dịch từng bước `dxos-witness verify-bundle`, hai bên chạy chung một bộ vector), thành phần Vue
   (`QuarantineStatus`, `SealQr`, `VerifyLink`, `RecordForm`, `ProblemMessage`, `AppShell`, `SealPanel`, `PiiPanel`,
   `ConfirmDialog`, `boot`) và công cụ test `dxos-sdk-js/testing` (`fakeFetch`, `fakeClient`, `problem`). Hướng dẫn: `sdk/js/README.md`.
 - **Cổng đối soát Vue** `/apps/verify/` (`verify-portal/app/`, AT-25): hash tệp và tự kiểm gói bằng chứng ngay trên trình
@@ -145,9 +151,6 @@ tới khối Bitcoin 972609 (`docs/progress/2026-10-22-ots-laptop.md`); neo lên
   chưa nối (V34). AT-26 (người ngoài đội làm theo hướng dẫn) chưa tổ chức (V31).
 - Phần mềm build có giấy phép MPL-2.0, BlueOak-1.0.0,
   MIT-0, CC0-1.0 (`mdn-data`) chỉ nằm trong công cụ build, không vào bundle; chờ trưởng nhóm xác nhận (V30).
-- `verifyBundle` (JS) và `dxos-witness verify-bundle` (Python) dùng chung bộ vector nhưng còn hai khác biệt đã biết: JS chỉ nhận tối đa 2 dấu `=` đệm
-  trong base64 (Python nhận nhiều hơn sau một nhóm đủ), và số nguyên dài hơn 4300 chữ số cho `MALFORMED` ở Python nhưng JS vẫn chấp nhận.
-  Hai khác biệt này không làm gói thật đổi kết quả.
 - Gói npm `dxos-sdk-js` chưa công bố lên npm (`private: true`); ứng dụng dùng SDK qua npm workspace.
 
 ## [0.2.0] - 2026-10-22

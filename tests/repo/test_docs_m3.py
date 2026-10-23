@@ -200,8 +200,12 @@ def test_web_live_evidence_doc_matches_files():
     assert 'tests="10" failures="0" skipped="0" errors="0"' in junit
 
 
-def test_verify_parity_gap_is_disclosed():
-    for rel in ("sdk/js/README.md", "CHANGELOG.md"):
-        text = _doc(rel)
-        assert "4300" in text, rel
-    assert "4300" in _doc(PROGRESS)
+def test_verify_parity_gap_is_closed_and_the_docs_say_so():
+    """Plan 04 Task 14: JS khớp Python (base64 nhiều `=`, số nguyên 4300 chữ số); hết "khác biệt đã biết"."""
+    for rel in ("sdk/js/README.md", "CHANGELOG.md", PROGRESS):
+        text = _doc(rel).lower()
+        assert "khác biệt đã biết" not in text and "hai khác biệt" not in text, rel
+    readme = _doc("sdk/js/README.md")
+    assert "b64/validate.json" in readme and "4300" in readme
+    unreleased = _doc("CHANGELOG.md").split("## [0.3.0]")[0]
+    assert "b64-three-pad" in unreleased and "int-4301-digits" in unreleased and "4300" in unreleased

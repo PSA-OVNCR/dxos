@@ -195,7 +195,7 @@ make web-live           # container mcr.microsoft.com/playwright (ghim digest �
 ```
 Kết quả ở `test-results/web-live/` (`web-live-junit.xml`, `shots/*.png`, `artifacts/`). Bộ này chỉ chạy khi
 `DXOS_WEB_LIVE=1` (script tự đặt); `npm run test:live` ngoài container thì bỏ qua mọi test, `npm run typecheck:live` kiểm
-kiểu. Mật khẩu người dùng dev đọc từ `DXOS_E2E_PASSWORD` (mặc định `dev-only-password`, chỉ có ở realm dev). Lệnh cho
+kiểu. Chromium không tắt kiểm chứng chỉ: `ops/web_live.sh` cần `openssl`, tính SPKI của CA gốc và CA trung gian Caddy rồi truyền `DXOS_CADDY_SPKI` (cấu hình Playwright dừng với lỗi rõ nếu thiếu biến khi chạy thật). Mật khẩu người dùng dev đọc từ `DXOS_E2E_PASSWORD` (mặc định `dev-only-password`, chỉ có ở realm dev). Lệnh cho
 Windows: `docs/evidence/README.md`, mục "Kiểm trình duyệt thật (V27)".
 
 ## Tài liệu API (OpenAPI)

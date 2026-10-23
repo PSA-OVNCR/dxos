@@ -9,6 +9,7 @@ import {
 } from '../src/index'
 import { parseRfc3339Micros, verifyBundleWith } from '../src/proof/bundle'
 import { b64decodePy } from '../src/proof/hash'
+import b64Vectors from './vectors/b64/validate.json'
 import merkleVectors from './vectors/merkle/rfc9162.json'
 
 interface Vector {
@@ -201,6 +202,23 @@ test('base64 decoding follows Python b64decode(validate=True)', () => {
   expect(Array.from(b64decodePy('A/==')!)).toEqual([3])
   expect(b64decodePy('AA AA')).toBeNull()
   expect(b64decodePy('AA=A')).toBeNull()
+})
+
+test('base64 decoding equals Python on the shared vector (including 3+ "=" after a full group)', () => {
+  const vec = b64Vectors as { input: string; hex: string | null }[]
+  expect(vec.length).toBeGreaterThan(100)
+  expect(vec.find((c) => c.input === 'AAAA===')?.hex).toBe('000000') // b64-three-pad: Python nhận
+  const toHex = (u: Uint8Array | null) => (u === null ? null : Array.from(u, (x) => x.toString(16).padStart(2, '0')).join(''))
+  for (const c of vec) expect(toHex(b64decodePy(c.input)), JSON.stringify(c.input)).toBe(c.hex)
+})
+
+test('integers: 4300 digits parse (with or without sign), 4301 is rejected like Python json.loads', () => {
+  const ok = '1'.repeat(4300)
+  expect(parseJsonLossless(ok)).toBe(BigInt(ok))
+  expect(parseJsonLossless(`-${ok}`)).toBe(-BigInt(ok))
+  for (const bad of ['1'.repeat(4301), `-${'1'.repeat(4301)}`, `[${'7'.repeat(4301)}]`, `{"a":${'7'.repeat(5000)}}`]) {
+    expect(() => parseJsonLossless(bad), bad.slice(0, 12)).toThrow(SyntaxError)
+  }
 })
 
 // ---------------------------------------------------------------- Plan 04 R11: "chưa neo kịp" là chờ, không phải lỗi

@@ -4,6 +4,9 @@
 ``docker run`` được dựng đúng (mount, image ghim, biến môi trường) và script từ chối chạy khi image chưa ghim
 digest. Chạy thật trong Docker là việc V27 của máy trưởng nhóm."""
 
+import base64
+import datetime
+import hashlib
 import os
 import re
 import shutil
@@ -11,6 +14,10 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.x509.oid import NameOID
 
 ROOT = Path(__file__).resolve().parents[2]
 DIGEST = "ab" * 32
@@ -19,10 +26,27 @@ FAKE_DOCKER = r"""#!/bin/sh
 if [ "$1" = compose ]; then
   [ -z "${FAKE_CP_FAIL:-}" ] || exit 1
   for last; do :; done
-  echo "-----BEGIN CERTIFICATE-----" > "$last"
+  case "$*" in
+    *intermediate.crt*) cp "$FAKE_INTER_PEM" "$last" ;;
+    *) cp "$FAKE_ROOT_PEM" "$last" ;;
+  esac
 fi
 exit 0
 """
+
+
+def _make_cert(cn: str) -> tuple[bytes, str]:
+    """(PEM, SPKI sha256 base64) của chứng chỉ tự ký, như ``--ignore-certificate-errors-spki-list``."""
+    key = ec.generate_private_key(ec.SECP256R1())
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, cn)])
+    now = datetime.datetime.now(datetime.UTC)
+    cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name).public_key(key.public_key())
+            .serial_number(x509.random_serial_number()).not_valid_before(now)
+            .not_valid_after(now + datetime.timedelta(days=1)).sign(key, hashes.SHA256()))
+    spki = key.public_key().public_bytes(serialization.Encoding.DER,
+                                         serialization.PublicFormat.SubjectPublicKeyInfo)
+    digest = base64.b64encode(hashlib.sha256(spki).digest()).decode()
+    return cert.public_bytes(serialization.Encoding.PEM), digest
 
 
 # Bí mật của stack (``.env`` của VPS, khóa ghi repo neo, digest phát hành) không được chép vào container npm,
@@ -75,6 +99,13 @@ def repo(tmp_path):
     bin_dir.mkdir()
     (bin_dir / "docker").write_text(FAKE_DOCKER, encoding="utf-8")
     (bin_dir / "docker").chmod(0o755)
+    certs = tmp_path / "certs"
+    certs.mkdir()
+    root_pem, root_spki = _make_cert("Fake Caddy Root")
+    inter_pem, inter_spki = _make_cert("Fake Caddy Intermediate")
+    (certs / "root.pem").write_bytes(root_pem)
+    (certs / "inter.pem").write_bytes(inter_pem)
+    (certs / "spki").write_text(f"{root_spki},{inter_spki}", encoding="utf-8")
     return r, bin_dir, tmp_path / "log", head
 
 
@@ -91,7 +122,10 @@ def _pin(repo_dir: Path, script: str, var: str) -> str:
 def _run(env, script: str, **extra: str) -> subprocess.CompletedProcess:
     repo_dir, bin_dir, log, _ = env
     base = {k: v for k, v in os.environ.items() if not k.startswith(("DXOS_", "VITE_", "FAKE_", "ENV_FILE"))}
-    base.update({"PATH": f"{bin_dir}{os.pathsep}{base['PATH']}", "FAKE_LOG": str(log), **extra})
+    certs = repo_dir.parent / "certs"
+    base.update({"PATH": f"{bin_dir}{os.pathsep}{base['PATH']}", "FAKE_LOG": str(log),
+                 "FAKE_ROOT_PEM": str(certs / "root.pem"),
+                 "FAKE_INTER_PEM": str(certs / "inter.pem"), **extra})
     return subprocess.run(["bash", str(repo_dir / "ops" / script)], env=base, capture_output=True,  # noqa: S603, S607
                           text=True, check=False, timeout=60, cwd=repo_dir)
 
@@ -198,6 +232,29 @@ def test_live_stops_when_the_caddy_ca_cannot_be_read(repo):
     _pin(repo[0], "web_live.sh", "PLAYWRIGHT_IMAGE")
     r = _run(repo, "web_live.sh", FAKE_CP_FAIL="1", DXOS_WEB_LIVE_DIR=str(repo[0].parent / "res"))
     assert r.returncode == 3 and "CA của Caddy" in r.stderr
+    assert not any(c[0] == "run" for c in _calls(repo[2]))
+
+
+def test_live_pins_the_caddy_ca_spki_for_chromium(repo):
+    """Plan 04 Task 14: ghim SPKI của CA Caddy (gốc và trung gian; Caddy chỉ gửi CA trung gian)."""
+    _pin(repo[0], "web_live.sh", "PLAYWRIGHT_IMAGE")
+    r = _run(repo, "web_live.sh", DXOS_WEB_LIVE_DIR=str(repo[0].parent / "res"))
+    assert r.returncode == 0, r.stdout + r.stderr
+    args = _run_call(_calls(repo[2]))
+    expected = (repo[0].parent / "certs" / "spki").read_text(encoding="utf-8")
+    assert f"DXOS_CADDY_SPKI={expected}" in args
+    assert "-e" in args and args[args.index(f"DXOS_CADDY_SPKI={expected}") - 1] == "-e"
+    cps = [c for c in _calls(repo[2]) if c[0] == "compose"]
+    flat = [a for c in cps for a in c]
+    assert any(a.endswith("root.crt") for a in flat) and any(a.endswith("intermediate.crt") for a in flat)
+
+
+def test_live_stops_when_the_caddy_ca_spki_cannot_be_computed(repo):
+    _pin(repo[0], "web_live.sh", "PLAYWRIGHT_IMAGE")
+    junk = repo[0].parent / "junk.pem"
+    junk.write_text("-----BEGIN CERTIFICATE-----\nkhông phải chứng chỉ\n", encoding="utf-8")
+    r = _run(repo, "web_live.sh", FAKE_ROOT_PEM=str(junk), DXOS_WEB_LIVE_DIR=str(repo[0].parent / "res"))
+    assert r.returncode == 3 and "SPKI" in r.stderr
     assert not any(c[0] == "run" for c in _calls(repo[2]))
 
 

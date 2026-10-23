@@ -80,6 +80,7 @@ pause
    (kể cả `verify-1-app-b.png`), mọi test đỏ kèm trace ở `artifacts/`.
 
 Rủi ro đã biết khi chạy lần đầu: (a) Chromium trong container phải ép `localhost` về máy chủ Docker bằng
-`--host-resolver-rules` (đã cấu hình, chưa thử); (b) CA nội bộ của Caddy được bỏ qua ở phía trình duyệt bằng
-`ignoreHTTPSErrors` (chỉ Node dùng `NODE_EXTRA_CA_CERTS`); (c) bộ kiểm báo đỏ nếu console có vi phạm CSP của `/apps/*`,
+`--host-resolver-rules` (đã cấu hình, chưa thử); (b) CA nội bộ của Caddy được ghim ở phía trình duyệt: `ops/web_live.sh` tính SPKI của CA gốc và CA trung gian rồi truyền
+`DXOS_CADDY_SPKI`, cấu hình Playwright đưa vào `--ignore-certificate-errors-spki-list` (chứng chỉ của bên khác vẫn bị từ chối;
+chỉ Node dùng `NODE_EXTRA_CA_CERTS`; Plan 04 Task 14, chạy thật là V39); (c) bộ kiểm báo đỏ nếu console có vi phạm CSP của `/apps/*`,
 kể cả do một thư viện chèn style nội tuyến; (d) cổng đối soát chờ worker công bố STH nên có thể mất vài phút.

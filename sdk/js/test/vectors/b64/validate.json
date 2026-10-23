@@ -1,0 +1,450 @@
+[
+{
+"input": "",
+"hex": ""
+},
+{
+"input": "=",
+"hex": null
+},
+{
+"input": "==",
+"hex": null
+},
+{
+"input": "===",
+"hex": null
+},
+{
+"input": "====",
+"hex": null
+},
+{
+"input": "=====",
+"hex": null
+},
+{
+"input": "======",
+"hex": null
+},
+{
+"input": "=======",
+"hex": null
+},
+{
+"input": "E",
+"hex": null
+},
+{
+"input": "E=",
+"hex": null
+},
+{
+"input": "E==",
+"hex": null
+},
+{
+"input": "E===",
+"hex": null
+},
+{
+"input": "E====",
+"hex": null
+},
+{
+"input": "E=====",
+"hex": null
+},
+{
+"input": "E======",
+"hex": null
+},
+{
+"input": "E=======",
+"hex": null
+},
+{
+"input": "HO",
+"hex": null
+},
+{
+"input": "HO=",
+"hex": null
+},
+{
+"input": "HO==",
+"hex": "1c"
+},
+{
+"input": "HO===",
+"hex": null
+},
+{
+"input": "HO====",
+"hex": null
+},
+{
+"input": "HO=====",
+"hex": null
+},
+{
+"input": "HO======",
+"hex": null
+},
+{
+"input": "HO=======",
+"hex": null
+},
+{
+"input": "KRY",
+"hex": null
+},
+{
+"input": "KRY=",
+"hex": "2916"
+},
+{
+"input": "KRY==",
+"hex": null
+},
+{
+"input": "KRY===",
+"hex": null
+},
+{
+"input": "KRY====",
+"hex": null
+},
+{
+"input": "KRY=====",
+"hex": null
+},
+{
+"input": "KRY======",
+"hex": null
+},
+{
+"input": "KRY=======",
+"hex": null
+},
+{
+"input": "NUbi",
+"hex": "3546e2"
+},
+{
+"input": "NUbi=",
+"hex": "3546e2"
+},
+{
+"input": "NUbi==",
+"hex": "3546e2"
+},
+{
+"input": "NUbi===",
+"hex": "3546e2"
+},
+{
+"input": "NUbi====",
+"hex": "3546e2"
+},
+{
+"input": "NUbi=====",
+"hex": "3546e2"
+},
+{
+"input": "NUbi======",
+"hex": "3546e2"
+},
+{
+"input": "NUbi=======",
+"hex": "3546e2"
+},
+{
+"input": "QXels",
+"hex": null
+},
+{
+"input": "QXels=",
+"hex": null
+},
+{
+"input": "QXels==",
+"hex": null
+},
+{
+"input": "QXels===",
+"hex": null
+},
+{
+"input": "QXels====",
+"hex": null
+},
+{
+"input": "QXels=====",
+"hex": null
+},
+{
+"input": "QXels======",
+"hex": null
+},
+{
+"input": "QXels=======",
+"hex": null
+},
+{
+"input": "Tahov2",
+"hex": null
+},
+{
+"input": "Tahov2=",
+"hex": null
+},
+{
+"input": "Tahov2==",
+"hex": "4da868bf"
+},
+{
+"input": "Tahov2===",
+"hex": null
+},
+{
+"input": "Tahov2====",
+"hex": null
+},
+{
+"input": "Tahov2=====",
+"hex": null
+},
+{
+"input": "Tahov2======",
+"hex": null
+},
+{
+"input": "Tahov2=======",
+"hex": null
+},
+{
+"input": "Wdkry5A",
+"hex": null
+},
+{
+"input": "Wdkry5A=",
+"hex": "59d92bcb90"
+},
+{
+"input": "Wdkry5A==",
+"hex": null
+},
+{
+"input": "Wdkry5A===",
+"hex": null
+},
+{
+"input": "Wdkry5A====",
+"hex": null
+},
+{
+"input": "Wdkry5A=====",
+"hex": null
+},
+{
+"input": "Wdkry5A======",
+"hex": null
+},
+{
+"input": "Wdkry5A=======",
+"hex": null
+},
+{
+"input": "Zgnu18DK",
+"hex": "6609eed7c0ca"
+},
+{
+"input": "Zgnu18DK=",
+"hex": "6609eed7c0ca"
+},
+{
+"input": "Zgnu18DK==",
+"hex": "6609eed7c0ca"
+},
+{
+"input": "Zgnu18DK===",
+"hex": "6609eed7c0ca"
+},
+{
+"input": "Zgnu18DK====",
+"hex": "6609eed7c0ca"
+},
+{
+"input": "Zgnu18DK=====",
+"hex": "6609eed7c0ca"
+},
+{
+"input": "Zgnu18DK======",
+"hex": "6609eed7c0ca"
+},
+{
+"input": "Zgnu18DK=======",
+"hex": "6609eed7c0ca"
+},
+{
+"input": "cjqx4/GNU",
+"hex": null
+},
+{
+"input": "cjqx4/GNU=",
+"hex": null
+},
+{
+"input": "cjqx4/GNU==",
+"hex": null
+},
+{
+"input": "cjqx4/GNU===",
+"hex": null
+},
+{
+"input": "cjqx4/GNU====",
+"hex": null
+},
+{
+"input": "cjqx4/GNU=====",
+"hex": null
+},
+{
+"input": "cjqx4/GNU======",
+"hex": null
+},
+{
+"input": "cjqx4/GNU=======",
+"hex": null
+},
+{
+"input": "AAAA",
+"hex": "000000"
+},
+{
+"input": "AAAA=",
+"hex": "000000"
+},
+{
+"input": "AAAA==",
+"hex": "000000"
+},
+{
+"input": "AAAA===",
+"hex": "000000"
+},
+{
+"input": "AAAA====",
+"hex": "000000"
+},
+{
+"input": "AAAA=====",
+"hex": "000000"
+},
+{
+"input": "AAAA======",
+"hex": "000000"
+},
+{
+"input": "AAAA=======",
+"hex": "000000"
+},
+{
+"input": "AAA===",
+"hex": null
+},
+{
+"input": "AA====",
+"hex": null
+},
+{
+"input": "A===",
+"hex": null
+},
+{
+"input": "AAAA\n",
+"hex": null
+},
+{
+"input": " AAAA",
+"hex": null
+},
+{
+"input": "AA AA",
+"hex": null
+},
+{
+"input": "AAAA ==",
+"hex": null
+},
+{
+"input": "AAAA==\n",
+"hex": null
+},
+{
+"input": "AA-_",
+"hex": null
+},
+{
+"input": "AA==AA==",
+"hex": null
+},
+{
+"input": "AAAA=AAA",
+"hex": null
+},
+{
+"input": "AAAA===\n",
+"hex": null
+},
+{
+"input": "AAA=٣",
+"hex": null
+},
+{
+"input": "é",
+"hex": null
+},
+{
+"input": "AAAA ",
+"hex": null
+},
+{
+"input": "QUJD",
+"hex": "414243"
+},
+{
+"input": "QUJD===",
+"hex": "414243"
+},
+{
+"input": "QUI=",
+"hex": "4142"
+},
+{
+"input": "QUI====",
+"hex": null
+},
+{
+"input": "QQ==",
+"hex": "41"
+},
+{
+"input": "QQ=====",
+"hex": null
+},
+{
+"input": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA===",
+"hex": "000000000000000000000000000000000000000000000000000000000000000000"
+},
+{
+"input": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+"hex": "0000000000000000000000000000000000000000000000000000000000000000"
+},
+{
+"input": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA===",
+"hex": null
+}
+]
