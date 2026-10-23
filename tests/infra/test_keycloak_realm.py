@@ -114,7 +114,8 @@ def test_spa_is_public_pkce_s256_without_password_grant():
 
 @pytest.mark.parametrize("path", [PROD, DEV], ids=["prod", "dev"])
 def test_realm_has_admin_ui_client_pkce(path):
-    """Trang admin web (Plan 04 Task 9): client công khai riêng, chỉ code flow + PKCE S256, chỉ host admin."""
+    """Trang admin web (Plan 04 Task 9): client công khai riêng, chỉ code flow + PKCE S256, chỉ host admin
+    (DXOS_ADMIN_HOST, đúng host Caddy phục vụ trang admin; R22)."""
     c = _client(_load(path), "dxos-admin-ui")
     assert c["publicClient"] is True and c["enabled"] is True
     assert c["standardFlowEnabled"] is True
@@ -122,9 +123,9 @@ def test_realm_has_admin_ui_client_pkce(path):
     assert c["implicitFlowEnabled"] is False
     assert c["serviceAccountsEnabled"] is False
     assert c["attributes"]["pkce.code.challenge.method"] == "S256"
-    assert c["redirectUris"] == ["https://admin.${DXOS_DOMAIN}/ui/*"]
-    assert c["webOrigins"] == ["https://admin.${DXOS_DOMAIN}"]
-    assert c["attributes"]["post.logout.redirect.uris"] == "https://admin.${DXOS_DOMAIN}/ui/*"
+    assert c["redirectUris"] == ["https://${DXOS_ADMIN_HOST}/ui/*"]
+    assert c["webOrigins"] == ["https://${DXOS_ADMIN_HOST}"]
+    assert c["attributes"]["post.logout.redirect.uris"] == "https://${DXOS_ADMIN_HOST}/ui/*"
     assert "dxos-api-audience" in c["defaultClientScopes"]   # API quản trị kiểm audience như mọi API khác
 
 

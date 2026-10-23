@@ -101,6 +101,7 @@ services:
     environment:
       # Biến được thay vào realm-dxos.json lúc nạp (${...}); secret không nằm trong repo.
       DXOS_DOMAIN: ${DXOS_DOMAIN}
+      DXOS_ADMIN_HOST: ${DXOS_ADMIN_HOST:?đặt DXOS_ADMIN_HOST trong .env}
       APISIX_OIDC_CLIENT_SECRET: ${APISIX_OIDC_CLIENT_SECRET:?đặt APISIX_OIDC_CLIENT_SECRET trong .env}
       DXOS_INSTALLER_CLIENT_SECRET: ${DXOS_INSTALLER_CLIENT_SECRET:?đặt DXOS_INSTALLER_CLIENT_SECRET trong .env}
       KC_DB: postgres

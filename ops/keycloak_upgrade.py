@@ -127,14 +127,19 @@ def _last_line(text: str) -> str:
     return lines[-1].strip()[:300] if lines else "(không có thông báo)"
 
 
-def _subst(value: Any, domain: str | None) -> Any:
-    """Thay ``${DXOS_DOMAIN}`` như Keycloak làm lúc nạp realm; giá trị còn ``${`` (secret) thì không so."""
-    if isinstance(value, str) and domain is not None:
-        return value.replace("${DXOS_DOMAIN}", domain)
+def _subst(value: Any, domain: str | None, admin_host: str | None = None) -> Any:
+    """Thay ``${DXOS_DOMAIN}`` và ``${DXOS_ADMIN_HOST}`` như Keycloak làm lúc nạp realm; giá trị còn ``${``
+    (secret, hoặc biến chưa biết) thì không so."""
+    if isinstance(value, str):
+        if domain is not None:
+            value = value.replace("${DXOS_DOMAIN}", domain)
+        if admin_host is not None:
+            value = value.replace("${DXOS_ADMIN_HOST}", admin_host)
+        return value
     if isinstance(value, list):
-        return [_subst(v, domain) for v in value]
+        return [_subst(v, domain, admin_host) for v in value]
     if isinstance(value, dict):
-        return {k: _subst(v, domain) for k, v in value.items()}
+        return {k: _subst(v, domain, admin_host) for k, v in value.items()}
     return value
 
 
@@ -147,8 +152,8 @@ def _kv(value: Any) -> str:
 
 
 class Upgrade:
-    def __init__(self, kc: Kcadm, target: dict, *, domain: str | None) -> None:
-        self.kc, self.target, self.domain = kc, _subst(target, domain), domain
+    def __init__(self, kc: Kcadm, target: dict, *, domain: str | None, admin_host: str | None = None) -> None:
+        self.kc, self.target, self.domain = kc, _subst(target, domain, admin_host), domain
         self.actions: list[str] = []
         self.drift: list[str] = []
 
@@ -308,7 +313,8 @@ class Upgrade:
                 if c.get("secret"):
                     why = " (client bảo mật: tạo tay với secret từ .env)"
                 elif _has_placeholder(c):
-                    why = " (cấu hình còn ${...} chưa thay: đặt DXOS_DOMAIN trong .env rồi chạy lại)"
+                    why = (" (cấu hình còn ${...} chưa thay: đặt DXOS_DOMAIN và DXOS_ADMIN_HOST trong .env"
+                           " rồi chạy lại)")
                 else:
                     why = ""
                 self.drift.append(f"client {c['clientId']}: thiếu{why}")
@@ -431,7 +437,7 @@ def main(argv: list[str] | None = None, *, runner: Runner | None = None, out: Te
 
     with _config_path(args.kcadm) as config:
         kc = Kcadm(runner or subprocess_runner, container=args.container, kcadm=args.kcadm, config=config)
-        up = Upgrade(kc, target, domain=env.get("DXOS_DOMAIN"))
+        up = Upgrade(kc, target, domain=env.get("DXOS_DOMAIN"), admin_host=env.get("DXOS_ADMIN_HOST"))
         try:
             kc.login(server, user, password)
             up.apply()

@@ -35,7 +35,7 @@ def _realm_file(name: str) -> dict:
 def _subst(value):
     """Thay ${DXOS_DOMAIN} như Keycloak làm lúc nạp realm."""
     if isinstance(value, str):
-        return value.replace("${DXOS_DOMAIN}", "localhost")
+        return value.replace("${DXOS_DOMAIN}", "localhost").replace("${DXOS_ADMIN_HOST}", "admin.localhost")
     if isinstance(value, list):
         return [_subst(v) for v in value]
     if isinstance(value, dict):
@@ -232,7 +232,8 @@ def v010(name: str) -> FakeKeycloak:
 
 def run(fake: FakeKeycloak, *args: str, environ: dict | None = None) -> tuple[int, str]:
     out = io.StringIO()
-    env = {"KEYCLOAK_ADMIN_PASSWORD": PASSWORD, "DXOS_DOMAIN": "localhost"} if environ is None else environ
+    env = {"KEYCLOAK_ADMIN_PASSWORD": PASSWORD, "DXOS_DOMAIN": "localhost",
+                                    "DXOS_ADMIN_HOST": "admin.localhost"} if environ is None else environ
     rc = ku.main(["--env-file", "/nonexistent/.env", *args], runner=fake, out=out, environ=env)
     return rc, out.getvalue()
 
@@ -328,7 +329,7 @@ def test_direct_kcadm_mode():
 def test_kcadm_path_from_env():
     fake = v010("realm-dxos.json")
     rc, _ = run(fake, environ={"KEYCLOAK_ADMIN_PASSWORD": PASSWORD, "DXOS_KCADM": "/x/kcadm.sh",
-                                  "DXOS_DOMAIN": "localhost"})
+                                  "DXOS_DOMAIN": "localhost", "DXOS_ADMIN_HOST": "admin.localhost"})
     assert rc == 0 and fake.calls[0][0][0] == "/x/kcadm.sh"
 
 
@@ -377,7 +378,9 @@ def test_missing_admin_password_is_an_error_without_any_call(tmp_path):
 
 def test_password_read_from_env_file(tmp_path):
     env_file = tmp_path / ".env"
-    env_file.write_text(f"# x\nKEYCLOAK_ADMIN_PASSWORD={PASSWORD}\nDXOS_DOMAIN=localhost\n", encoding="utf-8")
+    env_file.write_text(
+        f"# x\nKEYCLOAK_ADMIN_PASSWORD={PASSWORD}\nDXOS_DOMAIN=localhost\nDXOS_ADMIN_HOST=admin.localhost\n",
+        encoding="utf-8")
     fake = v010("realm-dxos.json")
     out = io.StringIO()
     rc = ku.main(["--env-file", str(env_file)], runner=fake, out=out, environ={})
@@ -440,6 +443,25 @@ def test_upgrade_creates_admin_ui_client_once():
     assert [c["clientId"] for c in fake.clients].count("dxos-admin-ui") == 1
 
 
+def test_admin_ui_client_needs_dxos_admin_host_else_drift():
+    """Thiếu DXOS_ADMIN_HOST: không tạo client với redirect URI còn ${...}, báo lệch và nêu tên biến."""
+    fake = v010("realm-dxos.json")
+    rc, out = run(fake, environ={"KEYCLOAK_ADMIN_PASSWORD": PASSWORD, "DXOS_DOMAIN": "localhost"})
+    assert rc == 2 and "dxos-admin-ui" in out and "DXOS_ADMIN_HOST" in out
+    assert "dxos-admin-ui" not in {c["clientId"] for c in fake.clients}
+    assert any(c["clientId"] == "dxos-cli" for c in fake.clients)
+
+
+def test_admin_ui_client_uses_a_custom_admin_host():
+    fake = v010("realm-dxos.json")
+    rc, out = run(fake, environ={"KEYCLOAK_ADMIN_PASSWORD": PASSWORD, "DXOS_DOMAIN": "localhost",
+                                 "DXOS_ADMIN_HOST": "quantri.example"})
+    assert rc == 0, out
+    ui = next(c for c in fake.clients if c["clientId"] == "dxos-admin-ui")
+    assert ui["redirectUris"] == ["https://quantri.example/ui/*"]
+    assert ui["webOrigins"] == ["https://quantri.example"]
+
+
 def test_cleanup_failure_is_a_warning():
     fake = v010("realm-dxos.json")
     orig = fake.__call__
@@ -451,7 +473,8 @@ def test_cleanup_failure_is_a_warning():
 
     out = io.StringIO()
     rc = ku.main(["--env-file", "/nonexistent/.env"], runner=runner, out=out,
-                 environ={"KEYCLOAK_ADMIN_PASSWORD": PASSWORD, "DXOS_DOMAIN": "localhost"})
+                 environ={"KEYCLOAK_ADMIN_PASSWORD": PASSWORD, "DXOS_DOMAIN": "localhost",
+                             "DXOS_ADMIN_HOST": "admin.localhost"})
     assert rc == 0
     assert "CẢNH BÁO" in out.getvalue() and ku.CONFIG_IN_CONTAINER in out.getvalue()
 

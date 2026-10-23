@@ -305,14 +305,14 @@
       "serviceAccountsEnabled": false,
       "frontchannelLogout": true,
       "redirectUris": [
-        "https://admin.${DXOS_DOMAIN}/ui/*"
+        "https://${DXOS_ADMIN_HOST}/ui/*"
       ],
       "webOrigins": [
-        "https://admin.${DXOS_DOMAIN}"
+        "https://${DXOS_ADMIN_HOST}"
       ],
       "attributes": {
         "pkce.code.challenge.method": "S256",
-        "post.logout.redirect.uris": "https://admin.${DXOS_DOMAIN}/ui/*"
+        "post.logout.redirect.uris": "https://${DXOS_ADMIN_HOST}/ui/*"
       },
       "defaultClientScopes": [
         "web-origins",

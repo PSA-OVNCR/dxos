@@ -163,3 +163,21 @@ def test_only_the_testing_module_imports_vitest():
     assert bad == []
     for entry in ("sdk/js/src/index.ts", "sdk/js/src/vue/index.ts"):
         assert "testing" not in (ROOT / entry).read_text(encoding="utf-8"), entry
+
+
+def test_admin_ui_event_types_match_the_core_ledger_event_types():
+    """Bộ lọc loại sự kiện của trang admin (status.ts) không được lệch khỏi lõi (ledger/events.py)."""
+    ui = (ROOT / "admin-ui/src/status.ts").read_text(encoding="utf-8")
+    block = re.search(r"EVENT_TYPES\s*=\s*\[(.*?)\]\s*as const", ui, re.S)
+    assert block, "không tìm thấy EVENT_TYPES trong admin-ui/src/status.ts"
+    in_ui = re.findall(r"'([a-z_]+\.[a-z_]+)'", block.group(1))
+    core = (ROOT / "core/src/dxos_core/ledger/events.py").read_text(encoding="utf-8")
+    core_block = re.search(r"EVENT_TYPES[^=]*=\s*frozenset\(\{(.*?)\}\)", core, re.S)
+    assert core_block, "không tìm thấy EVENT_TYPES trong events.py"
+    in_core = re.findall(r'"([a-z_]+\.[a-z_]+)"', core_block.group(1))
+    assert len(in_core) > 15
+    assert len(in_ui) == len(set(in_ui)), "EVENT_TYPES của admin-ui có loại trùng"
+    assert set(in_ui) == set(in_core), {
+        "thiếu trong admin-ui": sorted(set(in_core) - set(in_ui)),
+        "thừa trong admin-ui": sorted(set(in_ui) - set(in_core)),
+    }

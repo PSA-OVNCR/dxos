@@ -6,6 +6,7 @@ Chỉ cần CLI `docker compose` (không cần daemon). Không có CLI thì bỏ
 """
 
 import json
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -208,8 +209,20 @@ def test_production_imports_only_production_realm(compose_cfg):
     kc = compose_cfg["services"]["keycloak"]
     assert "--import-realm" in kc["command"]
     assert _kc_import_sources(compose_cfg) == {"realm-dxos.json"}
-    for var in ("DXOS_DOMAIN", "APISIX_OIDC_CLIENT_SECRET", "DXOS_INSTALLER_CLIENT_SECRET"):
+    for var in ("DXOS_DOMAIN", "DXOS_ADMIN_HOST", "APISIX_OIDC_CLIENT_SECRET",
+                "DXOS_INSTALLER_CLIENT_SECRET"):
         assert kc["environment"].get(var), var
+
+
+def test_keycloak_gets_every_variable_the_realm_files_use(compose_cfg, dev_lite_cfg):
+    """Keycloak thay ${BIEN} lúc nạp realm từ môi trường của chính nó: thiếu biến thì redirect URI hỏng."""
+    root = Path(__file__).resolve().parents[2]
+    for name, cfg in (("realm-dxos.json", compose_cfg), ("realm-dxos-dev.json", dev_lite_cfg)):
+        text = (root / "deploy/keycloak" / name).read_text(encoding="utf-8")
+        used = set(re.findall(r"\$\{([A-Z0-9_]+)\}", text))
+        assert {"DXOS_DOMAIN", "DXOS_ADMIN_HOST"} <= used, name
+        missing = used - set(cfg["services"]["keycloak"]["environment"])
+        assert missing == set(), (name, missing)
 
 
 def test_dev_lite_imports_dev_realm(dev_lite_cfg):
