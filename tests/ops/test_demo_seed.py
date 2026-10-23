@@ -46,9 +46,13 @@ def problem(status: int, slug: str) -> httpx.Response:
 
 class FakeStack:
     def __init__(self, *, page: int = 2, fail_upload_once: bool = False, infected: bool = False,
-                 token_status: int = 200) -> None:
+                 token_status: int = 200, installed: tuple[str, ...] = ("phong-ho-so", "chung-nhan"),
+                 html_list: bool = False, token_body: dict | None = None) -> None:
         self.page, self.fail_upload_once, self.infected = page, fail_upload_once, infected
         self.token_status = token_status
+        self.installed = set(installed)                    # app đã cài; app khác trả 404 app-not-active
+        self.html_list = html_list                         # 200 text/html thay cho JSON
+        self.token_body = token_body
         self.requests: list[httpx.Request] = []
         self.records: dict[str, dict] = {}
         self.uploads: dict[str, dict] = {}
@@ -84,6 +88,8 @@ class FakeStack:
             if self.token_status != 200:
                 return httpx.Response(self.token_status, json={"error": "invalid_grant"})
             assert form["client_id"] == "dxos-test" and form["grant_type"] == "password"
+            if self.token_body is not None:
+                return httpx.Response(200, json=self.token_body)
             return httpx.Response(200, json={"access_token": f"tok-{form['username']}", "expires_in": 300})
         if m := re.fullmatch(r"/api/v1/uploads/([0-9a-f-]+)", path):
             up = self.uploads.get(m[1])
@@ -96,8 +102,12 @@ class FakeStack:
 
     def records_api(self, req: httpx.Request, user: str | None, app: str, col: str, bulk: str | None,
                     rid: str | None, action: str | None) -> httpx.Response:
+        if app not in self.installed:
+            return problem(404, "app-not-active")
         if user != OWNERS.get(app):
             return problem(403, "forbidden")
+        if self.html_list and req.method == "GET" and rid is None:
+            return httpx.Response(200, text="<html>Caddy</html>", headers={"content-type": "text/html"})
         if bulk:
             return self.bulk(req, app)
         if rid is None:
@@ -326,3 +336,85 @@ def test_no_real_secrets_or_hosts_in_seed_data():
             + (ROOT / "demo/README.md").read_text(encoding="utf-8"))
     emails = re.findall(r"[\w.+-]+@[\w.-]+", blob)
     assert emails and all(e.endswith("@example.invalid") for e in emails)
+
+
+# ---------------------------------------------------------------------- --only và app chưa cài
+def test_only_a_touches_nothing_of_app_b():
+    stack = FakeStack()
+    code, out, err = seed(stack, "--only", "a")
+    assert code == 0, err
+    assert len(stack.titles("phong-ho-so")) == 3 and stack.titles("chung-nhan") == []
+    assert all("/apps/chung-nhan/" not in r.url.path for r in stack.requests)
+    assert not any(b"can_bo_clb1" in r.content for r in stack.requests)    # không cả lấy token của App B
+    assert "App B" not in out
+
+
+def test_only_b_after_live_install_seeds_just_b():
+    stack = FakeStack(installed=("phong-ho-so",))
+    assert seed(stack, "--only", "a")[0] == 0                       # trước buổi demo: chỉ A, B chưa cài
+    seen = len(stack.requests)
+    stack.installed.add("chung-nhan")                                # cài App B ngay trên sân khấu
+    code, out, err = seed(stack, "--only", "b")
+    assert code == 0, err
+    assert len(stack.titles("chung-nhan")) == 12 and len(stack.titles("phong-ho-so")) == 3
+    assert all("/apps/phong-ho-so/" not in r.url.path for r in stack.requests[seen:])
+    assert "App B: 12 chứng nhận mới" in out
+
+
+def test_both_skips_app_b_when_not_installed_with_exit_0():
+    stack = FakeStack(installed=("phong-ho-so",))
+    code, out, err = seed(stack)
+    assert code == 0, err
+    assert "bỏ qua App B" in out and "--only b" in out and err == ""
+    assert len(stack.titles("phong-ho-so")) == 3 and stack.titles("chung-nhan") == []
+
+
+def test_only_b_not_installed_is_an_error_that_says_install_first():
+    code, _, err = seed(FakeStack(installed=("phong-ho-so",)), "--only", "b")
+    assert code == 2 and "chưa cài" in err and "Chạy lại để làm nốt" not in err
+
+
+def test_app_a_not_installed_is_an_error():
+    stack = FakeStack(installed=("chung-nhan",))
+    code, _, err = seed(stack)
+    assert code == 2 and "phong-ho-so" in err and "chưa cài" in err
+    assert stack.titles("chung-nhan") == []                          # không lẳng lặng nạp phần còn lại
+
+
+def test_only_rejects_other_values():
+    with pytest.raises(SystemExit):
+        demo_seed.build_parser().parse_args(["--only", "c"])
+
+
+def test_state_label_is_neutral_after_first_approval():
+    stack = FakeStack()
+    _, out, _ = seed(stack)
+    assert "đang trong quy trình" in out
+
+
+# ---------------------------------------------------------------------- phản hồi lạ không sinh traceback
+def test_html_200_from_gateway_is_clean_exit_2():
+    code, _, err = seed(FakeStack(html_list=True))
+    assert code == 2 and "không đúng dạng mong đợi" in err and "Traceback" not in err
+
+
+def test_token_response_without_access_token_is_clean_exit_2():
+    code, _, err = seed(FakeStack(token_body={"error": "x"}))
+    assert code == 2 and "không đúng dạng mong đợi" in err
+
+
+def test_non_pem_ca_file_is_config_error(tmp_path):
+    bad = tmp_path / "ca.crt"
+    bad.write_text("không phải PEM", encoding="utf-8")
+    stack = FakeStack()
+    code, _, err = seed(stack, "--ca-file", str(bad))
+    assert code == 2 and "PEM" in err and stack.requests == []
+    code, _, err = seed(stack, env={"SSL_CERT_FILE": str(bad)})        # cũng qua biến SSL_CERT_FILE
+    assert code == 2 and "PEM" in err and stack.requests == []
+
+
+def test_local_base_ignores_proxy_env_but_remote_keeps_it():
+    with demo_seed._client(None, None, local=True) as local:
+        assert local.trust_env is False                                # HTTPS_PROXY không áp cho https://localhost
+    with demo_seed._client(None, None, local=False) as remote:
+        assert remote.trust_env is True

@@ -147,9 +147,14 @@ Chi tiết manifest, guard, BPMN, luật nâng phiên bản: [docs/manifest-guid
 ## Dữ liệu demo hư cấu (`make demo-seed`)
 Nạp sẵn dữ liệu cho buổi demo vào stack dev đang chạy (cùng điều kiện với E2E: realm dev, App A và App B đã cài):
 ```bash
-make demo-seed                                    # https://localhost; Python cần tin CA của Caddy
-make demo-seed ARGS="--ca-file <caddy-root.crt>"  # hoặc đặt SSL_CERT_FILE
+make demo-seed ARGS="--only a"                    # trước buổi demo: chỉ App A (https://localhost)
+make demo-seed ARGS="--only b"                    # sau khi cài và duyệt App B trên sân khấu
+make demo-seed                                    # diễn tập: cả hai; App B chưa cài thì bỏ qua (mã 0)
+make demo-seed ARGS="--only a --ca-file <caddy-root.crt>"   # nếu Python chưa tin CA của Caddy (hoặc đặt SSL_CERT_FILE)
 ```
+Kịch bản demo cài App B ngay trên sân khấu; nạp App B trước thì bước cài thành no-op (`install_apps.sh` bỏ qua bản đang hoạt
+động), nên diễn thật phải nạp A trước và `--only b` sau (`demo/README.md`, "Thứ tự khi diễn thật"). Địa chỉ `localhost` không đi
+qua `HTTP(S)_PROXY` của môi trường; địa chỉ khác (cần `--allow-remote`) vẫn theo biến đó.
 Tạo 3 văn bản "Công ty TNHH Sao Mai" kèm PDF có CCCD, số điện thoại hư cấu (App A) và 12 chứng nhận "Sự kiện CLB" từ
 `demo/su-kien-clb.csv` (App B), toàn bộ qua API thật. Mọi dữ liệu là **hư cấu** và có tên bắt đầu bằng `[DEMO] `. Chạy lại
 không tạo trùng. Seed không duyệt, không niêm phong: trạng thái từng mục (nháp, chờ duyệt) ở `demo/README.md`. Mật khẩu dev

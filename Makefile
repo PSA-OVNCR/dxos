@@ -33,7 +33,7 @@ help:
 	@echo "make web-build    - dựng các SPA trong container Node vào volume apps-static (cần Docker; digest đã ghim)"
 	@echo "make web-live     - kiểm trình duyệt thật (Playwright) trên stack dev-lite đang chạy (cần Docker)"
 	@echo "make vuot-rao     - bảng thử vượt rào (10 kịch bản tấn công) trên stack dev đang chạy; ARGS='--only V1,V3'"
-	@echo "make demo-seed    - nạp dữ liệu demo hư cấu (Công ty TNHH Sao Mai, Sự kiện CLB) vào stack dev đang chạy; ARGS='--ca-file F'"
+	@echo "make demo-seed    - nạp dữ liệu demo hư cấu (Công ty TNHH Sao Mai, Sự kiện CLB) vào stack dev đang chạy; ARGS='--only a|b --ca-file F'"
 
 dev-install:
 	$(PYTHON) -m pip install -c constraints.txt -r requirements-dev.txt

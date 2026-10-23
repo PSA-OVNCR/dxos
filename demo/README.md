@@ -24,12 +24,25 @@ hiện số phát hiện theo loại và cho tải bản che.
 
 ## Nạp dữ liệu
 
-Cần stack dev đang chạy (có realm dev, App A và App B đã cài; xem `BUILD.md`, mục "E2E"):
+Cần stack dev đang chạy (có realm dev; app nào được nạp thì phải đã cài, xem `BUILD.md`, mục "E2E"):
 
 ```bash
-make demo-seed                                   # mặc định https://localhost
-make demo-seed ARGS="--ca-file <caddy-root.crt>"  # nếu Python chưa tin CA nội bộ của Caddy
+make demo-seed ARGS="--only a"                   # chỉ App A (mặc định https://localhost)
+make demo-seed ARGS="--only b"                   # chỉ App B
+make demo-seed                                   # cả hai (diễn tập); App B chưa cài thì bỏ qua, mã thoát 0
+make demo-seed ARGS="--only a --ca-file <caddy-root.crt>"  # nếu Python chưa tin CA nội bộ của Caddy
 ```
+
+### Thứ tự khi diễn thật
+
+Kịch bản demo có đoạn **cài App B ngay trên sân khấu** (`dxos app install apps/chung-nhan`, quản trị viên thứ hai duyệt,
+khán giả quét mã QR của một chứng nhận vừa niêm phong). Nếu App B đã được nạp trước, bước cài sẽ không làm gì (bản đang
+hoạt động thì được bỏ qua) và đoạn diễn thành giả. Vì vậy:
+
+1. Trước buổi demo: `make demo-seed ARGS="--only a"` (App B chưa cài, chưa có dữ liệu).
+2. Trên sân khấu: cài và duyệt App B bằng CLI như kịch bản.
+3. Sau khi App B hoạt động: `make demo-seed ARGS="--only b"`, rồi trưởng CLB phê duyệt một chứng nhận để có mã QR mới niêm phong.
+4. Diễn tập thì chạy `make demo-seed` không cờ (nạp cả hai nếu cả hai đã cài).
 
 Seed gọi API thật bằng người dùng dev (`chuyen_vien1` cho App A, `can_bo_clb1` cho App B). Mật khẩu dev chỉ đọc từ biến
 môi trường `DXOS_E2E_PASSWORD` (mặc định `dev-only-password`), không có tham số dòng lệnh cho mật khẩu và seed không bao
@@ -51,6 +64,7 @@ Duyệt và ban hành là phần diễn ở buổi demo, nên seed dừng trư�
 | B | 8 chứng nhận đầu của CSV (Nguyễn Văn An đến Hoàng Gia Minh) | Đã bắt đầu quy trình, chờ `truong_clb1` phê duyệt | Trưởng CLB phê duyệt, niêm phong, đối soát không cần tệp |
 | B | 4 chứng nhận cuối (Ngô Thùy Nhung đến Lý Thế Sơn) | Nháp, chưa bắt đầu quy trình | Cán bộ CLB gửi duyệt trực tiếp trên màn hình |
 
-Seed nhập CSV bằng `records:bulk`, nên chứng nhận đã nằm sẵn trên stack. Muốn diễn màn hình "Nhập CSV" của App B, chọn tệp
-`su-kien-clb.csv` ở một stack chưa chạy seed, hoặc sửa tên sự kiện trong một bản sao của tệp (hệ thống không chặn trùng).
+Seed nhập CSV bằng `records:bulk`, nên với App B đã nạp, chứng nhận nằm sẵn trên stack. Màn hình "Nhập CSV" của App B chỉ
+diễn lại được trên stack chưa nạp App B (chưa chạy `--only b`): chọn tệp `su-kien-clb.csv` ở đó. Trên stack đã nạp, chọn
+lại tệp này sẽ tạo trùng (hệ thống không chặn trùng) nên đừng làm.
 Chạy thật trên laptop là việc V44 (`docs/progress/2026-10-21-tong-ket-tien-do.md`, mục 14).

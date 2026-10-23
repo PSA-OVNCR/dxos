@@ -3,16 +3,17 @@
 # SPDX-License-Identifier: Apache-2.0
 """Nạp dữ liệu demo hư cấu qua API thật (Plan 04 Task 13).
 
-    python ops/demo_seed.py [--base https://localhost] [--ca-file F] [--allow-remote]
+    python ops/demo_seed.py [--base https://localhost] [--ca-file F] [--allow-remote] [--only a|b]
 
-Tạo trên stack dev đang chạy (App A và App B đã cài):
+Tạo trên stack dev đang chạy (app tương ứng đã cài):
 
 * App A "Phòng hồ sơ số": 3 văn bản của "Công ty TNHH Sao Mai" (hư cấu), mỗi văn bản kèm một PDF trong
   ``demo/sao-mai/`` có CCCD, số điện thoại (và tài khoản) hư cấu để bước dò PII (S1) có việc để làm. Văn bản 1
   để ở dạng nháp (đã có tệp CLEAN, chưa bắt đầu quy trình); văn bản 2 và 3 đã bắt đầu quy trình, đang chờ
   trưởng phòng duyệt nội dung.
-* App B "Chứng nhận số": 12 chứng nhận của "Sự kiện CLB" (hư cấu) nhập từ ``demo/su-kien-clb.csv`` bằng
-  ``records:bulk``; 8 chứng nhận đầu đã bắt đầu quy trình (chờ trưởng CLB phê duyệt), 4 chứng nhận cuối để
+* App B "Chứng nhận số" (tách riêng bằng ``--only b``): 12 chứng nhận của "Sự kiện CLB" (hư cấu) nhập từ
+  ``demo/su-kien-clb.csv`` bằng ``records:bulk``; 8 chứng nhận đầu đã bắt đầu quy trình (chờ trưởng CLB
+  phê duyệt), 4 chứng nhận cuối để
   nháp.
 
 Seed không duyệt, không niêm phong gì: các bước đó là phần diễn ở buổi demo. Trạng thái từng mục ở
@@ -22,7 +23,12 @@ Chạy lại được nhiều lần: mỗi bản ghi tạo ra có tên bắt đ�
 App B). Trước khi tạo, seed đọc danh sách bản ghi hiện có và bỏ qua mục đã có; mục làm dở ở lần trước (chưa có
 tệp, chưa bắt đầu quy trình) được làm nốt, không tạo trùng.
 
-Mã thoát: 0 xong; 2 lỗi cấu hình, lỗi kết nối hoặc một bước không như mong đợi (chạy lại sau khi sửa).
+``--only a|b`` chỉ nạp một app (mặc định cả hai). Thứ tự diễn thật: nạp A trước buổi demo, cài App B ngay
+trên sân khấu, rồi ``--only b``. Chạy cả hai mà App B chưa cài thì bỏ qua App B (mã 0); ``--only b`` mà
+chưa cài là lỗi.
+
+Mã thoát: 0 xong; 2 lỗi cấu hình, lỗi kết nối, app chưa cài, phản hồi sai dạng, hoặc một bước không như
+mong đợi.
 
 Điều kiện: stack có realm dev (client ``dxos-test`` và người dùng dev). Mật khẩu dev chỉ đọc từ biến môi
 trường ``DXOS_E2E_PASSWORD`` (mặc định ``dev-only-password``), không bao giờ nhận qua tham số dòng lệnh và
@@ -66,6 +72,14 @@ B_STARTED = 8                               # số chứng nhận đầu của C
 
 class ConfigError(Exception):
     """Lỗi cấu hình hoặc môi trường: không nạp được (mã thoát 2)."""
+
+
+class NotInstalled(Exception):
+    """App chưa cài hoặc chưa hoạt động (404 ``app-not-active``): phải cài app trước, chạy lại không đủ."""
+
+    def __init__(self, app: str) -> None:
+        super().__init__(f"app {app} chưa cài hoặc chưa hoạt động")
+        self.app = app
 
 
 class StepError(Exception):
@@ -225,8 +239,10 @@ class Api:
             params: dict[str, Any] = {"limit": PAGE}
             if cursor:
                 params["cursor"] = cursor
-            body = self.need(self.call("GET", self.records(app, col), user, params=params), 200,
-                             f"{user} liệt kê bản ghi").json()
+            r = self.call("GET", self.records(app, col), user, params=params)
+            if r.status_code == 404 and describe(r).endswith("app-not-active"):
+                raise NotInstalled(app)
+            body = self.need(r, 200, f"{user} liệt kê bản ghi").json()
             items += body["items"]
             cursor = body.get("next_cursor")
             if not cursor:
@@ -293,7 +309,7 @@ def seed_app_a(api: Api, pdfs: dict[str, bytes], out: TextIO) -> Counts:
                 api.start(APP_A, COL_A, rid, USER_A)
                 counts.started += 1
                 wf_state = "running"
-        state = {"running": "đang chờ trưởng phòng duyệt nội dung",
+        state = {"running": "đang trong quy trình (lúc mới nạp: chờ trưởng phòng duyệt nội dung)",
                  None: "nháp, đã có tệp CLEAN"}.get(wf_state, f"quy trình: {wf_state}")
         counts.states.append(f"- {title}: {state}")
     print(f"App A: {counts.created} văn bản mới, {counts.existing} đã có từ trước; tải {counts.uploaded} tệp,"
@@ -326,8 +342,8 @@ def seed_app_b(api: Api, rows: list[dict[str, str]], out: TextIO) -> Counts:
         if api.get(APP_B, COL_B, str(rec["id"]), USER_B).get("wf_state") is None:
             api.start(APP_B, COL_B, str(rec["id"]), USER_B)
             counts.started += 1
-    counts.states.append(f"- {B_STARTED} chứng nhận đầu: đang chờ trưởng CLB phê duyệt;"
-                         f" {len(rows) - B_STARTED} chứng nhận cuối: nháp")
+    counts.states.append(f"- {B_STARTED} chứng nhận đầu: đã bắt đầu quy trình (lúc mới nạp: chờ trưởng CLB"
+                         f" phê duyệt); {len(rows) - B_STARTED} chứng nhận cuối: nháp")
     print(f"App B: {counts.created} chứng nhận mới, {counts.existing} đã có từ trước;"
           f" bắt đầu quy trình {counts.started}.", file=out)
     return counts
@@ -337,10 +353,14 @@ def seed_app_b(api: Api, rows: list[dict[str, str]], out: TextIO) -> Counts:
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="demo_seed.py", description=__doc__.split("\n\n")[0],
                                 epilog="Mật khẩu dev: biến DXOS_E2E_PASSWORD (mặc định dev-only-password).")
-    p.add_argument("--base", help="địa chỉ cổng công khai (mặc định https://$DXOS_DOMAIN, hoặc https://localhost)")
+    p.add_argument("--base",
+                   help="địa chỉ cổng công khai (mặc định https://$DXOS_DOMAIN, hoặc https://localhost)")
     p.add_argument("--ca-file", help="CA của Caddy nội bộ (mặc định biến SSL_CERT_FILE)")
     p.add_argument("--allow-remote", action="store_true",
                    help="cho phép chạy trên máy khác localhost (chỉ khi stack có realm dev)")
+    p.add_argument("--only", choices=["a", "b"],
+                   help="chỉ nạp App A hoặc chỉ App B (mặc định cả hai). Diễn thật: nạp A trước buổi demo,"
+                        " cài App B trên sân khấu, rồi mới --only b")
     return p
 
 
@@ -359,11 +379,17 @@ def _target(args: argparse.Namespace, environ: dict[str, str]) -> str:
     return base
 
 
-def _client(ca_file: str | None, transport: httpx.BaseTransport | None) -> httpx.Client:
+def _client(ca_file: str | None, transport: httpx.BaseTransport | None, *,
+            local: bool = True) -> httpx.Client:
+    """``local``: không đọc HTTP(S)_PROXY của môi trường, để ``https://localhost`` không bị đẩy qua proxy."""
     if ca_file and not Path(ca_file).is_file():
         raise ConfigError(f"--ca-file không tồn tại: {ca_file}")
-    verify: ssl.SSLContext | bool = ssl.create_default_context(cafile=ca_file) if ca_file else True
-    return httpx.Client(timeout=60, transport=transport, verify=verify, follow_redirects=False)
+    try:
+        verify: ssl.SSLContext | bool = ssl.create_default_context(cafile=ca_file) if ca_file else True
+    except (ssl.SSLError, OSError) as exc:
+        raise ConfigError(f"--ca-file hoặc SSL_CERT_FILE không phải PEM đọc được: {ca_file}: {exc}") from exc
+    return httpx.Client(timeout=60, transport=transport, verify=verify, follow_redirects=False,
+                        trust_env=not local)
 
 
 def main(argv: list[str] | None = None, *, transport: httpx.BaseTransport | None = None,
@@ -376,15 +402,29 @@ def main(argv: list[str] | None = None, *, transport: httpx.BaseTransport | None
         args = build_parser().parse_args(argv)
         base = _target(args, env)
         pdfs, rows = read_pdfs(), read_csv()              # thiếu tệp thì dừng trước khi gửi request nào
-        client = _client(args.ca_file or env.get("SSL_CERT_FILE"), transport)
+        client = _client(args.ca_file or env.get("SSL_CERT_FILE"), transport, local=is_local(base))
     except ConfigError as exc:
         print(f"Lỗi cấu hình: {exc}", file=err)
         return 2
     api = Api(client, base, env.get("DXOS_E2E_PASSWORD") or DEFAULT_PASSWORD, sleep=sleep, clock=clock)
+    states: list[str] = []
     with client:
         try:
-            a = seed_app_a(api, pdfs, out)
-            b = seed_app_b(api, rows, out)
+            if args.only in (None, "a"):
+                states += seed_app_a(api, pdfs, out).states
+            if args.only in (None, "b"):
+                try:
+                    states += seed_app_b(api, rows, out).states
+                except NotInstalled:
+                    if args.only == "b":
+                        raise
+                    msg = f"bỏ qua App B: {APP_B} chưa cài (cài rồi chạy lại với --only b)"
+                    print(msg, file=out)
+                    states.append(f"- {msg}")
+        except NotInstalled as exc:
+            print(f"Dừng: {exc}. Cài app trước (BUILD.md, mục E2E hoặc `dxos app install`) rồi chạy lại.",
+                  file=err)
+            return 2
         except ConfigError as exc:
             print(f"Lỗi cấu hình: {exc}", file=err)
             return 2
@@ -394,8 +434,12 @@ def main(argv: list[str] | None = None, *, transport: httpx.BaseTransport | None
         except httpx.TransportError as exc:
             print(f"Lỗi kết nối tới stack: {type(exc).__name__}: {exc}", file=err)
             return 2
+        except (ValueError, KeyError, TypeError) as exc:      # thân 200 là HTML của Caddy, thiếu trường
+            print(f"Phản hồi của stack không đúng dạng mong đợi ({type(exc).__name__}: {exc}); có proxy hoặc"
+                  " cổng khác chen giữa không?", file=err)
+            return 2
     print("\nTrạng thái dữ liệu demo (toàn bộ hư cấu, tên bắt đầu bằng [DEMO]):", file=out)
-    for line in [*a.states, *b.states]:
+    for line in states:
         print(line, file=out)
     return 0
 
