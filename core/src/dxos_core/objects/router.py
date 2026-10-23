@@ -175,7 +175,8 @@ async def get_object(sha256: str, request: Request, variant: str = "original",
         " FROM object_refs o JOIN records r ON r.id = o.record_id"
         " WHERE o.sha256=$1 AND o.role='original' ORDER BY r.created_at", sha256)
     scan = await ctx.conn.fetchrow(
-        "SELECT status, findings, redacted_sha256 FROM pii_scans WHERE sha256=$1", sha256)
+        "SELECT s.status, s.findings, r.redacted_sha256 FROM pii_scans s"
+        " LEFT JOIN pii_redactions r ON r.sha256 = s.sha256 WHERE s.sha256=$1", sha256)
     manifests: dict = {}
     chosen = None
     locked = None                    # bản ghi đọc được nhưng bản gốc bị khóa vì thiếu reveal_pii

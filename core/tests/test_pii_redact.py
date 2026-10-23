@@ -3,6 +3,9 @@
 """Bản che dạng ảnh của PDF có PII (Plan 04 Task 5, S1; P4-D5). Số trong tệp mẫu đều hư cấu."""
 
 import math
+import subprocess
+import sys
+import textwrap
 
 import pypdfium2 as pdfium
 import pypdfium2.raw as raw
@@ -174,3 +177,77 @@ def test_finding_outside_the_document_is_refused():
     bad = Finding("CCCD", 3, (Box(3, 0, 0, 10, 10),))
     with pytest.raises(ValueError, match="trang"):
         redact_pdf(src, [bad])
+
+
+def test_memory_stays_flat_with_many_large_pages():
+    """R18a: dựng nhiều trang lớn không được giữ bitmap của mọi trang (bản cũ +400 MB cho 60 trang; bản
+    viết tay từng trang: một bitmap cộng phần đã nén). Đo trong tiến trình con để ``ru_maxrss`` sạch."""
+    script = textwrap.dedent("""
+        import io, resource, sys
+        import pypdfium2 as pdfium
+        from dxos_core.pii.detect import Box, Finding
+        from dxos_core.pii.redact import redact_pdf
+        doc = pdfium.PdfDocument.new()
+        for _ in range(60):
+            doc.new_page(1500, 1500)
+        buf = io.BytesIO(); doc.save(buf); doc.close()
+        base = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        out = redact_pdf(buf.getvalue(), [Finding("CCCD", 1, (Box(1, 100, 100, 300, 120),))], max_px=1500)
+        peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        print((peak - base) // 1024, len(out))
+    """)
+    done = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=120,
+                          check=True)
+    delta_mb, size = (int(x) for x in done.stdout.split())
+    assert delta_mb < 100, f"RAM tăng {delta_mb} MB cho 60 trang 1500x1500"
+    assert size > 0
+
+
+def test_output_is_a_minimal_valid_pdf_with_one_image_per_page():
+    src = fixture("pii-fictional.pdf")
+    out = redact_pdf(src, _findings(src))
+    assert out.startswith(b"%PDF-1.7\n") and out.rstrip().endswith(b"%%EOF")
+    assert b"/Info" not in out and b"/ID" not in out and b"/Annots" not in out and b"/Font" not in out
+    doc = pdfium.PdfDocument(out)
+    try:
+        for i in range(len(doc)):
+            objs = list(doc[i].get_objects())
+            assert len(objs) == 1 and objs[0].type == raw.FPDF_PAGEOBJ_IMAGE
+    finally:
+        doc.close()
+    xref = int(out[out.rindex(b"startxref") + 10:].split()[0])
+    assert out[xref:xref + 4] == b"xref"                     # startxref trỏ đúng bảng xref
+
+
+@pytest.mark.parametrize("rotation", [0, 90, 180, 270])
+def test_cropbox_with_nonzero_origin_and_rotation(rotation):
+    """CropBox không bắt đầu ở gốc, kèm /Rotate: hộp (không gian trang hiển thị) vẫn trùng chữ bị che."""
+    doc = pdfium.PdfDocument.new()
+    try:
+        page = doc.new_page(612, 792)
+        page.set_cropbox(100, 150, 500, 450)                       # 400 x 300, lệch gốc
+        page.set_rotation(rotation)
+        add_text(doc, page, "CCCD: 079203012345 (hu cau)", 130, 300)
+        add_text(doc, page, "Dien thoai: 0912 345 678 (hu cau)", 130, 270)
+        raw.FPDFPage_GenerateContent(page.raw)
+        src = save(doc)
+    finally:
+        doc.close()
+    findings = _findings(src)
+    assert sorted(f.type for f in findings) == ["CCCD", "PHONE"]
+    out = redact_pdf(src, findings)
+    width, height = (400.0, 300.0) if rotation in (0, 180) else (300.0, 400.0)
+    out_doc = pdfium.PdfDocument(out)
+    try:
+        assert out_doc[0].get_size() == (width, height)
+    finally:
+        out_doc.close()
+    w, h, stride, pixels = _render(out, 1)
+    assert (w, h) == (math.ceil(width * SCALE), math.ceil(height * SCALE))
+    boxes = [b for f in findings for b in f.boxes]
+    assert boxes and all(0 <= b.left < b.right <= width and 0 <= b.bottom < b.top <= height for b in boxes)
+    for box in boxes:
+        x0, y0, x1, y1 = _inner_px(box, height)
+        if x1 > x0 and y1 > y0:
+            dark, n = _black(pixels, stride, x0, y0, x1, y1)
+            assert dark == n

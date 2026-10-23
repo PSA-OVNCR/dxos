@@ -3,16 +3,21 @@
 """Bản che PII của PDF: mỗi trang là **một ảnh** đã tô đen, không còn lớp chữ (Plan 04 Task 5; S1; P4-D5).
 
 Cách làm: dựng lại từng trang bằng PDFium (đã tính /Rotate và CropBox, như ``extract_pages``), tô đen các hộp
-của phát hiện nở thêm ``pad_pt`` point trên chính điểm ảnh, rồi đặt ảnh đó thành trang của một PDF mới. Vì
-chỉ còn ảnh nên số bị che không thể chép lại từ bản che. PDF mới không mang metadata, chú thích hay tệp
-đính kèm của bản gốc. Chỉ dùng ``pypdfium2`` (không thêm phụ thuộc, P4-D1).
+của phát hiện nở thêm ``pad_pt`` point trên chính điểm ảnh, nén ngay bằng ``zlib`` thành một image XObject rồi
+giải phóng bitmap. PDF đầu ra được **viết tay, từng trang một** (PDF 1.7 tối thiểu: Catalog, Pages, mỗi trang
+gồm ảnh, nội dung ``q W 0 0 H 0 0 cm /Im Do Q`` và trang; bảng xref và trailer ở cuối), không qua
+``PdfDocument.save``: dựng tài liệu PDFium chứa mọi bitmap chưa nén thì RAM tăng theo số trang (đo được
++1,2 GB cho 200 trang Letter, hơn 10 GB cho 200 trang cỡ lớn, R18a). Nay đỉnh RAM xấp xỉ một bitmap cộng phần
+đã nén. Vì chỉ còn ảnh nên số bị che không thể chép lại từ bản che. Đầu ra không có /Info, /ID, chú thích hay
+tệp đính kèm của bản gốc. Chỉ dùng ``pypdfium2`` và thư viện chuẩn (không thêm phụ thuộc, P4-D1).
 
 Hộp là PDF point trong không gian trang **đang hiển thị**, gốc dưới-trái (xem ``pii.job.extract_pages``);
-trang ảnh có cùng khổ với trang hiển thị nên không cần xoay lại.
+trang ảnh có cùng khổ với trang hiển thị nên không cần xoay lại. Chú thích và trường biểu mẫu không được dò
+(chữ trong đó vẫn hiện trong ảnh nếu có).
 
 Giới hạn (chống cạn bộ nhớ): tối đa ``MAX_PAGES`` trang, ảnh mỗi trang không quá ``max_px`` điểm theo mỗi
 chiều. Trang lớn tới mức 150 dpi vượt ``max_px`` thì hạ dpi riêng cho trang đó (khổ trang không đổi).
-Khóa PDFium dùng chung với ``pdfcheck`` và được giữ từng trang, không giữ suốt tệp.
+Khóa PDFium dùng chung với ``pdfcheck``, giữ từng trang (dựng và tô); nén chạy ngoài khóa.
 
 Hàm đồng bộ, chặn: bên gọi chạy trong ``asyncio.to_thread``. Không bao giờ ghi nội dung phát hiện vào
 thông báo lỗi.
@@ -20,6 +25,7 @@ thông báo lỗi.
 
 import io
 import math
+import zlib
 from collections.abc import Sequence
 
 import pypdfium2 as pdfium
@@ -65,46 +71,98 @@ def _blackout(bitmap: pdfium.PdfBitmap, width: float, height: float, boxes: Sequ
             bitmap.fill_rect(_BLACK, x0, y0, x1 - x0, y1 - y0)
 
 
+def _num(x: float) -> str:
+    return f"{x:.4f}".rstrip("0").rstrip(".")
+
+
+def _compress_rgb(bitmap: pdfium.PdfBitmap) -> bytes:
+    """Nén các điểm ảnh RGB của bitmap (bỏ phần đệm cuối mỗi hàng nếu có), không sao chép cả bitmap."""
+    view = memoryview(bitmap.buffer).cast("B")
+    row = 3 * bitmap.width
+    comp = zlib.compressobj(6)
+    if bitmap.stride == row:
+        step = 1 << 20
+        out = [comp.compress(view[i:i + step]) for i in range(0, row * bitmap.height, step)]
+    else:
+        out = [comp.compress(view[y * bitmap.stride:y * bitmap.stride + row]) for y in range(bitmap.height)]
+    out.append(comp.flush())
+    return b"".join(out)
+
+
+class _PdfWriter:
+    """Ghi PDF tuần tự: đối tượng nào xong vào bộ đệm ngay (chỉ giữ dữ liệu đã nén), nhớ offset cho xref."""
+
+    def __init__(self) -> None:
+        self.buf = io.BytesIO()
+        self.buf.write(b"%PDF-1.7\n%\xe2\xe3\xcf\xd3\n")
+        self.offsets: dict[int, int] = {}
+
+    def obj(self, num: int, body: bytes, stream: bytes | None = None) -> None:
+        self.offsets[num] = self.buf.tell()
+        self.buf.write(b"%d 0 obj\n" % num)
+        if stream is None:
+            self.buf.write(body + b"\nendobj\n")
+        else:
+            self.buf.write(body.replace(b"@LEN@", b"%d" % len(stream)) + b"\nstream\n" + stream +
+                           b"\nendstream\nendobj\n")
+
+    def finish(self, root: int) -> bytes:
+        size = max(self.offsets) + 1
+        start = self.buf.tell()
+        self.buf.write(b"xref\n0 %d\n0000000000 65535 f \n" % size)
+        for n in range(1, size):
+            self.buf.write(b"%010d 00000 n \n" % self.offsets[n])
+        self.buf.write(b"trailer\n<< /Size %d /Root %d 0 R >>\n" % (size, root))
+        self.buf.write(b"startxref\n%d\n%%%%EOF\n" % start)
+        return self.buf.getvalue()
+
+
 def redact_pdf(data: bytes, findings: Sequence[Finding], dpi: int = 150, pad_pt: float = 2.0,
                max_px: int = 4000, max_pages: int = MAX_PAGES) -> bytes:
     """PDF chỉ có ảnh: mỗi trang của ``data`` thành một ảnh (``dpi``, hạ nếu quá ``max_px``) với mọi hộp của
     ``findings`` tô đen (nở ``pad_pt`` point). Ném ``ValueError`` nếu tệp quá ``max_pages`` trang hoặc một
-    phát hiện nằm ngoài tệp; ``pdfium.PdfiumError`` nếu tệp không mở được."""
+    phát hiện nằm ngoài tệp; ``pdfium.PdfiumError`` nếu tệp không mở được. RAM đỉnh xấp xỉ một bitmap."""
     with pdfcheck._LOCK:
         src = pdfium.PdfDocument(data)
         count = len(src)
-    out = None
     try:
         if count > max_pages:
             raise ValueError(f"tệp quá {max_pages} trang")
         by_page = _boxes_by_page(findings, count)
-        with pdfcheck._LOCK:
-            out = pdfium.PdfDocument.new()
+        writer = _PdfWriter()
+        kids = []
         for number in range(1, count + 1):
             with pdfcheck._LOCK:
                 page = src[number - 1]
                 try:
                     width, height = page.get_size()                 # khổ hiển thị: đã xoay và cắt
-                    bitmap = page.render(scale=_scale_for(width, height, dpi, max_px))
+                    bitmap = page.render(scale=_scale_for(width, height, dpi, max_px), rev_byteorder=True)
                 finally:
                     page.close()
                 try:
                     _blackout(bitmap, width, height, by_page.get(number, ()), pad_pt)
-                    image = pdfium.PdfImage.new(out)
-                    image.set_bitmap(bitmap)
-                    image.set_matrix(pdfium.PdfMatrix().scale(width, height))
-                    new_page = out.new_page(width, height)
-                    new_page.insert_obj(image)
-                    new_page.gen_content()
-                    new_page.close()
-                finally:
+                except BaseException:
                     bitmap.close()
-        with pdfcheck._LOCK:
-            buf = io.BytesIO()
-            out.save(buf)
-        return buf.getvalue()
+                    raise
+            try:
+                pixels = _compress_rgb(bitmap)
+                px_w, px_h = bitmap.width, bitmap.height
+            finally:
+                with pdfcheck._LOCK:
+                    bitmap.close()
+            img, content, page_obj = 3 + 3 * (number - 1), 4 + 3 * (number - 1), 5 + 3 * (number - 1)
+            writer.obj(img, b"<< /Type /XObject /Subtype /Image /Width %d /Height %d /ColorSpace /DeviceRGB"
+                       b" /BitsPerComponent 8 /Filter /FlateDecode /Length @LEN@ >>" % (px_w, px_h), pixels)
+            del pixels
+            w, h = _num(width), _num(height)
+            writer.obj(content, b"<< /Length @LEN@ >>", f"q {w} 0 0 {h} 0 0 cm /Im0 Do Q".encode())
+            resources = f"/Resources << /XObject << /Im0 {img} 0 R >> >>"
+            writer.obj(page_obj, (f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {w} {h}] {resources}"
+                                  f" /Contents {content} 0 R >>").encode())
+            kids.append(b"%d 0 R" % page_obj)
+        writer.obj(1, b"<< /Type /Catalog /Pages 2 0 R >>")
+        writer.obj(2, b"<< /Type /Pages /Count %d /Kids [%s] >>" % (count, b" ".join(kids)))
+        return writer.finish(root=1)
     finally:
         with pdfcheck._LOCK:
-            if out is not None:
-                out.close()
             src.close()

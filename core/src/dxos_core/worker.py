@@ -27,7 +27,7 @@ from dxos_core.jobs.queue import Job, claim, fail, retry_later
 from dxos_core.ledger.anchor_job import ANCHOR_JOB, maybe_schedule, process_anchor_job
 from dxos_core.ledger.ots import OTS_JOB, process_ots_job
 from dxos_core.objects.ingest import SCAN_JOB, process_scan_job
-from dxos_core.pii.job import PII_JOB, process_pii_job, record_failed_scan
+from dxos_core.pii.job import PII_JOB, REDACT_JOB, process_pii_job, process_redact_job, record_failed_scan
 from dxos_core.seal.job import process_seal_job
 from dxos_core.seal.service import SEAL_JOB
 from dxos_core.settings import Settings, read_secret
@@ -43,7 +43,7 @@ _DB_ERRORS = (OSError, TimeoutError, asyncpg.PostgresError, asyncpg.InterfaceErr
 Handler = Callable[[WorkerContext, Job], Awaitable[None]]
 HANDLERS: dict[str, Handler] = {SCAN_JOB: process_scan_job, ANCHOR_JOB: process_anchor_job,
                                 SEAL_JOB: process_seal_job, OTS_JOB: process_ots_job,
-                                PII_JOB: process_pii_job}
+                                PII_JOB: process_pii_job, REDACT_JOB: process_redact_job}
 
 
 def touch_heartbeat(path: Path) -> None:

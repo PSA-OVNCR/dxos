@@ -18,13 +18,18 @@ ledger ``pii.detected``, rồi đánh dấu việc xong.
 * Không để guard chờ mãi (R16): ``enqueue_missing_scans`` (gọi từ ``:pii-review``) xếp lại việc cho tệp CLEAN
   chưa có hàng ``pii_scans`` và chưa có việc đang chờ/chạy; ``record_failed_scan`` (worker gọi khi việc hết
   lượt thử) ghi ``FAILED`` để bản ghi quay về rà tay.
+* Dò mọi loại hỗ trợ (R19): việc luôn dò cả ``CCCD``, ``PHONE``, ``BANK_ACCOUNT`` bất kể manifest. Kết quả
+  khóa theo sha256 và dùng chung giữa các app, nên không được phụ thuộc loại mà app tải lên khai; manifest chỉ
+  quyết định có chờ/xếp việc dò hay không và có khóa bản gốc hay không. ``types`` trong payload cũ bị bỏ qua.
 * Bản che (Task 5, P4-D5): ``DONE`` có phát hiện thì ``redact_pdf`` dựng PDF chỉ có ảnh; bản che được ghi vào
   kho CAS trước (idempotent theo sha256), rồi trong **cùng transaction** với ``pii_scans``: hàng ``objects``
-  (CLEAN, ``scanner_version='dxos-redact/1'``), ``pii_scans.redacted_sha256`` và
+  (CLEAN, ``scanner_version='dxos-redact/1'``), ``pii_redactions`` (gốc -> bản che) và
   ``object_refs(role='redacted')`` cho mọi bản ghi đang tham chiếu tệp gốc. Hai việc chạy song song cho một
-  tệp: bên thua rollback phần của mình (bản che nằm thừa trong kho nhưng không ai tham chiếu). Dựng bản che
-  lỗi (PDFium) thì vẫn ghi ``DONE`` với các phát hiện, không có ``redacted_sha256``: không ai tải được gì
-  ngoài người có ``reveal_pii``.
+  tệp: bên thua rollback phần của mình (bản che nằm thừa trong kho nhưng không ai tham chiếu).
+* Dựng bản che lỗi (R18b): vẫn ghi ``DONE`` với các phát hiện (bản gốc vẫn khóa) và xếp việc ``pii_redact``
+  thử lại với backoff của worker; việc này dựng từ ``pii_findings`` đã lưu. ``enqueue_missing_scans`` cũng xếp
+  ``pii_redact`` cho tệp ``DONE`` có phát hiện mà chưa có ``pii_redactions`` (hàng từ trước tính năng, việc đã
+  ``FAILED``). ``MemoryError`` không bao giờ bị nuốt: việc lỗi và được worker thử lại.
 """
 
 import asyncio
@@ -50,6 +55,7 @@ from dxos_core.pii.redact import MAX_PAGES, redact_pdf
 log = logging.getLogger("dxos_core.pii.job")
 
 PII_JOB = "pii_detect"
+REDACT_JOB = "pii_redact"
 DETECTOR = "dxos-pii/1"
 REDACTOR = "dxos-redact/1"              # ``objects.scanner_version`` của bản che
 PAGE_BREAK = "\f"                       # ký tự ngăn trang trong ``extract`` (không có hộp)
@@ -164,8 +170,9 @@ def extract(data: bytes, max_pages: int = MAX_PAGES) -> tuple[str, list[Box | No
     return "".join(text), boxes
 
 
-def _scan(data: bytes, types: Sequence[str]) -> tuple[str, list[Finding]]:
-    """(status, findings) cho một tệp. Chạy trong thread (PDFium và regex đều chặn event loop)."""
+def _scan(data: bytes, types: Sequence[str] = DETECTABLE) -> tuple[str, list[Finding]]:
+    """(status, findings) cho một tệp, mặc định mọi loại hỗ trợ. Chạy trong thread (PDFium và regex đều chặn
+    event loop). ``MemoryError`` không phải lỗi của tệp: cho ném ra để việc được thử lại."""
     try:
         pages = extract_pages(data)
         if pages is None:
@@ -173,6 +180,8 @@ def _scan(data: bytes, types: Sequence[str]) -> tuple[str, list[Finding]]:
         findings: list[Finding] = []
         for text, boxes in pages:
             findings.extend(detect_text(text, boxes, types))     # type: ignore[arg-type]
+    except MemoryError:
+        raise
     except Exception as exc:  # noqa: BLE001 (lỗi tất định của tệp này: ghi FAILED, không thử lại)
         log.warning("không dò được PII (%s); ghi FAILED", type(exc).__name__)    # không ghi nội dung lỗi
         return "FAILED", []
@@ -180,12 +189,14 @@ def _scan(data: bytes, types: Sequence[str]) -> tuple[str, list[Finding]]:
 
 
 def _redact(data: bytes, findings: Sequence[Finding]) -> bytes | None:
-    """Bản che của ``data`` hoặc None nếu dựng lỗi (chạy trong thread). Lỗi do chính tệp là tất định, thử
-    lại không giúp gì; chỉ ghi tên lớp lỗi, không ghi nội dung."""
+    """Bản che của ``data`` hoặc None nếu dựng lỗi (chạy trong thread); khi đó bên gọi xếp việc ``pii_redact``
+    thử lại. Chỉ ghi tên lớp lỗi, không ghi nội dung. ``MemoryError`` được ném tiếp."""
     try:
         return redact_pdf(data, findings)
+    except MemoryError:
+        raise
     except Exception as exc:  # noqa: BLE001
-        log.warning("không dựng được bản che (%s); giữ khóa bản gốc", type(exc).__name__)
+        log.warning("không dựng được bản che (%s); xếp việc %s thử lại", type(exc).__name__, REDACT_JOB)
         return None
 
 
@@ -198,13 +209,39 @@ def _bbox_json(finding: Finding) -> str:
                        for b in finding.boxes])
 
 
-async def process_pii_job(ctx: WorkerContext, job: Job) -> None:
-    sha = job.payload["sha256"]
-    types = job.payload["types"]
+async def _insert_redacted_object(conn: asyncpg.Connection, ctx: WorkerContext, redacted_sha: str,
+                                  size: int) -> None:
+    await conn.execute(
+        "INSERT INTO objects(sha256, size, mime_sniffed, status, scanner_version, scanned_at, storage_key)"
+        " VALUES ($1, $2, 'application/pdf', 'CLEAN', $3, now(), $4) ON CONFLICT (sha256) DO NOTHING",
+        redacted_sha, size, REDACTOR, f"{ctx.settings.s3_bucket_objects}/{redacted_sha}")
+
+
+async def _link_redaction(conn: asyncpg.Connection, sha: str, redacted_sha: str) -> bool:
+    """Ghi ``pii_redactions`` và ``object_refs(role='redacted')`` cho mọi bản ghi đang giữ tệp gốc. False nếu
+    tệp này đã có bản che (bên khác thắng)."""
+    won = await conn.fetchval(
+        "INSERT INTO pii_redactions(sha256, redacted_sha256) VALUES ($1, $2)"
+        " ON CONFLICT (sha256) DO NOTHING RETURNING sha256", sha, redacted_sha)
+    if won is None:
+        return False
+    await conn.execute(
+        "INSERT INTO object_refs(record_id, sha256, role)"
+        " SELECT record_id, $1::text::sha256_hex, 'redacted' FROM object_refs"
+        " WHERE sha256 = $2::text::sha256_hex AND role = 'original' ON CONFLICT DO NOTHING",
+        redacted_sha, sha)
+    return True
+
+
+def _payload_sha(job: Job) -> str:
+    sha = job.payload.get("sha256")
     if not isinstance(sha, str) or not _SHA256.fullmatch(sha):
-        raise ValueError("payload pii_detect: sha256 không hợp lệ")
-    if not isinstance(types, list) or not types or not set(types) <= set(DETECTABLE):
-        raise ValueError("payload pii_detect: types không hợp lệ")
+        raise ValueError(f"payload {job.kind}: sha256 không hợp lệ")
+    return sha
+
+
+async def process_pii_job(ctx: WorkerContext, job: Job) -> None:
+    sha = _payload_sha(job)          # ``types`` trong payload của việc cũ bị bỏ qua (R19)
     async with ctx.pool.acquire() as conn:
         if await conn.fetchval("SELECT 1 FROM pii_scans WHERE sha256=$1", sha):      # đã dò (chạy lại)
             await complete(conn, job.id)
@@ -213,7 +250,7 @@ async def process_pii_job(ctx: WorkerContext, job: Job) -> None:
     if status != "CLEAN":
         raise ValueError("pii_detect: object không tồn tại hoặc không CLEAN")
     data = await asyncio.to_thread(ctx.store.read_object, sha)
-    scan_status, findings = await asyncio.to_thread(_scan, data, types)
+    scan_status, findings = await asyncio.to_thread(_scan, data)
     redacted = None
     if scan_status == "DONE" and findings:
         redacted = await asyncio.to_thread(_redact, data, findings)
@@ -223,28 +260,21 @@ async def process_pii_job(ctx: WorkerContext, job: Job) -> None:
     async with ctx.pool.acquire() as conn:
         try:
             async with conn.transaction():
-                if redacted_sha is not None:          # trước pii_scans: redacted_sha256 là khóa ngoại
-                    await conn.execute(
-                        "INSERT INTO objects(sha256, size, mime_sniffed, status, scanner_version, scanned_at,"
-                        " storage_key) VALUES ($1, $2, 'application/pdf', 'CLEAN', $3, now(), $4)"
-                        " ON CONFLICT (sha256) DO NOTHING",
-                        redacted_sha, len(redacted), REDACTOR,
-                        f"{ctx.settings.s3_bucket_objects}/{redacted_sha}")
+                if redacted_sha is not None:          # trước pii_redactions: khóa ngoại tới objects
+                    await _insert_redacted_object(conn, ctx, redacted_sha, len(redacted))
                 inserted = await conn.fetchval(
-                    "INSERT INTO pii_scans(sha256, status, findings, detector, redacted_sha256)"
-                    " VALUES ($1, $2, $3, $4, $5) ON CONFLICT (sha256) DO NOTHING RETURNING sha256",
-                    sha, scan_status, len(findings), DETECTOR, redacted_sha)
+                    "INSERT INTO pii_scans(sha256, status, findings, detector) VALUES ($1, $2, $3, $4)"
+                    " ON CONFLICT (sha256) DO NOTHING RETURNING sha256",
+                    sha, scan_status, len(findings), DETECTOR)
                 if inserted is None:
                     raise _LostRace
                 await conn.executemany(
                     "INSERT INTO pii_findings(sha256, type, page, bbox) VALUES ($1, $2, $3, $4::jsonb)",
                     [(sha, f.type, f.page, _bbox_json(f)) for f in findings])
                 if redacted_sha is not None:
-                    await conn.execute(
-                        "INSERT INTO object_refs(record_id, sha256, role)"
-                        " SELECT record_id, $1::text::sha256_hex, 'redacted' FROM object_refs"
-                        " WHERE sha256 = $2::text::sha256_hex AND role = 'original' ON CONFLICT DO NOTHING",
-                        redacted_sha, sha)
+                    await _link_redaction(conn, sha, redacted_sha)
+                elif scan_status == "DONE" and findings:        # dựng bản che lỗi: thử lại ngoài luồng này
+                    await enqueue(conn, REDACT_JOB, {"sha256": sha})
                 if scan_status == "DONE":
                     await append(conn, type="pii.detected", subject=sha, hmac_key=ctx.hmac_key,
                                  body={"sha256": sha, "counts": dict(Counter(f.type for f in findings)),
@@ -254,24 +284,66 @@ async def process_pii_job(ctx: WorkerContext, job: Job) -> None:
             await complete(conn, job.id)
 
 
+async def process_redact_job(ctx: WorkerContext, job: Job) -> None:
+    """Dựng (lại) bản che của tệp đã dò ``DONE`` có phát hiện mà chưa có ``pii_redactions`` (R18b). Dựng từ
+    ``pii_findings`` đã lưu, không dò lại. Mọi lỗi (kể cả ``MemoryError``) được ném ra để worker thử lại với
+    backoff; hết lượt thì việc ``FAILED`` và ``:pii-review`` có thể xếp lại."""
+    sha = _payload_sha(job)
+    async with ctx.pool.acquire() as conn:
+        if await conn.fetchval("SELECT 1 FROM pii_redactions WHERE sha256=$1", sha):
+            await complete(conn, job.id)
+            return
+        scan = await conn.fetchrow("SELECT status, findings FROM pii_scans WHERE sha256=$1", sha)
+        if scan is None or scan["status"] != "DONE" or scan["findings"] == 0:
+            await complete(conn, job.id)           # chưa dò (pii_detect sẽ tự dựng) hoặc không có gì để che
+            return
+        rows = await conn.fetch("SELECT type, page, bbox FROM pii_findings WHERE sha256=$1 ORDER BY id", sha)
+    findings = [Finding(r["type"], r["page"],
+                        tuple(Box(r["page"], *b) for b in (json.loads(r["bbox"]) if isinstance(r["bbox"], str)
+                                                           else r["bbox"])))
+                for r in rows]
+    data = await asyncio.to_thread(ctx.store.read_object, sha)
+    redacted = await asyncio.to_thread(redact_pdf, data, findings)
+    redacted_sha = hashlib.sha256(redacted).hexdigest()
+    await asyncio.to_thread(ctx.store.put_object, redacted_sha, redacted)
+    async with ctx.pool.acquire() as conn:
+        try:
+            async with conn.transaction():
+                await _insert_redacted_object(conn, ctx, redacted_sha, len(redacted))
+                if not await _link_redaction(conn, sha, redacted_sha):
+                    raise _LostRace
+                await complete(conn, job.id)
+        except _LostRace:
+            await complete(conn, job.id)
+
+
+async def _no_open_job(conn: asyncpg.Connection, kind: str, sha: str) -> bool:
+    return not await conn.fetchval(
+        "SELECT 1 FROM jobs WHERE kind=$1 AND state IN ('QUEUED', 'RUNNING') AND payload->>'sha256'=$2",
+        kind, sha)
+
+
 async def enqueue_missing_scans(conn: asyncpg.Connection, shas: Iterable[str], types: Collection[str]) -> int:
-    """Xếp việc ``pii_detect`` cho tệp CLEAN chưa có hàng ``pii_scans`` và chưa có việc ``QUEUED``/``RUNNING``
-    cho sha đó (tệp CLEAN từ trước khi có tính năng, hoặc CLEAN lúc manifest chưa khai ``document_detect``).
-    ``types`` lấy từ manifest mà guard đang dùng; không có loại hỗ trợ thì không làm gì. Trả số việc đã xếp.
-    Gọi trong transaction của bên gọi."""
-    wanted = detectable(types)
-    if not wanted:
+    """Xếp việc cho tệp CLEAN mà trạng thái dò còn thiếu, không xếp trùng việc đang ``QUEUED``/``RUNNING``:
+    ``pii_detect`` cho tệp chưa có hàng ``pii_scans`` (CLEAN từ trước tính năng, hoặc CLEAN lúc manifest chưa
+    khai ``document_detect``); ``pii_redact`` cho tệp ``DONE`` có phát hiện mà chưa có ``pii_redactions``.
+    ``types`` là ``document_detect`` của manifest mà guard đang dùng và chỉ quyết định có làm gì không (không
+    có loại hỗ trợ thì không làm gì); việc dò luôn quét mọi loại (R19). Trả số việc đã xếp. Gọi trong
+    transaction của bên gọi."""
+    if not detectable(types):
         return 0
     queued = 0
     for sha in sorted(set(shas)):
-        if await conn.fetchval("SELECT 1 FROM pii_scans WHERE sha256=$1", sha):
-            continue
-        if await conn.fetchval(
-                "SELECT 1 FROM jobs WHERE kind=$1 AND state IN ('QUEUED', 'RUNNING')"
-                " AND payload->>'sha256'=$2", PII_JOB, sha):
-            continue
-        await enqueue(conn, PII_JOB, {"sha256": sha, "types": wanted})
-        queued += 1
+        scan = await conn.fetchrow("SELECT status, findings FROM pii_scans WHERE sha256=$1", sha)
+        if scan is None:
+            if await _no_open_job(conn, PII_JOB, sha):
+                await enqueue(conn, PII_JOB, {"sha256": sha})
+                queued += 1
+        elif (scan["status"] == "DONE" and scan["findings"] > 0
+                and not await conn.fetchval("SELECT 1 FROM pii_redactions WHERE sha256=$1", sha)
+                and await _no_open_job(conn, REDACT_JOB, sha)):
+            await enqueue(conn, REDACT_JOB, {"sha256": sha})
+            queued += 1
     return queued
 
 

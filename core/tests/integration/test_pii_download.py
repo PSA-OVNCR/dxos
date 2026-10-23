@@ -17,7 +17,7 @@ from dxos_core.db.pool import create_pool
 from dxos_core.jobs.context import WorkerContext
 from dxos_core.jobs.queue import Job
 from dxos_core.objects.storage import ObjectStore
-from dxos_core.pii.job import PII_JOB, process_pii_job
+from dxos_core.pii.job import PII_JOB, REDACT_JOB, process_pii_job
 from dxos_core.registry.store import save_manifest
 from dxos_core.registry.validator import validate_manifest
 from dxos_core.settings import read_secret
@@ -118,13 +118,25 @@ def _has_text(pdf: bytes) -> list[bool]:
 
 
 async def _scan_row(conn, sha: str):
-    return await conn.fetchrow("SELECT status, findings, redacted_sha256 FROM pii_scans WHERE sha256=$1", sha)
+    return await conn.fetchrow(
+        "SELECT s.status, s.findings, r.redacted_sha256 FROM pii_scans s"
+        " LEFT JOIN pii_redactions r ON r.sha256 = s.sha256 WHERE s.sha256=$1", sha)
+
+
+async def _redacted_of(conn, sha: str) -> str | None:
+    return await conn.fetchval("SELECT redacted_sha256 FROM pii_redactions WHERE sha256=$1", sha)
 
 
 async def _redacted_refs(conn, red: str) -> list[str]:
     rows = await conn.fetch(
         "SELECT record_id::text AS r FROM object_refs WHERE sha256=$1 AND role='redacted'", red)
     return sorted(r["r"] for r in rows)
+
+
+async def _review(api, rid: str) -> None:
+    etag = (await api.get(f"{URL}/{rid}", headers=REVIEWER)).headers["etag"]
+    r = await api.post(f"{URL}/{rid}:pii-review", headers={**REVIEWER, "If-Match": etag})
+    assert r.status_code == 200, r.text
 
 
 async def _pii(api, rid: str, who: dict = READER) -> list[dict | None]:
@@ -201,7 +213,7 @@ async def test_redacted_needs_read_like_original(api, ctx, core_conn):
 
 async def test_sha_of_the_redacted_copy_is_not_a_download_key(api, ctx, core_conn):
     _, sha = await _scanned(api, ctx, fixture("pii-fictional.pdf"))
-    red = await core_conn.fetchval("SELECT redacted_sha256 FROM pii_scans WHERE sha256=$1", sha)
+    red = await _redacted_of(core_conn, sha)
     for variant in (None, "original", "redacted"):
         assert (await _get(api, red, REVIEWER, variant)).status_code == 404
 
@@ -244,7 +256,14 @@ async def test_failed_scan_original_stays_locked(api, ctx, core_conn, monkeypatc
     assert await _pii(api, rid) == [{"status": "FAILED", "findings": 0, "redacted": False}]
 
 
-async def test_redaction_failure_keeps_original_locked_and_findings(api, ctx, core_conn, monkeypatch):
+async def _redact_jobs(conn) -> list[str]:
+    rows = await conn.fetch("SELECT state FROM jobs WHERE kind=$1 ORDER BY id", REDACT_JOB)
+    return [r["state"] for r in rows]
+
+
+async def test_redaction_failure_keeps_original_locked_then_retry_job_repairs_it(
+        api, ctx, core_conn, monkeypatch):
+    """R18b: dựng bản che lỗi thì quét vẫn ghi DONE + phát hiện, bản gốc vẫn khóa, việc pii_redact thử lại."""
     from dxos_core.pii import job
 
     def boom(*a, **k):
@@ -255,10 +274,79 @@ async def test_redaction_failure_keeps_original_locked_and_findings(api, ctx, co
     scan = await _scan_row(core_conn, sha)
     assert (scan["status"], scan["findings"], scan["redacted_sha256"]) == ("DONE", 3, None)
     assert await core_conn.fetchval("SELECT count(*) FROM pii_findings WHERE sha256=$1", sha) == 3
+    row = await core_conn.fetchrow("SELECT state, attempts, last_error FROM jobs WHERE kind=$1", REDACT_JOB)
+    assert (row["state"], row["attempts"]) == ("QUEUED", 1)     # worker đã thử một lần, lỗi, đang chờ backoff
+    assert "PdfiumError" in row["last_error"]
     assert (await _get(api, sha, READER, "original")).status_code == 404
     assert (await _get(api, sha, READER, "redacted")).status_code == 404
     assert (await _get(api, sha, REVIEWER, "original")).status_code == 200
     assert await _pii(api, rid) == [{"status": "DONE", "findings": 3, "redacted": False}]
+    assert await _redacted_of(core_conn, sha) is None
+    monkeypatch.undo()                                          # hết lỗi
+    await core_conn.execute("UPDATE jobs SET run_after=now() WHERE kind=$1", REDACT_JOB)
+    await _run(ctx, limit=1)
+    assert await _redact_jobs(core_conn) == ["DONE"]
+    assert await _redacted_of(core_conn, sha)
+    assert await _pii(api, rid) == [{"status": "DONE", "findings": 3, "redacted": True}]
+    r = await _get(api, sha, READER, "redacted")
+    assert r.status_code == 200 and _has_text(r.content) == [False, False]
+    assert (await _get(api, sha, READER, "original")).status_code == 404       # vẫn khóa
+
+
+async def test_redact_job_uses_stored_findings_not_a_new_scan(api, ctx, core_conn, monkeypatch):
+    from dxos_core.pii import job
+
+    monkeypatch.setattr(job, "redact_pdf", lambda *a, **k: (_ for _ in ()).throw(ValueError("x")))
+    _, sha = await _scanned(api, ctx, fixture("pii-fictional.pdf"))
+    monkeypatch.undo()
+
+    def no_scan(*a, **k):
+        raise AssertionError("pii_redact không được dò lại")
+
+    monkeypatch.setattr(job, "extract_pages", no_scan)
+    await core_conn.execute("UPDATE jobs SET run_after=now() WHERE kind=$1", REDACT_JOB)
+    await _run(ctx, limit=1)
+    assert await _redacted_of(core_conn, sha)
+    assert await core_conn.fetchval("SELECT count(*) FROM pii_scans WHERE sha256=$1", sha) == 1
+
+
+async def test_pii_review_requeues_redaction_for_a_scan_without_one_exactly_once(
+        api, ctx, core_conn, monkeypatch):
+    """Hàng từ trước tính năng (DONE + phát hiện, không có bản che, không có việc) được :pii-review sửa."""
+    from dxos_core.pii import job
+
+    monkeypatch.setattr(job, "redact_pdf", lambda *a, **k: (_ for _ in ()).throw(ValueError("x")))
+    rid, sha = await _scanned(api, ctx, fixture("pii-fictional.pdf"))
+    monkeypatch.undo()
+    await core_conn.execute("DELETE FROM jobs WHERE kind=$1", REDACT_JOB)          # mất việc / việc đã FAILED
+    assert await _redact_jobs(core_conn) == []
+    for _ in range(2):
+        await _review(api, rid)
+        assert await _redact_jobs(core_conn) == ["QUEUED"]                          # lần hai không xếp thêm
+    await _run(ctx, limit=1)
+    assert await _redacted_of(core_conn, sha)
+    await _review(api, rid)
+    assert await _redact_jobs(core_conn) == ["DONE"]                        # đã có bản che: không xếp lại
+
+
+async def test_memory_error_in_redaction_is_not_swallowed(api, ctx, core_conn, monkeypatch):
+    """R18b: MemoryError làm việc pii_detect lỗi để được thử lại, không ghi quét hay để lại thiếu bản che."""
+    from dxos_core.pii import job
+
+    def oom(*a, **k):
+        raise MemoryError
+
+    monkeypatch.setattr(job, "redact_pdf", oom)
+    _, sha = await _upload(api, fixture("pii-fictional.pdf"))
+    await _run(ctx, limit=2)
+    row = await core_conn.fetchrow("SELECT state, attempts, last_error FROM jobs WHERE kind=$1", PII_JOB)
+    assert (row["state"], row["attempts"]) == ("QUEUED", 1) and "MemoryError" in row["last_error"]
+    assert await core_conn.fetchval("SELECT count(*) FROM pii_scans WHERE sha256=$1", sha) == 0
+    assert await _redact_jobs(core_conn) == []
+    monkeypatch.undo()
+    await core_conn.execute("UPDATE jobs SET run_after=now() WHERE kind=$1", PII_JOB)
+    await _run(ctx)
+    assert await _redacted_of(core_conn, sha)
 
 
 async def test_collection_without_document_detect_is_unchanged(api, ctx, core_conn):
@@ -279,13 +367,57 @@ async def test_manifest_with_only_undetectable_types_does_not_lock(api, ctx, cor
     assert await _pii(api, rid) == [None]
 
 
+# ---------------------------------------------------------------- R19: luôn dò mọi loại
+
+def _black_under(pdf: bytes, page_no: int, boxes: list[list[float]]) -> bool:
+    doc = pdfium.PdfDocument(pdf)
+    try:
+        page = doc[page_no - 1]
+        height = page.get_size()[1]
+        bitmap = page.render(scale=150 / 72)
+        buf, stride = bytes(bitmap.buffer), bitmap.stride
+    finally:
+        doc.close()
+    for left, bottom, right, top in boxes:
+        x0, x1 = int(left * 150 / 72) + 1, int(right * 150 / 72) - 1
+        y0, y1 = int((height - top) * 150 / 72) + 1, int((height - bottom) * 150 / 72) - 1
+        for y in range(y0, y1):
+            for x in range(x0, x1):
+                if max(buf[y * stride + 3 * x:y * stride + 3 * x + 3]) >= 16:
+                    return False
+    return True
+
+
+async def test_scan_covers_every_type_whatever_the_manifest_asks(api, ctx, core_conn):
+    """R19: manifest chỉ xin CCCD, tệp có CCCD + SĐT + STK: vẫn 3 phát hiện và bản che phủ cả ba."""
+    await _install(core_conn, detect=["CCCD"], version="0.2.0")
+    rid, sha = await _scanned(api, ctx, fixture("pii-fictional.pdf"))
+    payload = json.loads(await core_conn.fetchval("SELECT payload FROM jobs WHERE kind=$1", PII_JOB))
+    assert payload == {"sha256": sha}
+    rows = await core_conn.fetch("SELECT type, page, bbox FROM pii_findings WHERE sha256=$1", sha)
+    assert sorted(r["type"] for r in rows) == ["BANK_ACCOUNT", "CCCD", "PHONE"]
+    assert await _pii(api, rid) == [{"status": "DONE", "findings": 3, "redacted": True}]
+    red = (await _get(api, sha, READER, "redacted")).content
+    for r in rows:
+        assert _black_under(red, r["page"], json.loads(r["bbox"])), r["type"]
+    assert (await _get(api, sha, READER, "original")).status_code == 404
+
+
+async def test_old_payload_with_types_is_accepted_and_ignored(api, ctx, core_conn):
+    _, sha = await _upload(api, fixture("pii-fictional.pdf"))
+    await _run(ctx, limit=1)
+    row = await core_conn.fetchrow("SELECT id, kind FROM jobs WHERE kind=$1", PII_JOB)
+    await process_pii_job(ctx, Job(row["id"], row["kind"], {"sha256": sha, "types": ["CCCD"]}, 1))
+    assert await core_conn.fetchval("SELECT count(*) FROM pii_findings WHERE sha256=$1", sha) == 3
+
+
 # ---------------------------------------------------------------- hàng dữ liệu của bản che
 
 async def test_redacted_object_rows_and_refs_for_every_record(api, ctx, core_conn):
     rid1, sha = await _scanned(api, ctx, fixture("pii-fictional.pdf"))
     rid2, _ = await _scanned(api, ctx, fixture("pii-fictional.pdf"))          # cùng tệp, bản ghi khác (CAS)
     assert rid1 != rid2
-    red = await core_conn.fetchval("SELECT redacted_sha256 FROM pii_scans WHERE sha256=$1", sha)
+    red = await _redacted_of(core_conn, sha)
     assert red and red != sha
     obj = await core_conn.fetchrow(
         "SELECT status, scanner_version, mime_sniffed, size FROM objects WHERE sha256=$1", red)
@@ -301,7 +433,7 @@ async def test_redacted_object_rows_and_refs_for_every_record(api, ctx, core_con
 
 async def test_record_uploading_a_scanned_file_later_also_gets_the_redacted_ref(api, ctx, core_conn):
     rid1, sha = await _scanned(api, ctx, fixture("pii-fictional.pdf"))
-    red = await core_conn.fetchval("SELECT redacted_sha256 FROM pii_scans WHERE sha256=$1", sha)
+    red = await _redacted_of(core_conn, sha)
     rid2, _ = await _scanned(api, ctx, fixture("pii-fictional.pdf"))      # đã dò rồi: không có việc dò mới
     assert await core_conn.fetchval("SELECT count(*) FROM jobs WHERE kind=$1", PII_JOB) == 1
     assert await _redacted_refs(core_conn, red) == sorted([rid1, rid2])
@@ -317,7 +449,7 @@ async def test_concurrent_jobs_make_one_redacted_copy(api, ctx, core_conn):
     assert await core_conn.fetchval("SELECT count(*) FROM pii_scans WHERE sha256=$1", sha) == 1
     assert await core_conn.fetchval("SELECT count(*) FROM objects WHERE scanner_version='dxos-redact/1'") == 1
     assert await core_conn.fetchval("SELECT count(*) FROM object_refs WHERE role='redacted'") == 1
-    red = await core_conn.fetchval("SELECT redacted_sha256 FROM pii_scans WHERE sha256=$1", sha)
+    red = await _redacted_of(core_conn, sha)
     assert await core_conn.fetchval("SELECT sha256 FROM object_refs WHERE role='redacted'") == red
 
 

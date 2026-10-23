@@ -122,8 +122,8 @@ async def process_scan_job(ctx: WorkerContext, job: Job) -> None:
                 up["record_id"], sha)
             await conn.execute(      # tệp đã có bản che (CAS): bản ghi mới dùng chung bản che đó
                 "INSERT INTO object_refs(record_id, sha256, role)"
-                " SELECT $1, redacted_sha256, 'redacted' FROM pii_scans"
-                " WHERE sha256 = $2 AND redacted_sha256 IS NOT NULL ON CONFLICT DO NOTHING",
+                " SELECT $1, redacted_sha256, 'redacted' FROM pii_redactions"
+                " WHERE sha256 = $2 ON CONFLICT DO NOTHING",
                 up["record_id"], sha)
             await conn.execute("UPDATE uploads SET status='CLEAN', sha256=$2, updated_at=now() WHERE id=$1",
                                upload_id, sha)
@@ -143,7 +143,7 @@ async def _enqueue_pii_scan(conn: asyncpg.Connection, app_id: str, sha: str) -> 
     m = await get_active(conn, app_id)
     types = detectable(m.policies.pii.document_detect) if m else []
     if types and not await conn.fetchval("SELECT 1 FROM pii_scans WHERE sha256=$1", sha):
-        await enqueue(conn, PII_JOB, {"sha256": sha, "types": types})
+        await enqueue(conn, PII_JOB, {"sha256": sha})
 
 
 async def _drop_staging(ctx: WorkerContext, upload_id: uuid.UUID) -> None:
@@ -174,8 +174,9 @@ async def list_uploads(conn: asyncpg.Connection, record_id: uuid.UUID, *,
     khác (chưa CLEAN, collection không dò) thì ``pii`` là ``null``."""
     rows = await conn.fetch(
         "SELECT u.id, u.status, u.sha256, u.reason, u.created_at, s.status AS scan_status, s.findings,"
-        " s.redacted_sha256 IS NOT NULL AS redacted"
-        " FROM uploads u LEFT JOIN pii_scans s ON s.sha256 = u.sha256 WHERE u.record_id=$1"
+        " r.sha256 IS NOT NULL AS redacted"
+        " FROM uploads u LEFT JOIN pii_scans s ON s.sha256 = u.sha256"
+        " LEFT JOIN pii_redactions r ON r.sha256 = u.sha256 WHERE u.record_id=$1"
         " ORDER BY u.created_at, u.id", record_id)
     out = []
     for row in rows:

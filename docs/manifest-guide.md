@@ -54,7 +54,7 @@ workflow:
 | `…format`, `…reset` | chỉ cho `sequence`: xem [Đánh số theo năm](#đánh-số-theo-năm) |
 | `attachments` | `kinds: [pdf]`, `max_mb` 1..100, `min` (số tệp `CLEAN` tối thiểu). Có khóa `quarantine` thì chỉ được là `required`; giá trị khác → `FLOOR_WEAKENED` (AT-11): mọi tệp luôn qua kiểm dịch |
 | `access` | `read`, `create`, `update` (mặc định `[owner]`); phần tử là `owner` hoặc `role:<role>` |
-| `policies.pii` | `reveal_roles`, `erase_roles` (ai được `:erase-pii`), `document_detect` (loại PII dò trong PDF); các role phải có trong `roles` |
+| `policies.pii` | `reveal_roles`, `erase_roles` (ai được `:erase-pii`), `document_detect` (loại PII dò trong PDF; có loại hỗ trợ thì tệp tải lên được dò và bản gốc bị khóa theo `reveal_pii`, còn việc dò luôn quét cả ba loại CCCD, PHONE, BANK_ACCOUNT); các role phải có trong `roles` |
 | `policies.seal` | `on_event: "process.completed:<id end event>"`, `target` (`record`, `attachments`), `public_fields` (phải là trường `public`), `revoke_roles` (mặc định `[]`: không ai thu hồi được). Khai `seal` thì bắt buộc có `workflow` |
 | `policies.verify` | `public` (có cổng đối soát công khai), `require_file` (đối soát bắt buộc kèm hash tệp) |
 | `workflow.bpmn` | `bpmn/<tên>.bpmn`, tương đối trong thư mục app |

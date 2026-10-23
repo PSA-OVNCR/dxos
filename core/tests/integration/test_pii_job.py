@@ -110,7 +110,7 @@ async def test_clean_upload_enqueues_pii_job_only_when_manifest_asks(
     await _run_until_idle(ctx, limit=1)                       # chỉ việc quét AV/kiểm PDF
     assert await _job_kinds(core_conn) == ["scan", PII_JOB]
     payload = await core_conn.fetchval("SELECT payload FROM jobs WHERE kind=$1", PII_JOB)
-    assert json.loads(payload) == {"sha256": sha, "types": TYPES}
+    assert json.loads(payload) == {"sha256": sha}          # R19: không còn types trong payload
 
 
 async def test_manifest_without_document_detect_enqueues_nothing(api, ctx, core_conn):
