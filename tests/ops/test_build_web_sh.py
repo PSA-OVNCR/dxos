@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """``ops/build_web.sh`` (Plan 03 Task 10) chạy thật trong một bản sao repo tạm, với ``npm`` giả đặt đầu PATH.
 
-Kiểm: ``npm ci`` trước ``npm run build``; chép đúng bốn thư mục dist (danh sách cố định); ``BUILD-INFO.json``;
+Kiểm: ``npm ci`` trước ``npm run build``; chép đúng danh sách cố định các thư mục dist (App A, App B, ví dụ,
+cổng đối soát, trang quản trị); ``BUILD-INFO.json``;
 build vào ``OUT.tmp`` rồi mới thay ``OUT`` (một bước lỗi thì ``OUT`` cũ còn nguyên); chạy được khi ``OUT`` là
 điểm gắn (volume Docker, không đổi tên được).
 """
@@ -19,10 +20,11 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "ops/build_web.sh"
 SHA = "0123456789abcdef0123456789abcdef01234567"
-ALL_OUT = ["BUILD-INFO.json", "chung-nhan", "phong-ho-so", "so-muon-sach", "verify"]
+ALL_OUT = ["BUILD-INFO.json", "admin-ui", "chung-nhan", "phong-ho-so", "so-muon-sach", "verify"]
 PREV_INFO = '{"commit": "1111111", "built_at": "2026-10-01T00:00:00Z"}\n'
 DISTS = {"phong-ho-so": "apps/phong-ho-so/web/dist", "chung-nhan": "apps/chung-nhan/web/dist",
-         "so-muon-sach": "examples/so-muon-sach/web/dist", "verify": "verify-portal/app/dist"}
+         "so-muon-sach": "examples/so-muon-sach/web/dist", "verify": "verify-portal/app/dist",
+         "admin-ui": "admin-ui/dist"}
 
 # npm giả: ghi lời gọi vào $FAKE_LOG; `run build` tạo dist cho từng workspace (trừ FAKE_SKIP_DIST/FAKE_FAIL).
 FAKE_NPM = r"""#!/bin/sh
@@ -31,7 +33,7 @@ case "$1" in
   ci) [ "${FAKE_FAIL:-}" = ci ] && { echo "npm ci lỗi" >&2; exit 7; } ; exit 0 ;;
   run)
     [ "${FAKE_FAIL:-}" = build ] && { echo "build lỗi" >&2; exit 9; }
-    for d in apps/phong-ho-so/web apps/chung-nhan/web examples/so-muon-sach/web verify-portal/app; do
+    for d in apps/phong-ho-so/web apps/chung-nhan/web examples/so-muon-sach/web verify-portal/app admin-ui; do
       [ "${FAKE_SKIP_DIST:-}" = "$d" ] && continue
       mkdir -p "$d/dist/assets"
       echo "<!doctype html><title>$d</title>" > "$d/dist/index.html"
@@ -94,6 +96,15 @@ def test_copies_exactly_the_fixed_list_of_dist_folders(env, tmp_path):
     assert not (tmp_path / "out.tmp").exists()                     # thư mục tạm đã được dọn
 
 
+def test_admin_ui_is_in_the_fixed_list_and_lands_where_caddy_serves_it(env, tmp_path):
+    """Caddy host admin đọc /srv/apps/admin-ui (volume apps-static); dist của workspace là admin-ui/dist."""
+    out = tmp_path / "out"
+    assert _run(env, out).returncode == 0
+    assert (out / "admin-ui/index.html").is_file() and (out / "admin-ui/assets/a.js").is_file()
+    script = SCRIPT.read_text(encoding="utf-8")
+    assert "admin-ui:admin-ui/dist" in script
+
+
 def test_build_info_has_commit_from_git_and_utc_time(env, tmp_path):
     out = tmp_path / "out"
     assert _run(env, out).returncode == 0
@@ -131,7 +142,7 @@ def test_failing_step_exits_non_zero_and_leaves_previous_output_untouched(env, t
     assert not (tmp_path / "out.tmp").exists()
 
 
-@pytest.mark.parametrize("workspace", ["verify-portal/app", "examples/so-muon-sach/web"])
+@pytest.mark.parametrize("workspace", ["verify-portal/app", "examples/so-muon-sach/web", "admin-ui"])
 def test_missing_dist_folder_fails_without_creating_output(env, tmp_path, workspace):
     r = _run(env, tmp_path / "out", FAKE_SKIP_DIST=workspace)
     assert r.returncode != 0 and f"{workspace}/dist" in r.stderr

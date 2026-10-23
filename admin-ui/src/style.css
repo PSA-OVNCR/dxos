@@ -36,3 +36,13 @@ SPDX-License-Identifier: Apache-2.0
 .dx-state-bad { color: var(--bad); background: var(--bad-bg); }
 
 .dx-notice { padding: 0.6rem 0.9rem; border: 1px solid var(--ok); border-radius: 6px; background: var(--ok-bg); color: var(--ok); }
+
+/* Diff quyền: dòng đổi của chính sách an toàn có viền + nhãn "Đổi" (màu chỉ là phần thêm). */
+.dx-diff { list-style: none; padding: 0; margin: 1rem 0; }
+.dx-diff li { padding: 0.4rem 0.75rem; border-left: 4px solid var(--line); margin-bottom: 0.35rem; background: var(--card); }
+.dx-diff-add { border-left-color: var(--ok); }
+.dx-diff-floor { border-left-color: var(--warn); background: var(--warn-bg); color: var(--warn); }
+.dx-diff-tag { display: inline-block; margin-right: 0.5rem; padding: 0 0.5rem; border: 1px solid currentColor; border-radius: 4px; font-weight: 700; font-size: 0.85em; }
+.dx-diff-tag-same { font-weight: 400; color: var(--muted); }
+.dx-actions-cell { white-space: nowrap; }
+.dx-actions-cell > * { margin-right: 0.75rem; }

@@ -1,17 +1,20 @@
 // SPDX-FileCopyrightText: 2026 PSA_OVNCR
 // SPDX-License-Identifier: Apache-2.0
-// Router băm (#/...). `#/apps` và `#/quarantine` là chỗ của hai màn hình duyệt app và cách ly (Task 10).
+// Router băm (#/...): sức khỏe, sổ cái, duyệt app (danh sách + diff của từng phiên bản) và cách ly.
 import { createRouter, createWebHashHistory, type RouterHistory } from 'vue-router'
+import AppDiffView from './views/AppDiffView.vue'
+import AppsView from './views/AppsView.vue'
 import HealthView from './views/HealthView.vue'
 import LedgerView from './views/LedgerView.vue'
-import SoonView from './views/SoonView.vue'
+import QuarantineView from './views/QuarantineView.vue'
 
 export const routes = [
   { path: '/', redirect: '/health' },
   { path: '/health', name: 'health', component: HealthView },
   { path: '/ledger', name: 'ledger', component: LedgerView },
-  { path: '/apps', name: 'apps', component: SoonView },
-  { path: '/quarantine', name: 'quarantine', component: SoonView },
+  { path: '/apps', name: 'apps', component: AppsView },
+  { path: '/apps/:id/versions/:version', name: 'app-diff', component: AppDiffView, props: true },
+  { path: '/quarantine', name: 'quarantine', component: QuarantineView },
   { path: '/:rest(.*)*', redirect: '/health' },
 ]
 

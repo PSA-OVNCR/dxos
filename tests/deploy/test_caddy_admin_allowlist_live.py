@@ -81,10 +81,14 @@ def run_caddy(tmp_path):
         (tmp_path / "srv/apps/phong-ho-so/assets").mkdir(parents=True, exist_ok=True)
         (tmp_path / "srv/apps/phong-ho-so/index.html").write_text("<!doctype html><title>app</title>\n")
         (tmp_path / "srv/apps/phong-ho-so/assets/index-abc123.js").write_text("// app\n")
+        (tmp_path / "srv/apps/admin-ui/assets").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "srv/apps/admin-ui/index.html").write_text("<!doctype html><title>admin</title>\n")
+        (tmp_path / "srv/apps/admin-ui/assets/index-abc123.js").write_text("// admin\n")
         (tmp_path / "srv/apps/BUILD-INFO.json").write_text("{}\n")
         text = (ROOT / "deploy/caddy/Caddyfile").read_text(encoding="utf-8")
         text = text.replace("root * /srv/verify-lite", f"root * {ROOT}/verify-portal/minimal")
         text = text.replace("root * /srv/apps/verify", f"root * {tmp_path}/srv/apps/verify")
+        text = text.replace("root * /srv/apps/admin-ui", f"root * {tmp_path}/srv/apps/admin-ui")
         text = text.replace("root * /srv\n", f"root * {tmp_path}/srv\n")
         cfg = tmp_path / f"Caddyfile.{port}"
         cfg.write_text("{\n\tadmin off\n\tauto_https off\n}\n" + text, encoding="utf-8")
@@ -116,6 +120,7 @@ def run_caddy(tmp_path):
 
 
 BLOCKED_PATHS = ("/", "/apps/other.txt", "/apps/verify/", "/apps/verify-lite/", "/auth/realms/dxos",
+                 "/ui", "/ui/", "/ui/index.html", "/ui/assets/index-abc123.js",
                  "/admin/v1/ledger/status", "/api/v1/apps", "/verify/v1/seals/AAAAAAAAAAAAAAAAAAAAAAAAAA")
 
 
@@ -199,3 +204,38 @@ def test_generic_apps_route_has_csp_and_cache_rules_while_verify_routes_keep_the
         assert status == 200 and headers["content-security-policy"] == VUE_CSP
         assert headers["cache-control"] == "public, max-age=31536000, immutable"
         assert _fetch(port, host, "/apps/verify/")[1]["cache-control"] == "no-cache"
+
+
+# CSP riêng của trang quản trị web (Plan 04 Task 10): không inline, không nguồn ngoài.
+ADMIN_UI_CSP = ("default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; "
+                "connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+
+
+def test_admin_ui_is_served_on_the_admin_host_with_its_own_csp_and_cache_rules(run_caddy):
+    _need_caddy()
+    port = run_caddy("127.0.0.1/32")
+    for path in ("/ui/", "/ui/index.html"):
+        status, headers = _fetch(port, "admin.localhost", path)
+        assert status == 200, path
+        assert headers["content-security-policy"] == ADMIN_UI_CSP, path
+        assert headers["x-content-type-options"] == "nosniff" and headers["referrer-policy"] == "no-referrer"
+        assert headers["cache-control"] == "no-cache", path
+    status, headers = _fetch(port, "admin.localhost", "/ui/assets/index-abc123.js")
+    assert status == 200 and headers["cache-control"] == "public, max-age=31536000, immutable"
+    assert headers["content-security-policy"] == ADMIN_UI_CSP
+    assert _get(port, "admin.localhost", "/ui/assets/missing.js") == 404
+    status, headers = _fetch(port, "admin.localhost", "/ui")
+    assert status == 308 and headers["location"] == "/ui/"
+
+
+def test_public_host_has_no_ui_and_no_copy_of_the_admin_build(run_caddy):
+    _need_caddy()
+    port = run_caddy("127.0.0.1/32")
+    for path in ("/ui", "/ui/", "/ui/index.html", "/ui/assets/index-abc123.js"):
+        assert _get(port, "localhost", path) == 404, path
+    # Bản dựng nằm trong volume apps-static nhưng không được phát qua /apps/ trên bất kỳ host nào.
+    for host in ("localhost", "admin.localhost"):
+        for path in ("/apps/admin-ui", "/apps/admin-ui/", "/apps/admin-ui/index.html",
+                     "/apps/admin-ui/assets/index-abc123.js"):
+            assert _get(port, host, path) == 404, (host, path)
+    assert _get(port, "localhost", "/apps/phong-ho-so/") == 200      # app khác không bị ảnh hưởng

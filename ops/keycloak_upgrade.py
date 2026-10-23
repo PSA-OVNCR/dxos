@@ -129,11 +129,12 @@ def _last_line(text: str) -> str:
 
 def _subst(value: Any, domain: str | None, admin_host: str | None = None) -> Any:
     """Thay ``${DXOS_DOMAIN}`` và ``${DXOS_ADMIN_HOST}`` như Keycloak làm lúc nạp realm; giá trị còn ``${``
-    (secret, hoặc biến chưa biết) thì không so."""
+    (secret, hoặc biến chưa biết) thì không so. Biến rỗng (``DXOS_ADMIN_HOST=`` trong .env) coi như thiếu:
+    thay chuỗi rỗng vào sẽ ra URI sai như ``https:///ui/*``."""
     if isinstance(value, str):
-        if domain is not None:
+        if domain:
             value = value.replace("${DXOS_DOMAIN}", domain)
-        if admin_host is not None:
+        if admin_host:
             value = value.replace("${DXOS_ADMIN_HOST}", admin_host)
         return value
     if isinstance(value, list):
@@ -362,11 +363,18 @@ def _sorted_map(m: dict[str, set[str]]) -> dict[str, list[str]]:
     return {k: sorted(v) for k, v in sorted(m.items())}
 
 
+_UNRESOLVED = ("còn ${...} chưa thay (đặt DXOS_DOMAIN và DXOS_ADMIN_HOST trong .env rồi chạy lại), "
+               "chưa so được")
+
+
 def _client_drift(want: dict, live: dict) -> list[str]:
     out: list[str] = []
     cid = want["clientId"]
     for k, v in want.items():
-        if k in CLIENT_SKIP_KEYS or _has_placeholder(v):
+        if k in CLIENT_SKIP_KEYS:
+            continue
+        if k != "attributes" and _has_placeholder(v):     # attributes: từng khóa con được báo riêng bên dưới
+            out.append(f"client {cid}.{k}: {_UNRESOLVED}")
             continue
         if k in CLIENT_SET_KEYS:
             now = set(live.get(k) or [])
@@ -375,6 +383,7 @@ def _client_drift(want: dict, live: dict) -> list[str]:
         elif k == "attributes":
             for ak, av in v.items():
                 if _has_placeholder(av):
+                    out.append(f"client {cid}.attributes.{ak}: {_UNRESOLVED}")
                     continue
                 if (live.get("attributes") or {}).get(ak) != av:
                     out.append(f"client {cid}.attributes.{ak}: đang "

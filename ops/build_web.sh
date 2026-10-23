@@ -19,8 +19,9 @@
 #   ops/web_build_docker.sh truyền biến này).
 set -eu
 
-# Danh sách cố định <tên-thư-mục-đích>:<thư mục dist trong repo> (so-muon-sach: ví dụ của hướng dẫn, Plan 03 Task 13).
-DIST_MAP="phong-ho-so:apps/phong-ho-so/web/dist chung-nhan:apps/chung-nhan/web/dist so-muon-sach:examples/so-muon-sach/web/dist verify:verify-portal/app/dist"
+# Danh sách cố định <tên-thư-mục-đích>:<thư mục dist trong repo> (so-muon-sach: ví dụ của hướng dẫn, Plan 03 Task 13;
+# admin-ui: trang quản trị web, Caddy phát ở /ui/ trên host admin, Plan 04 Task 10).
+DIST_MAP="phong-ho-so:apps/phong-ho-so/web/dist chung-nhan:apps/chung-nhan/web/dist so-muon-sach:examples/so-muon-sach/web/dist verify:verify-portal/app/dist admin-ui:admin-ui/dist"
 
 [ $# -eq 1 ] && [ -n "$1" ] || { echo "dùng: sh ops/build_web.sh <out_dir>" >&2; exit 2; }
 OUT=$1

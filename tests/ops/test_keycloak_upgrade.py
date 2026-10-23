@@ -462,6 +462,55 @@ def test_admin_ui_client_uses_a_custom_admin_host():
     assert ui["webOrigins"] == ["https://quantri.example"]
 
 
+@pytest.mark.parametrize("name", ["DXOS_ADMIN_HOST", "DXOS_DOMAIN"])
+def test_empty_domain_or_admin_host_is_treated_like_a_missing_one(name):
+    """Biến rỗng trong .env (``DXOS_ADMIN_HOST=``) không được thay vào URI thành ``https:///ui/*``: coi như
+    thiếu, nên client không được tạo và phần còn ${...} bị báo lệch kèm tên biến."""
+    fake = v010("realm-dxos.json")
+    env = {"KEYCLOAK_ADMIN_PASSWORD": PASSWORD, "DXOS_DOMAIN": "localhost",
+           "DXOS_ADMIN_HOST": "admin.localhost", name: ""}
+    rc, out = run(fake, environ=env)
+    assert rc == 2 and name in out, out
+    for client in fake.clients:
+        for uri in client.get("redirectUris", []) + client.get("webOrigins", []):
+            assert "///" not in uri and not uri.endswith("https://"), (client["clientId"], uri)
+    if name == "DXOS_ADMIN_HOST":
+        assert "dxos-admin-ui" not in {c["clientId"] for c in fake.clients}
+
+
+def test_subst_uses_truthiness_for_domain_and_admin_host():
+    value = {"u": ["https://${DXOS_ADMIN_HOST}/ui/*"], "w": "https://${DXOS_DOMAIN}"}
+    assert ku._subst(value, "", "") == value
+    assert ku._subst(value, None, None) == value
+    assert ku._subst(value, "d.example", "a.example") == {"u": ["https://a.example/ui/*"], "w": "https://d.example"}
+
+
+def test_existing_client_with_an_unresolved_placeholder_is_reported_not_skipped():
+    """Client đã có nhưng khóa còn ${...} (thiếu biến): không so được, phải báo lệch, không lặng lẽ bỏ qua."""
+    pkce = {"pkce.code.challenge.method": "S256"}
+    want = {"clientId": "dxos-admin-ui", "publicClient": True, "secret": "${KC_SECRET}",
+            "redirectUris": ["https://${DXOS_ADMIN_HOST}/ui/*"],
+            "attributes": {"post.logout.redirect.uris": "https://${DXOS_ADMIN_HOST}/ui/*", **pkce}}
+    live = {"clientId": "dxos-admin-ui", "publicClient": True, "redirectUris": ["https://x/ui/*"],
+            "attributes": {"post.logout.redirect.uris": "https://x/ui/*", **pkce}}
+    out = ku._client_drift(want, live)
+    assert len(out) == 2, out
+    assert "client dxos-admin-ui.redirectUris" in out[0] and "${" in out[0] and "DXOS_ADMIN_HOST" in out[0]
+    assert "client dxos-admin-ui.attributes.post.logout.redirect.uris" in out[1]
+    assert not any("secret" in line for line in out)           # secret vẫn không so (không bao giờ in)
+    resolved = {**want, "redirectUris": ["https://x/ui/*"],
+                "attributes": {"post.logout.redirect.uris": "https://x/ui/*", **pkce}}
+    assert ku._client_drift({k: v for k, v in resolved.items() if k != "secret"}, live) == []
+
+
+def test_run_without_admin_host_reports_the_existing_admin_ui_client_keys():
+    fake = v010("realm-dxos.json")
+    assert run(fake)[0] == 0                                    # tạo client dxos-admin-ui
+    rc, out = run(fake, environ={"KEYCLOAK_ADMIN_PASSWORD": PASSWORD, "DXOS_DOMAIN": "localhost"})
+    assert rc == 2
+    assert "client dxos-admin-ui.redirectUris" in out and "DXOS_ADMIN_HOST" in out
+
+
 def test_cleanup_failure_is_a_warning():
     fake = v010("realm-dxos.json")
     orig = fake.__call__

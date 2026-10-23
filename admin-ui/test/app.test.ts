@@ -22,18 +22,25 @@ function sessionFor(auth = fakeAuth()) {
 }
 
 describe('router', () => {
-  test('hash routes health, ledger, apps and quarantine exist; anything else goes to health', async () => {
-    expect(routes.map((r) => r.path)).toEqual(['/', '/health', '/ledger', '/apps', '/quarantine', '/:rest(.*)*'])
+  test('hash routes health, ledger, apps (+ version diff) and quarantine exist; anything else goes to health', async () => {
+    expect(routes.map((r) => r.path)).toEqual([
+      '/', '/health', '/ledger', '/apps', '/apps/:id/versions/:version', '/quarantine', '/:rest(.*)*',
+    ])
     const router = makeRouter(createMemoryHistory())
     await router.push('/khong-co')
     expect(router.currentRoute.value.path).toBe('/health')
     await router.push('/ledger')
     expect(router.currentRoute.value.name).toBe('ledger')
+    await router.push('/apps/so-muon-sach/versions/1.1.0')
+    expect(router.currentRoute.value.name).toBe('app-diff')
+    expect(router.currentRoute.value.params).toEqual({ id: 'so-muon-sach', version: '1.1.0' })
+    await router.push('/apps/chi-co-id')                    // thiếu phần version: về health
+    expect(router.currentRoute.value.path).toBe('/health')
   })
 })
 
 describe('admin shell', () => {
-  test('header shows the user, the admin role and logout; navigation lists health and ledger; no manifest call', async () => {
+  test('header shows the user, the admin role and logout; navigation lists the four admin screens; no manifest call', async () => {
     const { session, auth } = sessionFor()
     const router = makeRouter(createMemoryHistory())
     await router.push('/health')
@@ -44,11 +51,17 @@ describe('admin shell', () => {
     expect(w.find('header').text()).toContain('Quản trị viên')
     expect(w.find('header').text()).toContain('Quản trị DX-OS')
     expect(w.findAll('nav a').map((a) => [a.text(), a.attributes('href')])).toEqual([
-      ['Sức khỏe hệ thống', '/health'], ['Sổ cái', '/ledger'],
+      ['Sức khỏe hệ thống', '/health'], ['Sổ cái', '/ledger'], ['Ứng dụng', '/apps'], ['Cách ly', '/quarantine'],
     ])
     expect(w.find('[data-dep="db"]').exists()).toBe(true)
     await click(w, 'Sổ cái')
     expect(w.find('[data-field="tree_size"]').exists()).toBe(true)
+    await click(w, 'Ứng dụng')
+    expect(w.find('tbody tr[data-app]').exists()).toBe(true)
+    await click(w, 'Cách ly')
+    expect(w.find('[data-quarantine]').exists()).toBe(true)
+    expect(api.apps).toHaveBeenCalledTimes(1)
+    expect(api.quarantine).toHaveBeenCalledTimes(1)
     await click(w, 'Đăng xuất')
     expect(auth.logout).toHaveBeenCalledTimes(1)
     expect(api.health).toHaveBeenCalledTimes(1)

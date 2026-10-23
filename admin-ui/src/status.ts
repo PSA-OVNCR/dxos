@@ -51,3 +51,22 @@ export const EVENT_TYPES = [
   'pii.reviewed', 'task.completed', 'record.sealed', 'record.revoked', 'policy.denied', 'sth.published',
   'workflow.started', 'workflow.completed', 'pii.erased', 'key.published',
 ] as const
+
+/** Trạng thái một phiên bản app (core.apps.status). Bản đã vô hiệu hóa không phải lỗi: mức "warn". */
+export function appStatusState(status: string): StateText {
+  switch (status) {
+    case 'ACTIVE': return { level: 'ok', text: 'Đang hoạt động' }
+    case 'PENDING': return { level: 'warn', text: 'Chờ duyệt' }
+    case 'DISABLED': return { level: 'warn', text: 'Đã vô hiệu hóa' }
+    default: return { level: 'warn', text: `Không rõ (${status})` }
+  }
+}
+
+/** Trạng thái upload bị cách ly (core.uploads.status: INFECTED | REJECTED). */
+export function uploadStatusState(status: string): StateText {
+  switch (status) {
+    case 'INFECTED': return { level: 'bad', text: 'Nhiễm mã độc' }
+    case 'REJECTED': return { level: 'bad', text: 'Bị từ chối' }
+    default: return { level: 'warn', text: `Không rõ (${status})` }
+  }
+}

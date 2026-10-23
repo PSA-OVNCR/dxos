@@ -14,6 +14,8 @@ import { ROLE_LABELS } from './session'
     <template #nav>
       <RouterLink to="/health">Sức khỏe hệ thống</RouterLink>
       <RouterLink to="/ledger">Sổ cái</RouterLink>
+      <RouterLink to="/apps">Ứng dụng</RouterLink>
+      <RouterLink to="/quarantine">Cách ly</RouterLink>
     </template>
     <RouterView />
   </AppShell>
