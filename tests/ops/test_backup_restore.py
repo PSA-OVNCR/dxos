@@ -812,6 +812,8 @@ def test_backup_unpauses_seaweedfs_when_it_cannot_complete_the_pause(world):
     assert r.returncode == 3 and "pause" in r.stderr, r.out
     assert not any(c.startswith("docker run") for c in r.docker)              # chưa tar gì khi chưa dừng được
     assert list(world.out.iterdir()) == []
+    # `docker pause` có thể đã dừng một phần rồi mới báo lỗi: PAUSED đặt TRƯỚC lệnh pause để bẫy EXIT unpause.
+    assert r.order(["docker pause cid-dxos-seaweedfs", "docker unpause cid-dxos-seaweedfs"]), r.text
 
 
 def test_backup_unpauses_seaweedfs_on_sigterm(world):

@@ -14,7 +14,8 @@ Dự án dự thi **Olympic Tin học Sinh viên Việt Nam – Phần mềm ngu
 - **S2, Viewer**: dịch vụ xem từng trang PDF thành ảnh có watermark, chỉ RAM, chỉ ở hồ sơ p16. Watermark **chỉ để răn đe**, không ngăn
   được chụp màn hình. Chạy thật trong container: V40.
 - **S3, trang quản trị web** `/ui/` trên host quản trị: sức khỏe, sổ cái, duyệt app bằng hai quản trị viên, tệp bị cách ly. Chạy thật với Keycloak: V41.
-- **S4, vận hành**: `ops/deploy.sh` chỉ triển khai tag đã ký và tự quay lui khi health hỏng (V42), sao lưu mã hóa và diễn tập khôi phục
+- **S4, vận hành**: `ops/deploy.sh` chỉ triển khai tag đã ký và tự quay lui khi health hỏng, trừ khi bản mới thêm migration (khi đó dừng và
+  hướng dẫn khôi phục từ bản sao lưu hoặc sửa tiếp; V42), sao lưu mã hóa và diễn tập khôi phục
   AT-21 (V43). Viewer cũng được phát hành thành image theo digest như `trust-core`.
 - Chỗ trống PoF: ghim phụ thuộc và quét giấy phép (V37), kiến trúc và trang tài liệu (V38, chưa bật), `make demo-seed` (V44).
 

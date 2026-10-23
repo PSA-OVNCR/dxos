@@ -37,7 +37,7 @@ giả, xem `tests/ops/test_deploy_sh.py`).
 | 2 | **Từ chối trước khi đổi gì**: tham số sai, thiếu `.env`/`DXOS_DOMAIN`, thiếu `git`/`docker`/`curl`, cây làm việc bẩn, tag chưa ký hoặc ký bằng khóa không có trong `deploy/allowed_signers`. Không ghi vào `deployments.log`. | Sửa theo thông báo trên stderr (ký tag đúng khóa, mục 2.2) rồi chạy lại. |
 | 3 | **Thiếu điều kiện trước khi chuyển bản**: `git fetch` bị từ chối (tag cục bộ khác remote), Release thiếu tệp hoặc digest sai, `docker compose pull` hỏng, dựng SPA hỏng (kể cả image Node chưa ghim). Ghi `result=failed`, in "Quay lại bằng: ops/deploy.sh <tag trước>". Container đang chạy chưa bị đổi; cây làm việc đã `HEAD` tách rời tại tag mới, và nếu lỗi đến từ bước dựng SPA thì volume `apps-static` có thể đã bị ghi dở. | Sửa điều kiện rồi chạy lại cùng tag; hoặc chạy lệnh quay lại đã in. |
 | 4 | **Health hỏng sau khi chuyển, đã tự quay lui về bản tốt gần nhất và bản đó khỏe.** Log có `result=ok` cho bản tốt và `result=rolled-back` cho bản hỏng. | Điều tra bản hỏng (`docker compose -p dxos logs`), phát hành tag sửa. Máy đang ở bản cũ. |
-| 5 | **Health hỏng và không quay lui được**: chưa có bản tốt nào trong log, hoặc quay lui cũng hỏng (kể cả tag cũ không qua được kiểm chữ ký). Script in hướng dẫn khôi phục tay. | Làm theo hướng dẫn in ra và mục 4. Stack đang ở trạng thái không khỏe. |
+| 5 | **Health hỏng và không quay lui được**: chưa có bản tốt nào trong log, quay lui cũng hỏng (kể cả tag cũ không qua được kiểm chữ ký), hoặc **bản mới thêm migration** nên cố ý không quay lui (mục 4). Script in hướng dẫn. | Làm theo hướng dẫn in ra và mục 4. Stack đang ở trạng thái không khỏe. |
 
 Health hỏng gồm: `docker compose up -d --wait` báo container không khỏe, `/readyz` không trả 200, hoặc
 `https://$DXOS_DOMAIN/verify/v1/keys` không trả 200.
@@ -185,8 +185,17 @@ Triển khai <tag> hỏng. Quay lại bằng: ops/deploy.sh <tag trước>
 Chạy lệnh đó: sau thoát 3 cây làm việc đang tách rời tại tag mới, chạy `ops/deploy.sh <tag trước>` cũng dựng lại SPA của tag
 cũ vào `apps-static` (khôi phục SPA nếu nó đã bị ghi dở). Nếu `<tag trước>` là `none` thì chưa có bản nào từng chạy tốt qua script này.
 
-Lưu ý: migration cơ sở dữ liệu của bản mới không tự hoàn tác; quay lui chỉ an toàn với bản có lược đồ tương thích (xem
-ghi chú nâng cấp trong CHANGELOG). Sau thoát 4 hoặc 5 cây làm việc đang ở `HEAD` tách rời tại tag cuối cùng script đã checkout.
+**Không tự quay lui qua migration mới (R33).** `trust-core-api` chạy `migrate` mỗi lần khởi động, và `migrate` của bản cũ từ chối
+CSDL đã có migration mà mã của nó không có (lỗi "DB đã có migration mà mã nguồn không có"). Nên nếu bản mới thêm tệp vào
+`core/migrations/` so với bản tốt gần nhất (script so `git ls-tree --name-only` của hai tag, sau khi tag cũ qua kiểm chữ ký và
+trước khi đổi cây làm việc hay container), quay lui sẽ chỉ làm API của bản cũ lặp chết. Khi đó script **không quay lui**: ghi
+`result=failed` cho bản mới, in các migration thêm và hướng dẫn, rồi thoát 5; stack ở lại bản mới (chưa khỏe). Không bao giờ hạ
+migration. Chọn một trong hai: (1) sửa tiếp (`docker compose -p dxos logs --tail=200 trust-core-api`, phát hành tag mới đã ký,
+`ops/deploy.sh <tag mới>`); (2) khôi phục từ bản sao lưu lấy **trước** lần triển khai này bằng `ops/restore.sh` vào một project
+riêng theo `docs/runbook-backup.md` (mục 4), kiểm dữ liệu rồi mới chuyển; không khôi phục đè lên project `dxos`. Vì vậy chạy
+`ops/backup.sh` trước mỗi lần nâng lên bản có migration mới; ghi chú nâng cấp từ 0.3.0 ở mục "Nâng cấp từ 0.3.0" của
+`CHANGELOG.md` mục [0.9.0]. Khi quay lui diễn ra (cùng migration), lệnh `up` của lần quay lui chạy kèm `--remove-orphans` để
+container của dịch vụ mà bản cũ không có (Viewer của 0.9.0) không ở lại. Sau thoát 4 hoặc 5 cây làm việc đang ở `HEAD` tách rời tại tag cuối cùng script đã checkout.
 Chạy thật tự quay lui trên VPS là việc V42 (mới kiểm bằng `git`, `docker`, `curl` giả).
 
 ## 5. Timer systemd tùy chọn (không bật mặc định)

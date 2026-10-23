@@ -13,7 +13,7 @@
 #      có trong deploy/allowed_signers hoặc có tên trong thân tag khác tên ref, allowed_signers không có khóa nào.
 #   3  thiếu điều kiện trước khi chuyển bản (không lấy được tag, Release thiếu/sai digest, compose pull hỏng, dựng SPA hỏng).
 #   4  health hỏng sau khi chuyển, đã tự quay lui về bản tốt gần nhất và bản đó khỏe.
-#   5  health hỏng và KHÔNG quay lui được (chưa có bản tốt nào, hoặc quay lui cũng hỏng); in hướng dẫn khôi phục tay.
+#   5  health hỏng và KHÔNG quay lui được (chưa có bản tốt nào, bản mới thêm migration, hoặc quay lui cũng hỏng); in hướng dẫn.
 #
 # Các bước, theo đúng thứ tự (mỗi bước hỏng thì dừng, không chạy bước sau):
 #   1. Tag phải khớp ^v[0-9]+.[0-9]+.[0-9]+$, profile là p16 hoặc p8, .env phải có DXOS_DOMAIN. Sai thì thoát 2.
@@ -41,8 +41,11 @@
 #      compose.anchor.yaml chỉ khi .env có DXOS_ANCHOR_REMOTE khác rỗng.
 #  10. Kiểm sức khỏe: /readyz của trust-core-api trả 200 và https://$DXOS_DOMAIN/verify/v1/keys trả 200. `up --wait` hỏng
 #      (container không khỏe) hoặc kiểm sức khỏe hỏng nghĩa là đã chuyển nhưng bản mới không khỏe: tự quay lui (S4).
-#  11. Quay lui: chạy lại đúng chuỗi trên (bước 4 đến 10) cho bản tốt gần nhất, MỘT lần, không đệ quy. Khỏe thì thoát 4,
-#      không thì thoát 5. Chưa có bản tốt nào thì thoát 5 ngay.
+#  11. Quay lui: chạy lại đúng chuỗi trên (bước 4 đến 10) cho bản tốt gần nhất, MỘT lần, không đệ quy, `up` kèm
+#      --remove-orphans. Khỏe thì thoát 4, không thì thoát 5. Chưa có bản tốt nào thì thoát 5 ngay. KHÔNG quay lui khi bản
+#      mới thêm tệp vào core/migrations/ so với bản tốt (git ls-tree, sau khi tag cũ đã qua kiểm chữ ký, trước checkout): bản cũ
+#      không chạy được trên DB đã nâng cấp và không bao giờ hạ migration; thoát 5 và in hướng dẫn (sửa tiếp, hoặc khôi phục
+#      từ bản sao lưu bằng ops/restore.sh vào project riêng).
 #  12. Mỗi lần triển khai từ bước 4 trở đi ghi một dòng vào deploy/deployments.log, cột cách nhau bằng tab:
 #      <UTC>\t<tag>\t<commit>\t<digest>\tresult=ok|rolled-back|failed\tsigned=yes|no
 #      Dòng kiểu cũ (cột 5 là OK hoặc FAIL, không có cột 6) vẫn được đọc khi tìm bản tốt gần nhất.
@@ -173,6 +176,17 @@ Không tự quay lui được. Khôi phục tay (docs/runbook-deploy.md, mục 4
   3. Chưa có tag tốt: sửa nguyên nhân từ log ở bước 1, phát hành tag mới (đã ký) rồi chạy ops/deploy.sh <tag mới>.
 MANUAL
     }
+    no_rollback_migrations() {
+        cat << NOROLLBACK
+Triển khai $1 hỏng sức khỏe và KHÔNG tự quay lui về $2: $1 thêm migration cơ sở dữ liệu mà $2 không biết, nên $2 sẽ không
+khởi động trên DB đã nâng cấp (migrate từ chối DB có migration lạ). Không bao giờ hạ migration. Stack đang ở $1 (chưa khỏe).
+Chọn một trong hai (docs/runbook-deploy.md mục 4, CHANGELOG mục "Nâng cấp từ 0.3.0"):
+  1. Sửa tiếp (fix forward): đọc log (docker compose -p dxos logs --tail=200 trust-core-api), sửa nguyên nhân, phát hành tag
+     mới đã ký rồi ops/deploy.sh <tag mới>.
+  2. Khôi phục từ bản sao lưu lấy TRƯỚC lần triển khai này: ops/restore.sh vào một project riêng theo docs/runbook-backup.md
+     (mục 4), kiểm dữ liệu rồi mới chuyển. Không khôi phục đè lên project dxos.
+NOROLLBACK
+    }
     # shellcheck disable=SC2329  # gọi qua trap on_exit EXIT
     on_exit() {
         local rc=$?
@@ -189,7 +203,8 @@ MANUAL
     #   0 đạt; 2 tag chưa ký/khóa lạ (chưa đổi gì); 3 thiếu điều kiện trước khi chuyển; 10 đã chuyển nhưng sức khỏe hỏng.
     # Chạy trong ngữ cảnh `|| rc=$?` nên set -e không có tác dụng ở đây: mọi lệnh phải tự `|| return`.
     chain() {
-        local t=$1 version=${1#v} rc=0 ready curl_tls=-fs viewer_digest=""
+        local t=$1 version=${1#v} rc=0 ready curl_tls=-fs viewer_digest="" rollback_from=${2:-} up_extra=()
+        [ -z "$rollback_from" ] || up_extra=(--remove-orphans)   # quay lui: bỏ container của dịch vụ bản cũ không có (Viewer)
         cur=$t commit=- digest=- signed=no
 
         local signers=deploy/allowed_signers
@@ -228,6 +243,19 @@ MANUAL
         # Giải một lần ra OID rồi checkout đúng OID đó (không để tên tag được giải lần hai).
         commit=$(git rev-parse "refs/tags/$t^{commit}") || return 3
         [[ $commit =~ ^[0-9a-f]{40}$ ]] || { echo "deploy.sh: không giải được commit của tag $t" >&2; commit=-; return 3; }
+
+        # Quay lui (R33): bản mới thêm migration thì bản cũ không chạy được trên DB đã nâng cấp (migrate từ chối DB có
+        # migration mà mã nguồn không có) và không bao giờ hạ migration: dừng ở đây, trước khi đổi cây làm việc hay container.
+        if [ -n "$rollback_from" ]; then
+            local from_migs to_migs added
+            from_migs=$(git ls-tree --name-only "refs/tags/$rollback_from^{commit}" core/migrations/ 2> /dev/null | sort) || from_migs=""
+            to_migs=$(git ls-tree --name-only "refs/tags/$t^{commit}" core/migrations/ 2> /dev/null | sort) || to_migs=""
+            added=$(comm -23 <(printf '%s\n' "$from_migs") <(printf '%s\n' "$to_migs") | sed '/^$/d' | sed 's|^core/migrations/||' | tr '\n' ' ')
+            if [ -n "$added" ]; then
+                echo "deploy.sh: $rollback_from thêm migration mà $t không có: ${added% }" >&2
+                return 11
+            fi
+        fi
         git -c advice.detachedHead=false checkout --detach "$commit" || return 3
 
         digest=$(release_digest "$t" "trust-core-image-$version.txt") || { digest=-; return 3; }
@@ -263,7 +291,7 @@ MANUAL
 
         echo "deploy.sh: docker compose up"
         # Từ đây bản đang chạy bị thay: hỏng nghĩa là cần quay lui (return 10).
-        "${compose[@]}" up -d --wait --wait-timeout 600 || {
+        "${compose[@]}" up -d --wait --wait-timeout 600 ${up_extra[@]+"${up_extra[@]}"} || {
             echo "deploy.sh: docker compose up --wait hỏng (có container không khỏe)" >&2
             return 10
         }
@@ -318,7 +346,13 @@ MANUAL
     local target=$previous
     echo "deploy.sh: $tag hỏng sức khỏe; tự quay lui về $target (bản tốt gần nhất)"
     rc=0
-    chain "$target" || rc=$?
+    chain "$target" "$tag" || rc=$?
+    if [ "$rc" -eq 11 ]; then
+        record failed "$tag" "$bad_commit" "$bad_digest" "$bad_signed"
+        started=0
+        no_rollback_migrations "$tag" "$target"
+        exit 5
+    fi
     if [ "$rc" -eq 0 ]; then
         record ok                                                       # quay lui về $target đã khỏe
         record rolled-back "$tag" "$bad_commit" "$bad_digest" "$bad_signed"

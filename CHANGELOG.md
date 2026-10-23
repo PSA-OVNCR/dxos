@@ -45,6 +45,13 @@ tương thích của SDK (mục Changed, "BREAKING").
   trả 200) và `ViewerDialog` (ảnh PNG qua blob: URL, thu hồi khi đổi trang/đóng); SDK thêm `viewerAvailable`, `viewInfo`,
   `viewPage`; CSP của `/apps/*` thêm `blob:` vào `img-src`, vẫn không `unsafe-inline`. Watermark chỉ để răn đe.
   Chưa chạy thật trong container (V40).
+- **S1: worker tự quét tệp có từ trước khi nâng cấp (final review F2, ruling R32)**. Việc `pii_detect` chỉ được xếp lúc tệp thành
+  CLEAN, nên tệp đã CLEAN trên stack 0.3.0 sẽ mãi "Đang dò…" và bản gốc khóa vĩnh viễn (`:pii-review` lại từ chối bản ghi đã niêm
+  phong, 409 `record-sealed`). Nay `sweep_missing_scans` (`dxos_core.pii.job`), do worker gọi mỗi 60 giây, xếp `pii_detect` cho tệp
+  CLEAN mà bản ghi của app có manifest ACTIVE khai `document_detect` tham chiếu với `role='original'` nhưng chưa có `pii_scans` và
+  chưa có việc đang chờ/chạy, và xếp `pii_redact` cho quét `DONE` có phát hiện mà chưa có bản che, kết cục cố định
+  (`pii_redaction_skips`) hay việc đang mở (việc `pii_redact` vừa hỏng trong 1 giờ qua thì chờ). Chung cho mọi app, tối đa 50 tệp
+  mỗi lượt, idempotent, không cần thao tác quản trị sau khi nâng cấp. Tái dùng `enqueue_missing_scans`.
 - **S3: trang quản trị web `/ui/` (Plan 04 Tasks 9 và 10)**: workspace `admin-ui` (Vue 3, đăng nhập OIDC PKCE qua client Keycloak mới
   `dxos-admin-ui`, token trong `sessionStorage`, CSP riêng không `unsafe-inline`, không `v-html`) do Caddy phục vụ **chỉ trên host
   quản trị** (`DXOS_ADMIN_HOST`, giới hạn IP như API quản trị; `/ui/` trên host công khai trả 404). Màn hình: Sức khỏe hệ thống,
@@ -90,6 +97,16 @@ tương thích của SDK (mục Changed, "BREAKING").
   `make release-check VERSION=x` (`ops/release_check.py`, chỉ đọc, không gắn tag).
 
 ### Changed
+- **`ops/deploy.sh` không tự quay lui qua migration mới (final review F1, ruling R33)**: bản mới thêm tệp vào `core/migrations/` so
+  với bản tốt gần nhất thì quay lui không thể chạy (`migrate` của bản cũ từ chối CSDL đã có migration lạ, API lặp chết), nên script
+  thoát 5 ngay, in các migration thêm cùng hướng dẫn (sửa tiếp, hoặc khôi phục từ bản sao lưu trước lần triển khai bằng
+  `ops/restore.sh` vào project riêng); không bao giờ hạ migration. Khi quay lui diễn ra, `up` chạy kèm `--remove-orphans` để container
+  Viewer của 0.9.0 không ở lại sau khi quay về bản trước Viewer. Mới kiểm bằng `git`, `docker`, `curl` giả (V42).
+- **App A: người ngoài `reveal_roles` không còn gặp nút tải hỏng (final review F3, ruling R34)**: "Tải bản PDF đã ban hành" luôn xin bản
+  gốc nên chuyên viên, trưởng phòng, nhân viên nhận 404 với tệp còn khóa. Nay họ thấy "Tải bản che (không dùng để đối soát niêm
+  phong)" khi tệp có bản che (kèm một dòng giải thích: niêm phong bao phủ bản gốc, muốn đối soát cần bản gốc từ văn thư hoặc giám
+  đốc), hoặc một lời giải thích khi chưa có; "Tải bản gốc" (SDK `PiiFileStatus`, thuộc tính `canReveal`) và "Xem" bản gốc bị ẩn với tệp
+  còn khóa. Chỉ để ẩn nút; máy chủ vẫn quyết định (404 vẫn hiện bằng `ProblemMessage`). Cổng đối soát không đổi.
 - **BREAKING (SDK `dxos-sdk-js`, Plan 04 Task 6)**: `client.download(...)` đã bị **bỏ**, thay bằng
   `client.downloadObject(sha256, variant = 'original')` trả `Blob`; `variant` là `'original'` hoặc `'redacted'`. Gọi
   `client.download` sẽ lỗi `TypeError`. Mã Tầng 2 ngoài kho phải đổi lời gọi. SDK còn thêm `viewerAvailable()`, `viewInfo()` và
@@ -135,6 +152,7 @@ tương thích của SDK (mục Changed, "BREAKING").
   xin ít loại hơn không còn mở bản gốc cho người không có quyền), và `MemoryError` không bị nuốt.
 - `ops/deploy.sh` không chấp nhận tag ký của bản cũ đẩy lại dưới tên mới; `ops/at21_drill.sh` thật sự đọc lại khóa và tệp từ OpenBao và
   SeaweedFS đã khôi phục (không chỉ so `tree_size`); `make demo-seed --only a|b` coi App B chưa cài là bỏ qua.
+- `ops/backup.sh` đặt cờ `PAUSED` trước `docker pause` (không sau), nên nếu pause dừng được một phần rồi mới báo lỗi, bẫy thoát vẫn mở lại SeaweedFS.
 - Trang quản trị: nút duyệt luôn ở đúng phiên bản đang xem diff (không duyệt bản chưa xem), mọi lỗi 403 đi qua `ProblemMessage`.
 
 ### Security
@@ -147,6 +165,19 @@ tương thích của SDK (mục Changed, "BREAKING").
   (PBKDF2 600000 vòng) kèm sha256, `ops/restore.sh` từ chối project `dxos` và kiểm gói trước mọi lệnh docker. Chữ ký tag **không phủ**
   digest image (lấy từ GitHub Release); giới hạn đã ghi ở `docs/runbook-deploy.md` mục 2.
 - Trang quản trị có CSP riêng không `unsafe-inline`, chỉ phục vụ trên host quản trị có IP allow-list; ghim `uses:` của workflow theo SHA.
+
+### Nâng cấp từ 0.3.0
+Thứ tự cho một stack 0.3.0 đang có dữ liệu (chưa thử trên VPS thật; xem V29, V42):
+1. **Sao lưu trước**: `ops/backup.sh <thư mục ra>` (`docs/runbook-backup.md`). Bản sao lưu này là đường lùi duy nhất, xem bước 5.
+2. Thêm `DXOS_ADMIN_HOST` vào `.env` (bắt buộc; xem mục Changed). Tạo lại container Keycloak rồi chạy lại `python ops/keycloak_upgrade.py`
+   để client `dxos-admin-ui` có redirect đúng (V41).
+3. `ops/deploy.sh v0.9.0`. `trust-core-api` tự áp migration 006 đến 009 khi khởi động (role `dxos_owner`).
+4. **Tệp có từ trước được tự quét**: worker xếp việc dò PII và dựng bản che cho các tệp đã CLEAN (kể cả của bản ghi đã niêm phong) trong
+   vòng vài phút, theo lượt tối đa 50 tệp mỗi 60 giây; không cần thao tác nào. Trong lúc chờ, tệp hiện "Đang dò…" và bản gốc khóa
+   với người không có `reveal_pii` (mục S1, F2).
+5. **Không có đường quay lui xuống dưới 0.9.0 sau khi nó đã khởi động**: bản 0.3.0 từ chối CSDL đã có migration 006 đến 009. Vì vậy
+   `ops/deploy.sh` không tự quay lui về 0.3.0 khi 0.9.0 hỏng health (thoát 5, hướng dẫn in ra); chọn sửa tiếp hoặc khôi phục bản sao lưu
+   bước 1 bằng `ops/restore.sh` vào project riêng. Không hạ migration bằng tay.
 
 ### Known limitations
 **Chưa chạy ở bất kỳ nơi nào ngoài cloud** (mã chỉ được kiểm bằng test đơn vị, integration, Vitest/jsdom, `docker compose config`,
@@ -170,6 +201,7 @@ và các lệnh giả). Việc cần làm ghi ở `docs/progress/2026-10-21-tong
   viễn (rà tay, ghi chú vận hành chưa viết).
 - Viewer chưa có giới hạn thời gian dựng trang riêng (chỉ giới hạn của container và `timeout.read` 30 giây của route APISIX); mọi lời gọi từ
   Viewer vào APISIX dùng chung một bucket `limit-req` (khóa theo `X-Forwarded-For`).
+- Viewer: mỗi lần gọi `info` hoặc lấy một trang đều đọc tệp qua API nên ghi một lá `object.read` vào sổ cái (duyệt 200 trang ≈ 201 lá).
 - Sao lưu: tar SeaweedFS được `docker pause` để đồng nhất, tar OpenBao là bản sao nóng; không có xác thực MAC riêng cho gói.
 - `tests/deploy/browser/verify_page_checks.js` (bộ Playwright riêng của trang đối soát tối giản) vẫn dùng `ignoreHTTPSErrors`; việc tiếp theo.
 - Gói npm `dxos-sdk-js` chưa công bố lên npm (`private: true`).

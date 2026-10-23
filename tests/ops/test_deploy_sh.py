@@ -54,6 +54,9 @@ case "$*" in
     t=${2#refs/tags/}; t=${t%^\{commit\}}; v=$(printf '%s' "$t" | tr . _)
     c=$(printenv "FAKE_COMMIT_$v" || true)
     echo "${c:-$FAKE_COMMIT}" ;;
+  "ls-tree --name-only refs/tags/"*" core/migrations/")
+    t=${3#refs/tags/}; t=${t%^\{commit\}}; v=$(printf '%s' "$t" | tr . _)
+    printenv "FAKE_MIGS_$v" || true ;;                # FAKE_MIGS_vX_Y_Z: tệp trong core/migrations/ của tag
   "status --porcelain") printf '%s' "${FAKE_GIT_STATUS:-}" ;;
   fetch*) [ -z "${FAKE_FETCH_FAIL:-}" ] || { echo "! [rejected] would clobber existing tag" >&2; exit 1; } ;;
   "rev-parse HEAD") echo "${FAKE_COMMIT}" ;;
@@ -918,3 +921,74 @@ def test_release_yml_writes_the_viewer_file_the_parser_expects():
     run_text = next(s["run"] for s in steps if "viewer-image-" in s.get("run", ""))
     assert "printf 'ghcr.io/psa-ovncr/viewer:%s\\nghcr.io/psa-ovncr/viewer@sha256:%s\\n'" in run_text
     assert '"dist/viewer-image-${VERSION}.txt"' in run_text
+
+
+# ---------- Không tự quay lui qua migration mới (final review F1, ruling R33) ----------
+
+MIGS_OLD = "core/migrations/001_core.sql\ncore/migrations/005_ots.sql\n"
+MIGS_NEW = MIGS_OLD + "core/migrations/006_pii_scans.sql\ncore/migrations/007_pii_redacted.sql\n"
+
+
+def _bad_new_tag(stubs, old_migs, new_migs):
+    stubs.previous_ok_tag = "v0.3.0"
+    stubs.readyz = "503"
+    stubs.extra.update({"FAKE_BAD_TAGS": "v0.9.0", "FAKE_MIGS_v0_3_0": old_migs,
+                        "FAKE_MIGS_v0_9_0": new_migs})
+
+
+def test_no_auto_rollback_when_the_new_tag_adds_migrations(run, stubs):
+    _bad_new_tag(stubs, MIGS_OLD, MIGS_NEW)
+    r = run("v0.9.0")
+    assert r.returncode == 5, r.stdout + r.stderr
+    assert len([c for c in r.calls if " up " in c]) == 1                     # không có chuỗi thứ hai
+    assert len([c for c in r.calls if "web_build_docker.sh" in c]) == 1       # không dựng SPA của bản cũ
+    assert len([c for c in r.calls if "checkout --detach" in c]) == 1         # cây làm việc ở lại bản mới
+    assert len([c for c in r.calls if c.startswith("docker") and " pull " in c]) == 1
+    assert "006_pii_scans.sql" in r.stdout + r.stderr and "007_pii_redacted.sql" in r.stdout + r.stderr
+    assert "ops/restore.sh" in r.stdout and "docs/runbook-backup.md" in r.stdout
+    assert "không bao giờ hạ migration" in r.stdout.lower() and "fix forward" in r.stdout
+    seen = r.log_lines()
+    assert len(seen) == 2 and seen[-1].split("\t")[1] == "v0.9.0" and RESULT_FAILED in seen[-1]  # + dòng OK
+    assert seen[0].split("\t")[1] == "v0.3.0"                       # không ghi gì thêm cho v0.3.0
+
+
+def test_rollback_still_happens_when_the_migrations_are_the_same(run, stubs):
+    _bad_new_tag(stubs, MIGS_NEW, MIGS_NEW)
+    r = run("v0.9.0")
+    assert r.returncode == 4, r.stdout + r.stderr
+    assert len([c for c in r.calls if " up " in c]) == 2
+    assert r.log_last().split("\t")[4] == "result=rolled-back"
+
+
+def test_rollback_still_happens_when_the_new_tag_only_removes_or_has_no_migration_list(run, stubs):
+    _bad_new_tag(stubs, MIGS_NEW, MIGS_OLD)
+    assert run("v0.9.0").returncode == 4
+
+
+def test_rollback_compose_up_removes_orphans_but_the_deploy_does_not(run, stubs):
+    _bad_new_tag(stubs, MIGS_OLD, MIGS_OLD)
+    r = run("v0.9.0")
+    assert r.returncode == 4, r.stdout + r.stderr
+    ups = [c for c in r.calls if " up " in c]
+    assert len(ups) == 2 and "--remove-orphans" not in ups[0] and "--remove-orphans" in ups[1], ups
+    assert "--wait" in ups[1]
+
+
+def test_migration_check_runs_after_the_signature_check_and_before_rollback_docker_calls(run, stubs):
+    _bad_new_tag(stubs, MIGS_OLD, MIGS_NEW)
+    r = run("v0.9.0")
+    assert r.returncode == 5
+    assert r.order(["git fetch origin refs/tags/v0.3.0", "verify-tag refs/tags/v0.3.0",
+                    "ls-tree --name-only refs/tags/v0.3.0^{commit} core/migrations/"]), r.text
+
+
+def test_runbook_changelog_and_readme_state_the_migration_limit():
+    text = (ROOT / "docs/runbook-deploy.md").read_text(encoding="utf-8")
+    assert "Nâng cấp từ 0.3.0" in (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    assert "CHANGELOG.md" in text and "thêm migration" in text
+    for name in ("README.md", "README_EN.md"):
+        readme = (ROOT / name).read_text(encoding="utf-8")
+        lines = readme.splitlines()
+        i = next(k for k, ln in enumerate(lines) if "ops/deploy.sh" in ln and "S4" in ln)
+        item = " ".join(lines[i: i + 3])                       # mục danh sách xuống dòng
+        assert "migration" in item, (name, item)

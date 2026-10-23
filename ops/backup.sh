@@ -107,8 +107,10 @@ for target in "${VOLUME_TARGETS[@]}"; do
     [ -n "$cid" ] || die 3 "không có container của dịch vụ $svc trong project $LIVE_PROJECT"
     # Chỉ kho đối tượng được dừng (bẫy EXIT unpause nếu script chết giữa chừng). Container đã dừng sẵn thì không cần dừng.
     if [ "$svc" = seaweedfs ] && [ -n "$(find_cid "$LIVE_PROJECT" "$svc")" ]; then
-        dk pause "$cid" > /dev/null || die 3 "không docker pause được $svc; không tar kho đối tượng khi chưa dừng nó"
+        # Đặt PAUSED TRƯỚC khi dừng: pause có thể đã dừng một phần rồi mới báo lỗi, bẫy EXIT phải unpause được cả khi đó
+        # (unpause một container chưa dừng chỉ cảnh báo).
         PAUSED=$cid
+        dk pause "$cid" > /dev/null || die 3 "không docker pause được $svc; không tar kho đối tượng khi chưa dừng nó"
     fi
     dk run --rm --network none --volumes-from "$cid:ro" "$BUSYBOX_IMAGE" tar -cf - -C "$path" . \
         > "$STAGE/volumes/$vol.tar" || die 3 "tar volume $vol hỏng"

@@ -14,7 +14,8 @@ Entry for the **Vietnam Student Informatics Olympiad – Open Source Software 20
     **deterrent only**; it does not prevent screenshots. To run for real in a container: V40.
   - **S3, web admin page** `/ui/` on the admin host: health, ledger, app approval by two administrators, quarantined files. To run
     against a real Keycloak: V41.
-  - **S4, operations:** `ops/deploy.sh` deploys only signed tags and rolls back by itself when the health check fails (V42),
+  - **S4, operations:** `ops/deploy.sh` deploys only signed tags and rolls back by itself when the health check fails, unless the
+    new tag adds a migration (then it stops and prints how to restore from the backup or fix forward; V42),
     encrypted backup and the AT-21 restore drill (V43). The Viewer is also released as an image pinned by digest, like `trust-core`.
   - PoF gaps: dependency pinning and licence scan (V37), architecture overview and docs site (V38, not enabled yet), `make demo-seed` (V44).
   **Breaking SDK change:** `client.download` became `client.downloadObject(sha256, variant)`; see [CHANGELOG.md](CHANGELOG.md).
