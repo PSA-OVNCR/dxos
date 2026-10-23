@@ -12,33 +12,43 @@
 #   --anchor-dir       bản clone repo neo, để `dxos-witness verify-bundle` ghim khóa công khai (AT-17).
 #   --unseal-key-file  unseal key của OpenBao trong stack gốc, mỗi dòng một khóa (dòng trống và dòng bắt đầu bằng # bị
 #                      bỏ qua). Gói không chứa khóa này; không có nó thì OpenBao đã khôi phục vẫn khóa và không ký/đọc
-#                      được khóa công khai. Đọc từ tệp, truyền qua biến môi trường, không bao giờ nằm trên dòng lệnh.
+#                      được khóa công khai. Đọc từ tệp và đưa vào `docker exec` qua biến môi trường (`-e BAO_DXOS_UNSEAL`),
+#                      nên KHÔNG nằm trên dòng lệnh docker của máy chủ hay lịch sử shell. Giới hạn: `bao operator unseal`
+#                      nhận khóa như một đối số, nên trong vài giây khóa nằm trong argv của tiến trình `bao` TRONG container
+#                      `dxos-restore-openbao-*` (giống docs/runbook-openbao.md mục 2). Chưa có cách đưa khóa qua stdin trong
+#                      image OpenBao 2.2.0 mà không thêm công cụ (`bao operator unseal -` không đọc stdin), nên chấp nhận.
 #   --file             tệp gốc của niêm phong có `require_file: true` (App A): lấy gói bằng POST :bundle với băm của
 #                      tệp và đưa tệp cho verify-bundle. Không có thì dùng GET .../bundle (niêm phong `require_file: false`).
 #   --keep             giữ project diễn tập sau khi đạt (mặc định: `down -v` project `dxos-restore`).
 #
 # Các bước (mỗi bước hỏng thì dừng):
 #   1. Kiểm tham số và điều kiện (stack `dxos` đang chạy trust-core-api, .secrets/backup-passphrase, .env).
-#   2. TRƯỚC khi sao lưu, ở stack thật: ghi STH mới nhất (`/verify/v1/sth/latest`) và gói bằng chứng của niêm phong;
-#      `dxos-witness verify-bundle` gói đó phải đạt (không thì diễn tập vô nghĩa).
+#   2. TRƯỚC khi sao lưu, ở stack thật: ghi STH mới nhất (`/verify/v1/sth/latest`), gói bằng chứng của niêm phong,
+#      băm của `/verify/v1/keys` (đi qua OpenBao transit) và các tệp đính kèm của niêm phong đọc được từ SeaweedFS (S3 GET
+#      qua `ObjectStore.read_object` của lõi, tự băm lại; có --file thì băm của nó phải nằm trong đó, và niêm phong phải có
+#      ít nhất một tệp đính kèm). `dxos-witness verify-bundle` gói đó phải đạt (không thì diễn tập vô nghĩa).
 #   3. ops/backup.sh vào thư mục tạm.
 #   4. `docker compose -p dxos-restore ... down -v` (xóa project diễn tập CŨ nếu có; chỉ tên cố định này), rồi
 #      DXOS_DOMAIN=restore.localhost ops/restore.sh <gói> --project dxos-restore.
-#   5. Dựng openbao + seaweedfs, mở khóa OpenBao, dựng trust-core-api (cùng image với stack thật). KHÔNG dựng caddy và
+#   5. Dựng openbao + seaweedfs, mở khóa OpenBao (rồi `bao status` phải thoát 0: `bao operator unseal` thoát 0 cả khi còn
+#      thiếu phần khóa), dựng trust-core-api (cùng image với stack thật). KHÔNG dựng caddy và
 #      apisix, nên không tranh cổng 80/443 với stack thật; không dựng Keycloak, Flowable, ClamAV để không nhân đôi RAM
 #      (dữ liệu của chúng vẫn được khôi phục vào volume). Mọi lời gọi API đi qua `docker exec ... python` trong container.
 #   6. Lấy lại STH mới nhất và gói của cùng niêm phong từ bản khôi phục, `verify-bundle` lần hai, rồi SO `tree_size` và
-#      `root_hash` trước/sau (cả STH mới nhất lẫn STH nằm trong gói). Khớp hết thì ĐẠT.
+#      `root_hash` trước/sau (cả STH mới nhất lẫn STH nằm trong gói), băm `/verify/v1/keys` trước/sau (chứng minh kho OpenBao
+#      đã khôi phục còn đọc được khóa công khai) và các tệp đính kèm trước/sau (chứng minh kho SeaweedFS đã khôi phục đọc được và
+#      băm khớp). Mọi thứ khớp thì ĐẠT. Sau khôi phục, đọc hỏng hay lệch khóa/tệp là KHÔNG ĐẠT (mã 1), không phải lỗi hạ tầng.
 #
 # Phải chạy lúc stack thật không có ghi nào giữa bước 2 và bước 3 (STH mới sinh ở giữa làm tree_size lệch).
 # Không bao giờ chạy lệnh ghi/xóa nào lên project `dxos`: stack thật chỉ được đọc (docker ps, docker exec ... GET).
 #
 # Mã thoát:
 #   0  AT-21 ĐẠT.
-#   1  AT-21 KHÔNG ĐẠT: niêm phong không qua verify-bundle (trước hoặc sau khôi phục) hay tree_size/root lệch.
+#   1  AT-21 KHÔNG ĐẠT: niêm phong không qua verify-bundle (trước hoặc sau khôi phục), tree_size/root lệch, khóa công khai
+#      lệch hay không đọc được, tệp đính kèm không đọc được hay lệch sau khôi phục.
 #   2  tham số sai.
 #   3  thiếu điều kiện trước khi đổi gì (thiếu công cụ, mật khẩu, .env, stack thật không chạy, không lấy được niêm phong).
-#   4  một bước hạ tầng hỏng sau khi đã sao lưu (backup, restore, dựng stack, mở khóa, lấy dữ liệu). Chạy lại; project
+#   4  một bước hạ tầng hỏng sau khi đã sao lưu (backup, restore, dựng stack, OpenBao vẫn khóa sau khi mở khóa). Chạy lại; project
 #      diễn tập còn lại thì dọn bằng `docker compose -p dxos-restore down -v`.
 set -euo pipefail
 
@@ -119,11 +129,18 @@ step_fail() {
     exit 4
 }
 
+# Băm của /verify/v1/keys (JSON chuẩn hóa), bắt buộc có cả seal-key lẫn sth-key: đường này đi qua OpenBao transit.
+PYKEYS='import hashlib,json,sys,urllib.request as u;d=json.loads(u.urlopen("http://127.0.0.1:8000"+sys.argv[1],timeout=30).read());assert d["seal-key"] and d["sth-key"];print(hashlib.sha256(json.dumps(d,sort_keys=True).encode()).hexdigest())'
+# Đọc tệp đính kèm của niêm phong (payload.attachments của gói) từ SeaweedFS bằng chính ObjectStore của lõi, đối số như PYGET:
+# read_object băm lại nội dung, lệch hay thiếu thì lỗi. Có sha256 (đối số 2) và nó nằm trong danh sách thì chỉ đọc tệp đó,
+# không thì đọc tối đa 5 tệp đầu. In "<số tệp> <băm>...".
+PYOBJ='import json,sys,urllib.request as u;from dxos_core.objects.storage import ObjectStore;from dxos_core.settings import Settings;a=sys.argv;r=u.Request("http://127.0.0.1:8000"+a[1],data=json.dumps({"sha256":a[2]}).encode() if len(a)>2 else None,headers={"Content-Type":"application/json"});al=sorted(json.loads(u.urlopen(r,timeout=30).read())["payload"]["attachments"]);h=[a[2]] if len(a)>2 and a[2] in al else al[:5];o=ObjectStore(Settings());[o.read_object(x) for x in h];print(len(h),*h)'
+
 # fetch <container> <tệp ra> <đường dẫn API> [sha256]: <tệp ra> = dòng "T R" rồi JSON.
 fetch() {
     local cid=$1 out=$2
     shift 2
-    docker exec "$cid" python -c "$PYGET" "$@" > "$out"
+    dk exec "$cid" python -c "$PYGET" "$@" > "$out"
 }
 sth_re='^[0-9]+ [0-9a-f]{64}$'
 bundle_path="/verify/v1/seals/$SEAL/bundle"
@@ -144,6 +161,22 @@ snapshot() {
     printf -v "${prefix}_bundle_sth" '%s' "$bsth"
 }
 
+keys_re='^[0-9a-f]{64}$'
+objects_re='^[1-9][0-9]*( [0-9a-f]{64})+$'
+# keys_hash <container>, objects_line <container>: in một dòng; trả khác 0 nếu không đọc được hay định dạng lạ.
+keys_hash() {
+    local out
+    out=$(dk exec "$1" python -c "$PYKEYS" /verify/v1/keys) || return 1
+    [[ $out =~ $keys_re ]] || return 1
+    printf '%s' "$out"
+}
+objects_line() {
+    local out
+    out=$(dk exec "$1" python -c "$PYOBJ" "$bundle_path" ${SHA:+"$SHA"}) || return 1
+    [[ $out =~ $objects_re ]] || return 1
+    printf '%s' "$out"
+}
+
 verify_bundle() { # <tệp gói>
     dxos-witness verify-bundle "$1" --anchor-dir "$ANCHOR" ${FILE_ARGS[@]+"${FILE_ARGS[@]}"}
 }
@@ -155,7 +188,13 @@ snapshot "$live_cid" pre before ||
     die 3 "không lấy được STH hoặc gói của niêm phong $SEAL từ stack thật (niêm phong sai mã, chưa ban hành, hay cần --file)"
 verify_bundle "$WORK/before.json" ||
     { echo "$PROG: AT-21 KHÔNG ĐẠT: niêm phong $SEAL không qua verify-bundle ở stack thật TRƯỚC khi sao lưu; chọn niêm phong khác" >&2; exit 1; }
+pre_keys=$(keys_hash "$live_cid") || die 3 "không đọc được /verify/v1/keys từ stack thật (OpenBao khóa?)"
+pre_objects=$(objects_line "$live_cid") ||
+    die 3 "không đọc được tệp đính kèm của niêm phong $SEAL từ SeaweedFS của stack thật (niêm phong không có tệp, hay kho hỏng)"
+[ "${pre_objects%% *}" -ge 1 ] || die 3 "niêm phong $SEAL không có tệp đính kèm nên không thử được kho SeaweedFS; chọn niêm phong có tệp"
+[ -z "$SHA" ] || [[ $pre_objects == *" $SHA"* ]] || die 3 "băm của --file không nằm trong tệp đính kèm của niêm phong $SEAL (sai tệp?)"
 echo "$PROG: trước sao lưu: STH mới nhất [tree_size root] = $pre_sth ; STH trong gói = $pre_bundle_sth"
+echo "$PROG: trước sao lưu: sha256 của /verify/v1/keys = $pre_keys ; tệp đính kèm đọc được = $pre_objects"
 
 # ---- 3, 4. sao lưu, dọn project diễn tập cũ, khôi phục
 echo "$PROG: [2/6] sao lưu"
@@ -178,10 +217,13 @@ bao_cid=$(find_cid "$RESTORE_PROJECT" openbao) || step_fail "docker ps lỗi"
 while IFS= read -r key || [ -n "$key" ]; do
     key=${key%$'\r'}
     case $key in "" | "#"*) continue ;; esac
-    BAO_DXOS_UNSEAL=$key docker exec -e BAO_DXOS_UNSEAL "$bao_cid" sh -c 'bao operator unseal "$BAO_DXOS_UNSEAL" > /dev/null' ||
+    BAO_DXOS_UNSEAL=$key dk exec -e BAO_DXOS_UNSEAL "$bao_cid" sh -c 'bao operator unseal "$BAO_DXOS_UNSEAL" > /dev/null' ||
         step_fail "mở khóa OpenBao hỏng (sai khóa?)"
 done < "$UNSEAL_FILE"
 unset key
+# `bao operator unseal` thoát 0 cả khi còn cần thêm phần khóa; `bao status` thoát 0 chỉ khi đã mở khóa (2 nếu còn khóa).
+dk exec "$bao_cid" bao status > /dev/null ||
+    step_fail "OpenBao vẫn khóa sau khi dùng hết khóa trong $UNSEAL_FILE (thiếu phần khóa Shamir, hoặc sai khóa)"
 echo "$PROG: [5/6] dựng trust-core-api"
 "${COMPOSE[@]}" up -d --wait --wait-timeout 300 trust-core-api || step_fail "dựng trust-core-api hỏng"
 api_cid=$(find_cid "$RESTORE_PROJECT" trust-core-api) || step_fail "docker ps lỗi"
@@ -189,9 +231,20 @@ api_cid=$(find_cid "$RESTORE_PROJECT" trust-core-api) || step_fail "docker ps l�
 
 # ---- 6. đối soát
 echo "$PROG: [6/6] đối soát"
-snapshot "$api_cid" post after || step_fail "không lấy được STH hoặc gói của niêm phong $SEAL từ bản khôi phục"
+# Stack khôi phục đã lên khỏe: từ đây đọc hỏng nghĩa là dữ liệu hay khóa đã khôi phục không dùng được, tức KHÔNG ĐẠT.
 bad=0
-verify_bundle "$WORK/after.json" || { echo "$PROG: verify-bundle KHÔNG đạt trên bản khôi phục" >&2; bad=1; }
+have_sth=0
+if snapshot "$api_cid" post after; then
+    have_sth=1
+    verify_bundle "$WORK/after.json" || { echo "$PROG: verify-bundle KHÔNG đạt trên bản khôi phục" >&2; bad=1; }
+else
+    echo "$PROG: không lấy được STH hoặc gói của niêm phong $SEAL từ bản khôi phục" >&2
+    bad=1
+fi
+post_keys="" post_objects=""
+post_keys=$(keys_hash "$api_cid") || { echo "$PROG: không đọc được /verify/v1/keys từ bản khôi phục (kho OpenBao đã khôi phục không dùng được?)" >&2; bad=1; }
+post_objects=$(objects_line "$api_cid") ||
+    { echo "$PROG: không đọc được (hay băm lệch) tệp đính kèm của niêm phong $SEAL từ SeaweedFS đã khôi phục" >&2; bad=1; }
 
 compare() { # <nhãn> <trước> <sau>
     local bt br at ar
@@ -205,8 +258,20 @@ compare() { # <nhãn> <trước> <sau>
     fi
 }
 echo "So sánh trước (stack thật) và sau (project $RESTORE_PROJECT):"
-compare "STH mới nhất" "$pre_sth" "$post_sth"
-compare "STH trong gói $SEAL" "$pre_bundle_sth" "$post_bundle_sth"
+if [ "$have_sth" = 1 ]; then
+    compare "STH mới nhất" "$pre_sth" "$post_sth"
+    compare "STH trong gói $SEAL" "$pre_bundle_sth" "$post_bundle_sth"
+fi
+same() { # <nhãn> <trước> <sau>
+    if [ "$2" = "$3" ]; then
+        echo "  $1: $2  KHỚP"
+    else
+        echo "  $1: $2 -> ${3:-không đọc được}  LỆCH"
+        bad=1
+    fi
+}
+same "băm khóa công khai /verify/v1/keys" "$pre_keys" "$post_keys"
+same "tệp đính kèm đọc được từ SeaweedFS" "$pre_objects" "$post_objects"
 
 if [ "$bad" -ne 0 ]; then
     echo "AT-21 KHÔNG ĐẠT."
@@ -214,7 +279,7 @@ if [ "$bad" -ne 0 ]; then
     echo "Project diễn tập còn lại để điều tra. Dọn: docker compose -p $RESTORE_PROJECT down -v"
     exit 1
 fi
-echo "AT-21 ĐẠT: sau khôi phục, sổ cái giữ nguyên tree_size $(cut -d' ' -f1 <<< "$post_sth") và root $(cut -d' ' -f2 <<< "$post_sth"); niêm phong $SEAL qua verify-bundle trước và sau."
+echo "AT-21 ĐẠT: sau khôi phục, sổ cái giữ nguyên tree_size $(cut -d' ' -f1 <<< "$post_sth") và root $(cut -d' ' -f2 <<< "$post_sth"); niêm phong $SEAL qua verify-bundle trước và sau; khóa công khai và tệp đính kèm đọc lại được từ OpenBao và SeaweedFS đã khôi phục."
 if [ "$KEEP" = 1 ]; then
     echo "$PROG: --keep: giữ project $RESTORE_PROJECT. Dọn: docker compose -p $RESTORE_PROJECT down -v"
 else

@@ -16,6 +16,8 @@ Mọi thay đổi đáng kể được ghi tại đây, theo định dạng [Kee
   ghi kèm `.sha256`; không có tệp chưa mã hóa ở thư mục ra), `ops/restore.sh <gói> --project <tên>` (kiểm sha256, giải mã và kiểm
   gói trước mọi lệnh docker; từ chối `--project dxos`; chỉ tạo tài nguyên của project được chỉ định) và `ops/at21_drill.sh`
   (sao lưu, khôi phục vào `dxos-restore`, dựng lõi ở `restore.localhost`, `dxos-witness verify-bundle` rồi so `tree_size` và root).
+  Container seaweedfs được `docker pause` đúng lúc tar volume của nó (unpause bằng bẫy EXIT); `TMPDIR` phải nằm ngoài thư mục ra;
+  diễn tập đọc lại khóa công khai (`/verify/v1/keys`) và tệp đính kèm từ OpenBao/SeaweedFS đã khôi phục.
   `docs/runbook-backup.md` có mẫu systemd timer (không bật mặc định). Không có xác thực MAC riêng (sha256 ghi kèm bù một phần);
   thời hạn giữ gói chờ V21; mới kiểm bằng `docker` và `dxos-witness` giả với `openssl` thật, diễn tập thật là V43.
 - `ARCHITECTURE.md` (tóm tắt kiến trúc, trỏ về spec), trang tài liệu GitHub Pages (`docs/index.md`, `docs/_config.yml`; chưa bật, V38),

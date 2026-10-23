@@ -14,9 +14,11 @@
 #   1. Tham số; project khác `dxos`; công cụ; .secrets/backup-passphrase.
 #   2. sha256 của <tệp.tar.enc> phải khớp tệp `.sha256` đi kèm.
 #   3. Giải mã vào thư mục tạm riêng (mktemp -d, xóa khi thoát). Mật khẩu sai hay gói bị sửa: dừng.
-#   4. Kiểm gói: đúng bảy thành viên (không thừa, không thiếu, không đường dẫn lạ), MANIFEST đúng định dạng, băm
+#   4. Kiểm gói: đúng bảy thành viên (không thừa, không thiếu, không đường dẫn lạ), tất cả là tệp thường (không liên
+#      kết), MANIFEST đúng định dạng, băm
 #      từng thành viên khớp SHA256SUMS. CBC không tự xác thực, nên bước 4 mới là chỗ bắt gói giải mã ra rác.
-#   5. Project phải chưa có container hay volume nào (docker ps -a / volume ls theo nhãn).
+#   5. Project phải chưa có container hay volume nào (docker ps -a / volume ls theo nhãn) và hai volume sẽ tạo chưa tồn tại
+#      dưới bất kỳ nhãn nào (docker volume inspect phải báo không có).
 #   6. Tạo hai volume (SeaweedFS, OpenBao) có nhãn compose của project, giải tar vào bằng busybox đã ghim.
 #   7. docker compose -p <tên> up -d --wait core-db kc-db flowable-db (volume DB mới), tạo role `dxos_core` (pg_dump
 #      từng DB không mang role), `pg_restore --exit-on-error` ba DB.
@@ -92,19 +94,31 @@ listing=$(tar -tf "$WORK/bundle.tar" 2> /dev/null) || die 2 "gói giải mã ra 
 got=$(printf '%s\n' "$listing" | LC_ALL=C sort)
 expected=$(printf '%s\n' "${BUNDLE_MEMBERS[@]}" | LC_ALL=C sort)
 [ "$got" = "$expected" ] || die 2 "gói có thành viên khác bảy tệp dự kiến (thừa, thiếu hay đường dẫn lạ). Chưa tạo gì."
+# Mọi thành viên phải là tệp thường: tar -tv in ký tự đầu '-' cho tệp thường, 'l' liên kết mềm, 'h' liên kết cứng, 'd' thư mục.
+types=$(tar -tvf "$WORK/bundle.tar" 2> /dev/null | cut -c1 | LC_ALL=C sort -u) || die 2 "không liệt kê được kiểu thành viên của gói. Chưa tạo gì."
+[ "$types" = "-" ] || die 2 "gói có thành viên không phải tệp thường (liên kết, thư mục hay thiết bị): không nhận. Chưa tạo gì."
 mkdir "$WORK/x"
 tar -xf "$WORK/bundle.tar" -C "$WORK/x" 2> /dev/null || die 2 "không giải được tar của gói. Chưa tạo gì."
+[ -z "$(find "$WORK/x" ! -type f ! -type d)" ] || die 2 "sau khi giải, gói có mục không phải tệp thường: không nhận. Chưa tạo gì."
 grep -qx "format=$BACKUP_FORMAT" "$WORK/x/MANIFEST.txt" || die 2 "MANIFEST.txt không phải định dạng $BACKUP_FORMAT. Chưa tạo gì."
 sums_ok "$WORK/x" || die 2 "băm các thành viên không khớp SHA256SUMS (gói bị sửa hoặc giải mã sai). Chưa tạo gì."
 echo "$PROG: gói hợp lệ ($(grep '^created_utc=' "$WORK/x/MANIFEST.txt" || true))"
 
 # --- 5. project chưa có gì
 label="label=com.docker.compose.project=$PROJECT"
-existing_c=$(docker ps -aq --filter "$label") || die 3 "docker ps lỗi (daemon không chạy?)"
-existing_v=$(docker volume ls -q --filter "$label") || die 3 "docker volume ls lỗi"
+existing_c=$(dk ps -aq --filter "$label") || die 3 "docker ps lỗi (daemon không chạy?)"
+existing_v=$(dk volume ls -q --filter "$label") || die 3 "docker volume ls lỗi"
 if [ -n "$existing_c$existing_v" ]; then
     die 2 "project $PROJECT đã có container hoặc volume; không khôi phục đè. Xóa bằng: docker compose -p $PROJECT down -v"
 fi
+
+# Volume trùng tên (kể cả không nhãn) thì `docker volume create` âm thầm dùng lại nó và giải tar đè dữ liệu có sẵn: từ chối.
+for target in "${VOLUME_TARGETS[@]}"; do
+    IFS=: read -r vol _ _ <<< "$target"
+    if dk volume inspect "${PROJECT}_$vol" > /dev/null 2>&1; then
+        die 2 "volume ${PROJECT}_$vol đã tồn tại (có thể không do compose project $PROJECT tạo); không dùng lại. Xóa tay nếu chắc chắn: docker volume rm ${PROJECT}_$vol"
+    fi
+done
 
 # --- 6, 7. từ đây bắt đầu tạo tài nguyên: lỗi thì mã 4 và in lệnh dọn
 fail() {
@@ -118,9 +132,9 @@ for target in "${VOLUME_TARGETS[@]}"; do
     IFS=: read -r vol _ _ <<< "$target"
     name=${PROJECT}_$vol
     echo "$PROG: volume $name"
-    docker volume create --label "com.docker.compose.project=$PROJECT" --label "com.docker.compose.volume=$vol" "$name" \
+    dk volume create --label "com.docker.compose.project=$PROJECT" --label "com.docker.compose.volume=$vol" "$name" \
         > /dev/null || fail "docker volume create $name hỏng"
-    docker run --rm -i --network none -v "$name:/data" "$BUSYBOX_IMAGE" tar -xf - -C /data \
+    dk run --rm -i --network none -v "$name:/data" "$BUSYBOX_IMAGE" tar -xf - -C /data \
         < "$WORK/x/volumes/$vol.tar" || fail "giải tar vào volume $name hỏng"
 done
 
@@ -136,11 +150,11 @@ for target in "${PG_TARGETS[@]}"; do
     cid=$(find_cid "$PROJECT" "$svc") || fail "docker ps lỗi"
     [ -n "$cid" ] || fail "dịch vụ $svc của project $PROJECT không chạy"
     if [ "$svc" = core-db ]; then
-        docker exec "$cid" psql -U "$user" -d "$db" -v ON_ERROR_STOP=1 -c "$ROLE_SQL" > /dev/null ||
+        dk exec "$cid" psql -U "$user" -d "$db" -v ON_ERROR_STOP=1 -c "$ROLE_SQL" > /dev/null ||
             fail "tạo role dxos_core hỏng"
     fi
     echo "$PROG: pg_restore $svc"
-    docker exec -i "$cid" pg_restore -U "$user" -d "$db" --exit-on-error < "$WORK/x/pg/$svc.dump" ||
+    dk exec -i "$cid" pg_restore -U "$user" -d "$db" --exit-on-error < "$WORK/x/pg/$svc.dump" ||
         fail "pg_restore $svc hỏng"
 done
 

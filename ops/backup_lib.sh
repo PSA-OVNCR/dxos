@@ -7,8 +7,11 @@
 
 # shellcheck disable=SC2034  # hằng số được các script `source` tệp này dùng
 
-# Windows (Git Bash) không được đổi đường dẫn kiểu /data trong đối số của docker.
-export MSYS_NO_PATHCONV=1
+# Windows (Git Bash) không được đổi đường dẫn kiểu /data trong đối số của docker. Biến chỉ đặt cho riêng lệnh docker
+# (hàm dk), không export cho cả script: openssl, tar, dxos-witness vẫn nhận đường dẫn như thường.
+dk() {
+    MSYS_NO_PATHCONV=1 docker "$@"
+}
 
 # Image busybox dùng để tar volume. Cùng ref với net-probe-app trong deploy/compose.yaml; ops/pin_images.py
 # quét dòng này (biến *_IMAGE= trong ops/*.sh) nên `make pin-images` giữ nó ghim. Đây là NƠI DUY NHẤT định nghĩa.
@@ -56,7 +59,9 @@ require_passphrase() {
     PASS_FILE=$REPO/$PASSPHRASE_REL
     [ -f "$PASS_FILE" ] || die 3 "thiếu $PASSPHRASE_REL (tạo: openssl rand -base64 32 > $PASSPHRASE_REL && chmod 600 $PASSPHRASE_REL)"
     local first
-    first=$(head -n 1 "$PASS_FILE" | tr -d '\r') || die 3 "không đọc được $PASSPHRASE_REL"
+    first=$(head -n 1 "$PASS_FILE") || die 3 "không đọc được $PASSPHRASE_REL"
+    # openssl -pass file: giữ nguyên ký tự CR cuối dòng, nên CRLF làm mật khẩu khác với những gì người dùng gõ: từ chối.
+    case $first in *$'\r'*) die 3 "$PASSPHRASE_REL có CRLF (lưu bằng trình soạn thảo Windows?); lưu lại với dấu xuống dòng LF" ;; esac
     [ "${#first}" -ge "$MIN_PASSPHRASE_CHARS" ] ||
         die 3 "dòng đầu của $PASSPHRASE_REL phải dài ít nhất $MIN_PASSPHRASE_CHARS ký tự (hiện ${#first})"
     if [ -n "$(find "$PASS_FILE" -perm /077 2> /dev/null)" ]; then
@@ -68,7 +73,7 @@ require_passphrase() {
 find_cid() {
     local flag=-q
     [ "${3:-}" != all ] || flag=-aq
-    docker ps "$flag" --filter "label=com.docker.compose.project=$1" --filter "label=com.docker.compose.service=$2" |
+    dk ps "$flag" --filter "label=com.docker.compose.project=$1" --filter "label=com.docker.compose.service=$2" |
         head -n 1
 }
 
@@ -87,7 +92,7 @@ sums_ok() {
 # bên gọi phải đã `cd "$REPO"`). Dùng overlay phát hành khi VPS đã triển khai bằng ops/deploy.sh (deploy/release.env).
 # Dùng: compose_for <project> <profile> <env_file>
 compose_for() {
-    COMPOSE=(docker compose -p "$1" --env-file "$3")
+    COMPOSE=(dk compose -p "$1" --env-file "$3")
     [ ! -f deploy/release.env ] || COMPOSE+=(--env-file deploy/release.env)
     COMPOSE+=(-f deploy/compose.yaml -f "deploy/compose.$2.yaml")
     [ ! -f deploy/release.env ] || COMPOSE+=(-f deploy/compose.release.yaml)

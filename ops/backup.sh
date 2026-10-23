@@ -22,14 +22,21 @@
 # Tệp chưa mã hóa KHÔNG BAO GIỜ nằm ở <thư mục ra>: các thành viên được gom vào một thư mục tạm riêng (mktemp -d,
 # quyền 0700, xóa khi thoát, kể cả khi lỗi hay bị ngắt), tar chảy thẳng qua đường ống vào openssl, ghi ra
 # <tên>.partial rồi mới đổi tên. Đặt TMPDIR nếu /tmp nhỏ: thư mục tạm chứa bản sao đầy đủ chưa mã hóa của dữ liệu.
+# TMPDIR PHẢI nằm ngoài <thư mục ra> (thoát 2 nếu trùng hay nằm trong, kể cả qua liên kết tượng trưng): thư mục tạm còn sót
+# sau một lần chết đột ngột mà nằm trong thư mục ra sẽ bị chép ra ngoài máy chủ cùng các gói. Thư mục tạm cũ
+# `dxos-backup.*` còn sót trong TMPDIR bị cảnh báo (không tự xóa): chúng chứa dữ liệu chưa mã hóa, hãy kiểm rồi xóa tay.
 #
 # Mã thoát:
 #   0  xong.
-#   2  tham số sai (thiếu/thừa đối số, <thư mục ra> là tệp hay trùng tên gói đã có).
+#   2  tham số sai (thiếu/thừa đối số, <thư mục ra> là tệp hay trùng tên gói đã có, TMPDIR nằm trong <thư mục ra>).
 #   3  thiếu điều kiện hoặc một bước hỏng: thiếu/ngắn .secrets/backup-passphrase, thiếu docker/openssl/tar, một dịch vụ
 #      không chạy, pg_dump / tar volume / mã hóa hỏng. Không để lại tệp nào ở <thư mục ra>.
 #
-# SeaweedFS và OpenBao được tar khi đang chạy: chạy lúc ít ghi nhất, hoặc dừng trust-core-worker/api trước (runbook).
+# Tính nhất quán: container seaweedfs được `docker pause` đúng trong lúc tar volume của nó (kho đối tượng nhất quán khi
+# gặp sự cố; API/worker gọi S3 trong khoảng đó sẽ chậm hay lỗi, nên chạy lúc yên), rồi `docker unpause`; bẫy EXIT bảo đảm
+# unpause kể cả khi lỗi hay bị ngắt. Kho OpenBao vẫn được tar khi đang chạy (giới hạn đã biết, docs/runbook-backup.md):
+# ops/at21_drill.sh đọc lại khóa công khai từ bản khôi phục để phát hiện bản tar lệch. DB, kho đối tượng và OpenBao
+# không cùng một thời điểm: chạy lúc ít ghi nhất.
 set -euo pipefail
 umask 077
 
@@ -50,12 +57,29 @@ OUT=$1
 
 need_tools docker openssl tar head
 require_passphrase
+
+# TMPDIR không được trùng hay nằm trong <thư mục ra>. So đường dẫn thật (bỏ liên kết tượng trưng, ".", ".."). <thư mục ra>
+# chưa tồn tại thì chưa thể chứa một TMPDIR đang có.
+TMP_BASE=${TMPDIR:-/tmp}
+TMP_REAL=$(cd "$TMP_BASE" 2> /dev/null && pwd -P) || die 3 "TMPDIR=$TMP_BASE không phải thư mục"
+if [ -d "$OUT" ]; then
+    OUT_REAL=$(cd "$OUT" 2> /dev/null && pwd -P) || die 2 "không vào được $OUT"
+    case $TMP_REAL/ in
+        "$OUT_REAL"/*) die 2 "TMPDIR ($TMP_REAL) nằm trong thư mục ra ($OUT_REAL): thư mục tạm chứa dữ liệu chưa mã hóa sẽ bị chép ra ngoài cùng các gói. Đặt TMPDIR ở nơi khác, ví dụ /var/lib/dxos-backup/tmp (0700)" ;;
+    esac
+fi
+for stale in "$TMP_REAL"/dxos-backup.*; do
+    [ ! -d "$stale" ] || echo "$PROG: cảnh báo: $stale là thư mục tạm cũ của một lần sao lưu bị ngắt, chứa dữ liệu chưa mã hóa. Kiểm rồi xóa tay (script không tự xóa)." >&2
+done
+
 mkdir -p "$OUT" || die 3 "không tạo được $OUT"
 
-STAGE=$(mktemp -d "${TMPDIR:-/tmp}/dxos-backup.XXXXXX") || die 3 "không tạo được thư mục tạm"
+STAGE=$(mktemp -d "$TMP_REAL/dxos-backup.XXXXXX") || die 3 "không tạo được thư mục tạm"
 PARTIAL=""
+PAUSED=""
 # shellcheck disable=SC2329  # gọi qua trap EXIT
 cleanup() {
+    [ -z "$PAUSED" ] || dk unpause "$PAUSED" > /dev/null 2>&1 || echo "$PROG: CẢNH BÁO: không unpause được $PAUSED; chạy: docker unpause $PAUSED" >&2
     [ -z "$PARTIAL" ] || rm -f "$PARTIAL"
     if [ -n "$STAGE" ] && [ -d "$STAGE" ] && [ "$STAGE" != / ]; then rm -rf "$STAGE"; fi
 }
@@ -72,7 +96,7 @@ for target in "${PG_TARGETS[@]}"; do
     IFS=: read -r svc user db <<< "$target"
     cid=$(find_cid "$LIVE_PROJECT" "$svc") || die 3 "docker ps lỗi"
     [ -n "$cid" ] || die 3 "dịch vụ $svc của project $LIVE_PROJECT không chạy; chạy docker compose -p $LIVE_PROJECT ps"
-    docker exec "$cid" pg_dump -Fc -U "$user" -d "$db" > "$STAGE/pg/$svc.dump" || die 3 "pg_dump $svc hỏng"
+    dk exec "$cid" pg_dump -Fc -U "$user" -d "$db" > "$STAGE/pg/$svc.dump" || die 3 "pg_dump $svc hỏng"
     [ -s "$STAGE/pg/$svc.dump" ] || die 3 "pg_dump $svc trả về rỗng"
 done
 
@@ -81,8 +105,17 @@ for target in "${VOLUME_TARGETS[@]}"; do
     IFS=: read -r vol svc path <<< "$target"
     cid=$(find_cid "$LIVE_PROJECT" "$svc" all) || die 3 "docker ps lỗi"
     [ -n "$cid" ] || die 3 "không có container của dịch vụ $svc trong project $LIVE_PROJECT"
-    docker run --rm --network none --volumes-from "$cid:ro" "$BUSYBOX_IMAGE" tar -cf - -C "$path" . \
+    # Chỉ kho đối tượng được dừng (bẫy EXIT unpause nếu script chết giữa chừng). Container đã dừng sẵn thì không cần dừng.
+    if [ "$svc" = seaweedfs ] && [ -n "$(find_cid "$LIVE_PROJECT" "$svc")" ]; then
+        dk pause "$cid" > /dev/null || die 3 "không docker pause được $svc; không tar kho đối tượng khi chưa dừng nó"
+        PAUSED=$cid
+    fi
+    dk run --rm --network none --volumes-from "$cid:ro" "$BUSYBOX_IMAGE" tar -cf - -C "$path" . \
         > "$STAGE/volumes/$vol.tar" || die 3 "tar volume $vol hỏng"
+    if [ -n "$PAUSED" ]; then
+        dk unpause "$PAUSED" > /dev/null || die 3 "docker unpause $PAUSED hỏng; chạy ngay: docker unpause $PAUSED"
+        PAUSED=""
+    fi
     [ -s "$STAGE/volumes/$vol.tar" ] || die 3 "tar volume $vol trả về rỗng"
 done
 

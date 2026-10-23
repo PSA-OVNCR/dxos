@@ -28,9 +28,12 @@ ENC_FLAGS = "enc -aes-256-cbc -pbkdf2 -iter 600000 -salt -pass file:"
 PRE_STH = "42 " + "ab" * 32
 POST_STH = "42 " + "ab" * 32
 SEAL = "PHS-2026-000001"
+KEYS = "ef" * 32
+OBJECTS = "1 " + "cd" * 32
 
 FAKE_DOCKER = r"""#!/bin/sh
 echo "docker $*" >> "$FAKE_LOG"
+echo "${MSYS_NO_PATHCONV:-unset}" >> "$FAKE_LOG.msys"
 case "$1" in
   ps)
     svc=""; proj=""
@@ -50,7 +53,10 @@ case "$1" in
     case "$2" in
       ls) printf '%s' "${FAKE_EXISTING_VOLUMES:-}" ;;
       create) [ -z "${FAKE_FAIL_VOLUME:-}" ] || { echo "volume create failed" >&2; exit 1; } ;;
+      inspect) case " ${FAKE_EXISTING_VOLUME_NAMES:-} " in *" $3 "*) exit 0 ;; *) exit 1 ;; esac ;;
     esac ;;
+  pause) [ -z "${FAKE_FAIL_PAUSE:-}" ] || { echo "cannot pause" >&2; exit 1; } ;;
+  unpause) ;;
   exec)
     case "$*" in
       *pg_dump*)
@@ -62,10 +68,17 @@ case "$1" in
         case "$2" in *dxos-restore*) ph=POST ;; *) ph=PRE ;; esac
         for last; do :; done
         case "$*" in
+          *ObjectStore*) what=OBJECTS ;; *"/verify/v1/keys"*) what=KEYS ;; *) what="" ;;
+        esac
+        [ -z "$what" ] || [ -z "$(printenv "FAKE_FAIL_${what}_${ph}")" ] || exit 1
+        case "$*" in
+          *ObjectStore*) printenv "FAKE_${ph}_OBJECTS"; exit 0 ;;
+          *"/verify/v1/keys"*) printenv "FAKE_${ph}_KEYS"; exit 0 ;;
           *"/sth/latest"*) printenv "FAKE_${ph}_STH" ;;
           *) printenv "FAKE_${ph}_BUNDLE_STH" ;;
         esac
         echo "{\"fake\":\"$ph\"}" ;;
+      *"bao status"*) [ -z "${FAKE_BAO_SEALED:-}" ] || exit 2 ;;
       *"operator unseal"*)
         [ -n "$BAO_DXOS_UNSEAL" ] && echo "unseal-env-present" >> "$FAKE_LOG.env" ;;
     esac ;;
@@ -80,6 +93,8 @@ case "$1" in
             *) [ -n "${next:-}" ] && { vf=$a; next=; } ;;
           esac
         done
+        case " ${FAKE_FAIL_TAR:-} " in *" $vf "*) echo "tar failed" >&2; exit 1 ;; esac
+        case " ${FAKE_TAR_SLEEP:-} " in *" $vf "*) sleep 30 ;; esac
         echo "TAR-FAKE:$vf" ;;
     esac ;;
   compose)
@@ -91,6 +106,7 @@ exit 0
 """
 FAKE_OPENSSL = """#!/bin/sh
 echo "openssl $*" >> "$FAKE_LOG.openssl"
+echo "${MSYS_NO_PATHCONV:-unset}" >> "$FAKE_LOG.msys-openssl"
 if [ -n "${FAKE_OPENSSL_FAIL:-}" ]; then cat > /dev/null 2>&1 || true; exit 1; fi
 exec "$REAL_OPENSSL" "$@"
 """
@@ -181,7 +197,7 @@ class World:
 
     def run(self, script: str, *args: str, **env: str) -> Result:
         self.log.unlink(missing_ok=True)
-        for suffix in (".openssl", ".env"):
+        for suffix in (".openssl", ".env", ".msys", ".msys-openssl"):
             Path(str(self.log) + suffix).unlink(missing_ok=True)
         base = {k: v for k, v in os.environ.items() if not k.startswith(("DXOS_", "FAKE_", "BAO_"))}
         base.update({"PATH": f"{self.bin}{os.pathsep}{base['PATH']}", "FAKE_LOG": str(self.log),
@@ -189,6 +205,8 @@ class World:
                      "TMPDIR": str(self.tmp),
                      "FAKE_PRE_STH": PRE_STH, "FAKE_POST_STH": POST_STH,
                      "FAKE_PRE_BUNDLE_STH": PRE_STH, "FAKE_POST_BUNDLE_STH": POST_STH,
+                     "FAKE_PRE_KEYS": KEYS, "FAKE_POST_KEYS": KEYS,
+                     "FAKE_PRE_OBJECTS": OBJECTS, "FAKE_POST_OBJECTS": OBJECTS,
                      **self.env_extra, **env})
         proc = subprocess.run(["bash", str(self.repo / "ops" / script), *args], env=base,  # noqa: S603, S607
                               capture_output=True, text=True, check=False, timeout=120, cwd=self.repo)
@@ -227,7 +245,8 @@ def make_bundle(world: World, passphrase: str = PASSPHRASE) -> Path:
     return world.bundle()
 
 
-def reencrypt(world: World, bundle: Path, members: dict[str, bytes], passphrase: str = PASSPHRASE) -> None:
+def reencrypt(world: World, bundle: Path, members: dict[str, bytes], passphrase: str = PASSPHRASE,
+              links: dict[str, tuple[bytes, str]] | None = None) -> None:
     """Thay nội dung gói bằng một tar khác (mã hóa đúng khóa) và sửa .sha256: kẻ sửa gói biết mật khẩu."""
     tar_path = world.root / "forged.tar"
     with tarfile.open(tar_path, "w") as tf:
@@ -235,6 +254,10 @@ def reencrypt(world: World, bundle: Path, members: dict[str, bytes], passphrase:
             info = tarfile.TarInfo(name)
             info.size = len(data)
             tf.addfile(info, io.BytesIO(data))
+        for name, (kind, target) in (links or {}).items():      # kind: tarfile.SYMTYPE hoặc LNKTYPE
+            info = tarfile.TarInfo(name)
+            info.type, info.linkname = kind, target
+            tf.addfile(info)
     pf = world.root / "forged.pass"
     pf.write_text(passphrase + "\n", encoding="utf-8")
     subprocess.run([world.real_openssl, "enc", "-aes-256-cbc", "-pbkdf2", "-iter", "600000", "-salt",  # noqa: S603
@@ -649,13 +672,18 @@ def test_drill_posts_the_file_hash_for_require_file_seals(world):
     world.fake_steps()
     f = world.root / "ho-so.pdf"
     f.write_bytes(b"%PDF-fictional")
-    r = world.run("at21_drill.sh", *drill_args(world, "--file", str(f)))
-    assert r.returncode == 0, r.out
     sha = hashlib.sha256(b"%PDF-fictional").hexdigest()
+    objects = f"1 {sha}"
+    r = world.run("at21_drill.sh", *drill_args(world, "--file", str(f)),
+                  FAKE_PRE_OBJECTS=objects, FAKE_POST_OBJECTS=objects)
+    assert r.returncode == 0, r.out
     posts = [c for c in r.docker if f"/verify/v1/seals/{SEAL}:bundle {sha}" in c]
-    assert len(posts) == 2                                         # trước và sau
+    assert len(posts) == 4                          # gói và đối tượng kho, trước và sau
     verifies = [c for c in r.calls if c.startswith("dxos-witness verify-bundle")]
     assert all(f"--file {f}" in v for v in verifies)
+    # băm của tệp gốc phải nằm trong các đối tượng đọc được; không có thì từ chối trước khi sao lưu
+    r = world.run("at21_drill.sh", *drill_args(world, "--file", str(f)))
+    assert r.returncode == 3 and not any(c.startswith("backup.sh") for c in r.calls), r.out
 
 
 def test_drill_argument_and_prerequisite_errors(world):
@@ -757,3 +785,216 @@ def test_acceptance_row_for_at21_points_to_tests_drill_and_v43():
     for needle in ("Thủ công", "tests/ops/test_backup_restore.py", "ops/at21_drill.sh",
                    "docs/runbook-backup.md", "V43"):
         assert needle in row, needle
+
+
+# ============================================================ vòng sửa 1 (review Task 12)
+# ---- R25: tạm dừng object store trong lúc tar
+def test_backup_pauses_seaweedfs_only_around_its_own_tar(world):
+    r = world.backup()
+    assert r.returncode == 0, r.out
+    assert r.order(["docker pause cid-dxos-seaweedfs",
+                    "docker run --rm --network none --volumes-from cid-dxos-seaweedfs:ro",
+                    "docker unpause cid-dxos-seaweedfs",
+                    "docker run --rm --network none --volumes-from cid-dxos-openbao:ro"]), r.text
+    assert [c for c in r.docker if " pause " in c or " unpause " in c] == [
+        "docker pause cid-dxos-seaweedfs", "docker unpause cid-dxos-seaweedfs"]     # OpenBao không bị dừng
+
+
+def test_backup_unpauses_seaweedfs_when_tar_fails(world):
+    r = world.backup(FAKE_FAIL_TAR="cid-dxos-seaweedfs:ro")
+    assert r.returncode == 3, r.out
+    assert r.order(["docker pause cid-dxos-seaweedfs", "docker unpause cid-dxos-seaweedfs"]), r.text
+    assert list(world.out.iterdir()) == []
+
+
+def test_backup_unpauses_seaweedfs_when_it_cannot_complete_the_pause(world):
+    r = world.backup(FAKE_FAIL_PAUSE="1")
+    assert r.returncode == 3 and "pause" in r.stderr, r.out
+    assert not any(c.startswith("docker run") for c in r.docker)              # chưa tar gì khi chưa dừng được
+    assert list(world.out.iterdir()) == []
+
+
+def test_backup_unpauses_seaweedfs_on_sigterm(world):
+    import signal
+    import time
+    env = {**os.environ, "PATH": f"{world.bin}{os.pathsep}{os.environ['PATH']}", "FAKE_LOG": str(world.log),
+           "FAKE_STDIN": str(world.stdin), "REAL_OPENSSL": world.real_openssl, "TMPDIR": str(world.tmp),
+           "FAKE_TAR_SLEEP": "cid-dxos-seaweedfs:ro"}
+    for suffix in ("", ".openssl", ".env", ".msys", ".msys-openssl"):
+        Path(str(world.log) + suffix).unlink(missing_ok=True)
+    proc = subprocess.Popen(["bash", str(world.repo / "ops/backup.sh"), str(world.out)],  # noqa: S603, S607
+                            env=env, cwd=world.repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            start_new_session=True)
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        if world.log.exists() and "volumes-from cid-dxos-seaweedfs" in world.log.read_text(encoding="utf-8"):
+            break
+        time.sleep(0.05)
+    os.killpg(proc.pid, signal.SIGTERM)
+    proc.communicate(timeout=30)
+    calls = world.log.read_text(encoding="utf-8").splitlines()
+    assert "docker pause cid-dxos-seaweedfs" in calls and "docker unpause cid-dxos-seaweedfs" in calls
+    assert world.leftover_staging() == [] and list(world.out.iterdir()) == []
+
+
+# ---- TMPDIR không được nằm trong thư mục ra
+@pytest.mark.parametrize("where", ["same", "inside", "symlink"])
+def test_backup_refuses_tmpdir_inside_the_output_directory(world, where):
+    world.out.mkdir()
+    if where == "same":
+        tmp = world.out
+    elif where == "inside":
+        tmp = world.out / "tmp"
+        tmp.mkdir()
+    else:
+        (world.out / "tmp").mkdir()
+        tmp = world.root / "link"
+        tmp.symlink_to(world.out / "tmp")
+    r = world.backup(TMPDIR=str(tmp))
+    assert r.returncode == 2, (where, r.out)
+    assert "TMPDIR" in r.stderr
+    assert r.docker == [] and r.openssl == []
+    assert [p.name for p in world.out.iterdir()] in ([], ["tmp"])           # không ghi gì thêm
+
+
+def test_backup_allows_tmpdir_outside_the_output_directory(world):
+    r = world.backup()
+    assert r.returncode == 0, r.out
+
+
+def test_backup_warns_about_stale_staging_directories_and_keeps_them(world):
+    stale = world.tmp / "dxos-backup.OLD123"
+    stale.mkdir()
+    (stale / "secret.dump").write_bytes(b"x")
+    r = world.backup()
+    assert r.returncode == 0, r.out
+    assert "dxos-backup.OLD123" in r.stderr and "chưa mã hóa" in r.stderr
+    assert (stale / "secret.dump").exists()                       # không tự xóa thứ của lần chạy khác
+
+
+# ---- mật khẩu CRLF; MSYS_NO_PATHCONV chỉ cho docker
+def test_backup_refuses_a_passphrase_file_with_crlf_exit_3(world):
+    (world.repo / ".secrets/backup-passphrase").write_bytes(PASSPHRASE.encode() + b"\r\n")
+    r = world.backup()
+    assert r.returncode == 3 and "CRLF" in r.stderr and r.docker == [], r.out
+
+
+def test_msys_no_pathconv_is_scoped_to_docker_calls(world):
+    for name in (*SCRIPTS, LIB):
+        text = (ROOT / "ops" / name).read_text(encoding="utf-8")
+        assert not re.search(r"^\s*export\s+MSYS_NO_PATHCONV", text, re.M), name
+    r = world.backup()
+    assert r.returncode == 0, r.out
+    docker_msys = Path(str(world.log) + ".msys").read_text(encoding="utf-8").split()
+    openssl_msys = Path(str(world.log) + ".msys-openssl").read_text(encoding="utf-8").split()
+    assert docker_msys and set(docker_msys) == {"1"}                         # mọi lời gọi docker có biến này
+    assert openssl_msys and set(openssl_msys) == {"unset"}                    # openssl thì không
+
+
+# ---- restore: thành viên không phải tệp thường; volume có sẵn không nhãn
+def _good_members() -> dict[str, bytes]:
+    good = {"pg/core-db.dump": b"a", "pg/kc-db.dump": b"b", "pg/flowable-db.dump": b"c",
+            "volumes/seaweedfs-data.tar": b"d", "volumes/openbao-data.tar": b"e"}
+    sums = "".join(f"{hashlib.sha256(v).hexdigest()}  {k}\n" for k, v in good.items())
+    manifest = b"format=dxos-backup/1\nsource_project=dxos\n"
+    return {"MANIFEST.txt": manifest, "SHA256SUMS": sums.encode(), **good}
+
+
+@pytest.mark.parametrize("kind", ["symlink", "hardlink"])
+def test_restore_refuses_a_non_regular_member_before_any_docker_call(world, kind):
+    bundle = make_bundle(world)
+    members = _good_members()
+    passwd = Path("/etc/passwd").read_bytes()
+    victim = "volumes/openbao-data.tar"
+    del members[victim]
+    # SHA256SUMS khai băm của /etc/passwd cho thành viên này: nếu script đi theo liên kết thì băm sẽ khớp
+    sums = members["SHA256SUMS"].decode().splitlines()
+    sums.append(f"{hashlib.sha256(passwd).hexdigest()}  {victim}")
+    members["SHA256SUMS"] = ("\n".join(sums) + "\n").encode()
+    link = {victim: (tarfile.SYMTYPE, "/etc/passwd")} if kind == "symlink" else {
+        victim: (tarfile.LNKTYPE, "pg/core-db.dump")}
+    reencrypt(world, bundle, members, links=link)
+    r = world.restore(bundle, "--project", "dxos-restore")
+    assert r.returncode == 2 and r.docker == [], r.out
+    assert "không phải tệp thường" in r.stderr
+    assert world.leftover_staging() == []
+
+
+def test_restore_accepts_the_regular_forged_bundle_as_a_control(world):
+    """Đối chứng của hai test trên: cùng gói, thành viên là tệp thường thì qua."""
+    bundle = make_bundle(world)
+    reencrypt(world, bundle, _good_members())
+    r = world.restore(bundle, "--project", "dxos-restore")
+    assert r.returncode == 0, r.out
+
+
+def test_restore_refuses_an_existing_unlabelled_volume_before_any_write(world):
+    bundle = make_bundle(world)
+    r = world.restore(bundle, "--project", "dxos-restore",
+                      FAKE_EXISTING_VOLUME_NAMES="dxos-restore_openbao-data")
+    assert r.returncode == 2, r.out
+    assert "dxos-restore_openbao-data" in r.stderr
+    assert not any(c.startswith(("docker volume create", "docker run", "docker compose", "docker exec"))
+                   for c in r.docker)
+    r = world.restore(bundle, "--project", "dxos-restore")
+    assert r.returncode == 0 and any(c.startswith("docker volume inspect dxos-restore_seaweedfs-data")
+                                     for c in r.docker)
+
+
+# ---- drill: khóa OpenBao, kho đối tượng, trạng thái unseal
+def test_drill_compares_the_public_keys_and_reads_storage_objects(world):
+    world.fake_steps()
+    r = world.run("at21_drill.sh", *drill_args(world))
+    assert r.returncode == 0, r.out
+    keys = [c for c in r.docker if "/verify/v1/keys" in c]
+    objects = [c for c in r.docker if "ObjectStore" in c]
+    assert len(keys) == 2 and len(objects) == 2                  # một lần ở stack thật, một ở bản khôi phục
+    assert "cid-dxos-trust-core-api" in keys[0] and "cid-dxos-restore-trust-core-api" in keys[1]
+    assert r.index("/verify/v1/keys") < r.index("backup.sh ")                 # lấy khóa TRƯỚC khi sao lưu
+    assert r.index("bao status") < r.index("cid-dxos-restore-trust-core-api")     # unseal xong mới đọc
+    assert "khóa công khai" in r.stdout and "tệp đính kèm" in r.stdout
+
+
+@pytest.mark.parametrize("env", [
+    {"FAKE_POST_KEYS": "01" * 32}, {"FAKE_FAIL_KEYS_POST": "1"},
+    {"FAKE_POST_OBJECTS": "1 " + "ee" * 32}, {"FAKE_FAIL_OBJECTS_POST": "1"},
+], ids=["keys-differ", "keys-unreadable", "objects-differ", "objects-unreadable"])
+def test_drill_fails_when_keys_or_storage_do_not_survive_the_restore(world, env):
+    world.fake_steps()
+    r = world.run("at21_drill.sh", *drill_args(world), **env)
+    assert r.returncode == 1, r.out
+    assert "KHÔNG ĐẠT" in r.stdout + r.stderr and "down -v" in r.out
+
+
+@pytest.mark.parametrize("env", [
+    {"FAKE_FAIL_KEYS_PRE": "1"}, {"FAKE_FAIL_OBJECTS_PRE": "1"}, {"FAKE_PRE_OBJECTS": "0"},
+    {"FAKE_PRE_KEYS": "not-a-hash"},
+], ids=["keys", "objects", "no-attachments", "bad-keys"])
+def test_drill_needs_keys_and_an_object_before_the_backup(world, env):
+    world.fake_steps()
+    r = world.run("at21_drill.sh", *drill_args(world), **env)
+    assert r.returncode == 3, r.out
+    assert not any(c.startswith("backup.sh") for c in r.calls)
+
+
+def test_drill_stops_when_openbao_is_still_sealed_after_unseal(world):
+    world.fake_steps()
+    r = world.run("at21_drill.sh", *drill_args(world), FAKE_BAO_SEALED="1")
+    assert r.returncode == 4, r.out
+    assert "khóa" in r.stderr
+    assert not any("up -d" in c and c.endswith(" trust-core-api") for c in r.docker)
+
+
+def test_drill_unseal_key_comment_does_not_overclaim():
+    text = (ROOT / "ops/at21_drill.sh").read_text(encoding="utf-8")
+    assert "không bao giờ nằm trên dòng lệnh" not in text
+    assert "argv" in text                                                    # nói rõ chỗ khóa còn lộ
+
+
+def test_runbook_backup_matches_the_fixed_behaviour():
+    text = (ROOT / "docs/runbook-backup.md").read_text(encoding="utf-8")
+    for needle in ("docker pause", "docker unpause", "/var/lib/dxos-backup/tmp", "**nằm ngoài thư mục ra**",
+                   "CRLF", "/verify/v1/keys", "SeaweedFS", "bao status", "argv"):
+        assert needle in text, needle
+    assert "TMPDIR=/var/backups/dxos/tmp" not in text                    # TMPDIR không nằm trong nơi để gói
+    assert "không lên dòng lệnh)" not in text
