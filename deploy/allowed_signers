@@ -1,0 +1,14 @@
+# SPDX-FileCopyrightText: 2026 PSA_OVNCR
+# SPDX-License-Identifier: Apache-2.0
+#
+# Khóa SSH được phép ký tag phát hành (git -c gpg.format=ssh ... verify-tag, ops/deploy.sh, Plan 04 Task 11, S4).
+# Định dạng của ssh-keygen "allowed signers", mỗi dòng một khóa:
+#
+#   <email người ký> namespaces="git" <loại khóa> <khóa công khai base64>
+#
+# Ví dụ (KHÔNG phải khóa thật, đừng bỏ dấu #):
+#   # truong-nhom@example.invalid namespaces="git" ssh-ed25519 AAAA...
+#
+# Hiện chưa có khóa nào: tệp chỉ gồm dòng chú thích nên mọi tag đều bị ops/deploy.sh từ chối (đóng mặc định) cho tới khi
+# trưởng nhóm thêm khóa công khai của mình (việc V42, docs/progress/2026-10-21-tong-ket-tien-do.md, mục 14).
+# Cách thêm khóa và ký tag: docs/runbook-deploy.md, mục 2. Chỉ thêm KHÓA CÔNG KHAI (tệp .pub), không bao giờ khóa riêng.

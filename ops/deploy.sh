@@ -2,28 +2,46 @@
 # SPDX-FileCopyrightText: 2026 PSA_OVNCR
 # SPDX-License-Identifier: Apache-2.0
 #
-# Triển khai một phiên bản đã gắn tag lên VPS (Plan 03 Task 12, spec S9.2, R-3). Chạy ở thư mục repo trên máy chủ:
+# Triển khai một phiên bản đã gắn tag lên VPS (Plan 03 Task 12, spec S9.2, R-3; Plan 04 Task 11, S4). Chạy ở thư mục
+# repo trên máy chủ:
 #
-#   ops/deploy.sh <vX.Y.Z> [--profile p16|p8] [--repo-url URL]
+#   ops/deploy.sh <vX.Y.Z> [--profile p16|p8] [--repo-url URL] [--allow-unsigned]
+#
+# Mã thoát:
+#   0  đạt.
+#   2  từ chối TRƯỚC khi đổi gì: tham số sai, thiếu .env/DXOS_DOMAIN, thiếu công cụ, cây làm việc bẩn, tag chưa ký hoặc
+#      ký bằng khóa không có trong deploy/allowed_signers.
+#   3  thiếu điều kiện trước khi chuyển bản (không lấy được tag, Release thiếu/sai digest, dựng SPA hỏng, compose pull hỏng).
+#   4  health hỏng sau khi chuyển, đã tự quay lui về bản tốt gần nhất và bản đó khỏe.
+#   5  health hỏng và KHÔNG quay lui được (chưa có bản tốt nào, hoặc quay lui cũng hỏng); in hướng dẫn khôi phục tay.
 #
 # Các bước, theo đúng thứ tự (mỗi bước hỏng thì dừng, không chạy bước sau):
 #   1. Tag phải khớp ^v[0-9]+.[0-9]+.[0-9]+$, profile là p16 hoặc p8, .env phải có DXOS_DOMAIN. Sai thì thoát 2.
 #   2. Cây làm việc phải sạch (git status --porcelain rỗng). Không sạch thì thoát 2.
-#   3. Ghi nhớ bản đang chạy tốt: tag ở dòng OK cuối cùng của deploy/deployments.log, hoặc "none".
+#   3. Ghi nhớ bản tốt gần nhất: tag ở dòng result=ok (hoặc dòng OK kiểu cũ) cuối cùng của deploy/deployments.log, khác
+#      tag đang triển khai; hoặc "none".
 #   4. git fetch origin refs/tags/<tag>:refs/tags/<tag> (KHÔNG --force: tag cục bộ khác tag trên remote thì git từ chối).
-#   5. git checkout --detach <tag>.
-#   6. Tải trust-core-image-<X.Y.Z>.txt từ Release của tag; lấy digest 64 hex (dạng release.yml ghi: dòng
-#      ghcr.io/psa-ovncr/trust-core@sha256:<64 hex>, hoặc chỉ 64 hex). Sai định dạng thì thoát 1 TRƯỚC khi gọi compose.
+#   5. Kiểm chữ ký TRƯỚC mọi lệnh docker và trước khi checkout:
+#      git -c gpg.format=ssh -c gpg.ssh.allowedSignersFile=deploy/allowed_signers verify-tag <tag>
+#      Không đạt thì thoát 2. Tệp allowed_signers lấy từ bản đang checkout (neo tin cậy không nằm trong thứ cần kiểm).
+#      --allow-unsigned bỏ qua bước này, in cảnh báo và ghi signed=no.
+#   6. git checkout --detach <tag>.
+#   7. Tải trust-core-image-<X.Y.Z>.txt từ Release của tag; lấy digest 64 hex (dạng release.yml ghi: dòng
+#      ghcr.io/psa-ovncr/trust-core@sha256:<64 hex>, hoặc chỉ 64 hex). Sai định dạng thì thoát 3 TRƯỚC khi gọi compose.
 #      Ghi deploy/release.env (DXOS_TRUST_CORE_DIGEST, DXOS_RELEASE_TAG).
-#   7. ops/web_build_docker.sh: dựng SPA từ mã nguồn của tag vào volume apps-static (thoát 3 nếu image Node chưa ghim).
-#   8. docker compose pull --ignore-buildable rồi up -d --wait (spec 16.3: pull && up -d): lõi chạy đúng image theo
-#      digest (compose.release.yaml); thêm compose.anchor.yaml
-#      chỉ khi .env có DXOS_ANCHOR_REMOTE khác rỗng.
-#   9. Kiểm sức khỏe: /readyz của trust-core-api trả 200 và https://$DXOS_DOMAIN/verify/v1/keys trả 200.
-#  10. Ghi một dòng vào deploy/deployments.log: <UTC>\t<tag>\t<commit>\t<digest>\tOK|FAIL.
+#   8. ops/web_build_docker.sh: dựng SPA từ mã nguồn của tag vào volume apps-static (thoát 3 nếu image Node chưa ghim).
+#   9. docker compose pull --ignore-buildable (hỏng thì thoát 3) rồi up -d --wait (spec 16.3: pull && up -d): lõi chạy
+#      đúng image theo digest (compose.release.yaml); thêm compose.anchor.yaml chỉ khi .env có DXOS_ANCHOR_REMOTE khác rỗng.
+#  10. Kiểm sức khỏe: /readyz của trust-core-api trả 200 và https://$DXOS_DOMAIN/verify/v1/keys trả 200. `up --wait` hỏng
+#      (container không khỏe) hoặc kiểm sức khỏe hỏng nghĩa là đã chuyển nhưng bản mới không khỏe: tự quay lui (S4).
+#  11. Quay lui: chạy lại đúng chuỗi trên (bước 4 đến 10) cho bản tốt gần nhất, MỘT lần, không đệ quy. Khỏe thì thoát 4,
+#      không thì thoát 5. Chưa có bản tốt nào thì thoát 5 ngay.
+#  12. Mỗi lần triển khai từ bước 4 trở đi ghi một dòng vào deploy/deployments.log, cột cách nhau bằng tab:
+#      <UTC>\t<tag>\t<commit>\t<digest>\tresult=ok|rolled-back|failed\tsigned=yes|no
+#      Dòng kiểu cũ (cột 5 là OK hoặc FAIL, không có cột 6) vẫn được đọc khi tìm bản tốt gần nhất.
 #
-# Từ bước 4 trở đi, hỏng ở đâu cũng ghi dòng FAIL, thoát 1 và in: "Triển khai <tag> hỏng. Quay lại bằng:
-# ops/deploy.sh <tag trước>". KHÔNG tự quay lui (tự quay lui là S4, Plan 04); người vận hành chạy lại lệnh đó.
+# Hỏng ở bước 4 đến 9 (thoát 3): ghi dòng result=failed và in: "Triển khai <tag> hỏng. Quay lại bằng:
+# ops/deploy.sh <tag trước>" (stack đang chạy chưa bị chuyển).
 #
 # - .env được đọc bằng sed, không `source` (tệp .env không được chạy như mã). Không in giá trị bí mật.
 # - Toàn bộ thân script nằm trong hàm main để bash đọc xong tệp trước khi `git checkout` thay đổi ops/deploy.sh.
@@ -32,7 +50,7 @@ set -euo pipefail
 DEFAULT_REPO_URL=https://github.com/PSA-OVNCR/dxos
 
 usage() {
-    echo "dùng: ops/deploy.sh <vX.Y.Z> [--profile p16|p8] [--repo-url URL]" >&2
+    echo "dùng: ops/deploy.sh <vX.Y.Z> [--profile p16|p8] [--repo-url URL] [--allow-unsigned]" >&2
     exit 2
 }
 
@@ -41,18 +59,21 @@ main() {
     # chỉ thấy digest và tag đã kiểm trong deploy/release.env (dòng log phải khớp thứ thực sự chạy).
     unset DXOS_TRUST_CORE_DIGEST DXOS_RELEASE_TAG
     # Biến trạng thái cho on_exit (EXIT trap) là biến toàn cục: bash có thể đã bỏ biến local khi trap chạy sau set -e.
-    tag="" log_file=deploy/deployments.log previous=none commit=- digest=- started=0
-    local profile=p16 repo_url=$DEFAULT_REPO_URL
+    # cur, commit, digest, signed mô tả lần triển khai (hoặc quay lui) đang chạy.
+    tag="" log_file=deploy/deployments.log previous=none cur="" commit=- digest=- signed=no started=0
+    local profile=p16 repo_url=$DEFAULT_REPO_URL allow_unsigned=0
     while [ $# -gt 0 ]; do
         case $1 in
             --profile) [ $# -ge 2 ] || usage; profile=$2; shift 2 ;;
             --repo-url) [ $# -ge 2 ] || usage; repo_url=$2; shift 2 ;;
+            --allow-unsigned) allow_unsigned=1; shift ;;
             -*) echo "deploy.sh: tùy chọn không hợp lệ: $1" >&2; usage ;;
             *) [ -z "$tag" ] || usage; tag=$1; shift ;;
         esac
     done
     [ -n "$tag" ] || usage
-    if ! [[ $tag =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    local tag_re='^v[0-9]+\.[0-9]+\.[0-9]+$'
+    if ! [[ $tag =~ $tag_re ]]; then
         echo "deploy.sh: tag phải có dạng vX.Y.Z (nhận được: $tag)" >&2
         exit 2
     fi
@@ -62,7 +83,6 @@ main() {
         exit 2
     fi
     repo_url=${repo_url%/}
-    local version=${tag#v}
 
     local repo
     repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -93,84 +113,175 @@ main() {
         exit 2
     fi
 
-    # Bản đang chạy tốt gần nhất (để in lệnh quay lại).
+    # Bản tốt gần nhất, khác tag đang triển khai: dòng result=ok (cột 5), hoặc dòng OK kiểu cũ (trước Plan 04 Task 11,
+    # không có cột signed). Cũng là đích quay lui.
     if [ -f "$log_file" ]; then
-        previous=$(awk -F'\t' '$5 == "OK" { t = $2 } END { print t }' "$log_file")
-        [ -n "$previous" ] || previous=none
+        previous=$(awk -F'\t' -v self="$tag" '$2 != self && ($5 == "result=ok" || $5 == "OK") { t = $2 } END { print t }' "$log_file")
+        if [ -z "$previous" ] || ! [[ $previous =~ $tag_re ]]; then previous=none; fi
     fi
 
+    # record <result> [tag commit digest signed]: mặc định mô tả lần triển khai đang chạy.
     record() {
+        local result=$1 t=${2:-$cur} c=${3:-$commit} d=${4:-$digest} s=${5:-$signed}
         mkdir -p "$(dirname "$log_file")"
-        printf '%s\t%s\t%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$tag" "$commit" "$digest" "$1" >> "$log_file"
+        printf '%s\t%s\t%s\t%s\tresult=%s\tsigned=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$t" "$c" "$d" "$result" "$s" >> "$log_file"
+    }
+    hint_previous() {
+        echo "Triển khai $tag hỏng. Quay lại bằng: ops/deploy.sh $previous"
+        [ "$previous" != none ] || echo "(chưa có bản nào chạy tốt được ghi trong $log_file)"
+    }
+    manual_recovery() {
+        cat << MANUAL
+Không tự quay lui được. Khôi phục tay (docs/runbook-deploy.md, mục 4):
+  1. Xem trạng thái: docker compose -p dxos ps ; docker compose -p dxos logs --tail=200 <dịch vụ không khỏe>
+  2. Biết một tag từng chạy tốt thì chạy lại: ops/deploy.sh <tag> (chỉ thêm --allow-unsigned khi tag đó chưa ký và bạn chấp nhận rủi ro).
+  3. Chưa có tag tốt: sửa nguyên nhân từ log ở bước 1, phát hành tag mới (đã ký) rồi chạy ops/deploy.sh <tag mới>.
+MANUAL
     }
     # shellcheck disable=SC2329  # gọi qua trap on_exit EXIT
     on_exit() {
         local rc=$?
         trap - EXIT
         if [ "$rc" -ne 0 ] && [ "$started" = 1 ]; then
-            record FAIL || true
-            echo "Triển khai $tag hỏng. Quay lại bằng: ops/deploy.sh $previous"
-            [ "$previous" != none ] || echo "(chưa có bản nào chạy tốt được ghi trong $log_file)"
+            record failed || true
+            hint_previous
         fi
         exit "$rc"
     }
-    die() { echo "deploy.sh: $*" >&2; exit 1; }
     trap on_exit EXIT
+
+    # chain <tag>: chuỗi triển khai một tag (bước 4 đến 10). Dùng cho cả triển khai lẫn quay lui. Trả về:
+    #   0 đạt; 2 tag chưa ký/khóa lạ (chưa đổi gì); 3 thiếu điều kiện trước khi chuyển; 10 đã chuyển nhưng sức khỏe hỏng.
+    # Chạy trong ngữ cảnh `|| rc=$?` nên set -e không có tác dụng ở đây: mọi lệnh phải tự `|| return`.
+    chain() {
+        local t=$1 version=${1#v} body line rc=0 ready curl_tls=-fs
+        cur=$t commit=- digest=- signed=no
+
+        echo "deploy.sh: lấy tag $t"
+        git fetch origin "refs/tags/$t:refs/tags/$t" || {
+            echo "deploy.sh: git fetch từ chối tag $t (tag cục bộ khác remote?); không dùng --force" >&2
+            return 3
+        }
+        if [ "$allow_unsigned" = 1 ]; then
+            echo "deploy.sh: CẢNH BÁO: --allow-unsigned, KHÔNG kiểm chữ ký của tag $t (ghi signed=no vào $log_file)" >&2
+        else
+            git -c gpg.format=ssh -c gpg.ssh.allowedSignersFile=deploy/allowed_signers verify-tag "$t" || {
+                echo "deploy.sh: tag $t chưa ký hoặc ký bằng khóa không có trong deploy/allowed_signers; từ chối, chưa đổi gì" >&2
+                return 2
+            }
+            signed=yes
+        fi
+        git -c advice.detachedHead=false checkout --detach "$t" || return 3
+        commit=$(git rev-parse HEAD) || return 3
+
+        body=$(curl -fsSL "$repo_url/releases/download/$t/trust-core-image-$version.txt" --max-time 60) || {
+            echo "deploy.sh: không tải được trust-core-image-$version.txt từ Release $t" >&2
+            return 3
+        }
+        line=$(printf '%s\n' "$body" | tr -d '\r' | grep -F '@sha256:' | head -n 1 || true)
+        if [ -n "$line" ]; then
+            digest=${line##*@sha256:}
+        else
+            digest=$(printf '%s' "$body" | tr -d '\r\n ')
+        fi
+        if ! [[ $digest =~ ^[0-9a-f]{64}$ ]]; then
+            digest=-
+            echo "deploy.sh: digest trong trust-core-image-$version.txt không phải 64 chữ số hex; dừng trước khi gọi compose" >&2
+            return 3
+        fi
+        printf 'DXOS_TRUST_CORE_DIGEST=%s\nDXOS_RELEASE_TAG=%s\n' "$digest" "$t" > "$release_env" || return 3
+
+        echo "deploy.sh: dựng SPA từ mã nguồn của $t"
+        bash ops/web_build_docker.sh || rc=$?
+        if [ "$rc" -eq 3 ]; then
+            echo "deploy.sh: ops/web_build_docker.sh thoát 3: image Node chưa ghim digest. Chạy 'make pin-images' (cần Docker có buildx)," \
+                "commit rồi phát hành tag mới; chưa gọi compose" >&2
+            return 3
+        elif [ "$rc" -ne 0 ]; then
+            echo "deploy.sh: ops/web_build_docker.sh thoát $rc; chưa gọi compose" >&2
+            return 3
+        fi
+
+        local compose=(docker compose -p dxos --env-file "$env_file" --env-file "$release_env"
+            -f deploy/compose.yaml -f "deploy/compose.$profile.yaml")
+        [ -z "$anchor_remote" ] || compose+=(-f deploy/compose.anchor.yaml)
+        compose+=(-f deploy/compose.release.yaml)
+
+        echo "deploy.sh: docker compose pull + up (hồ sơ $profile, digest $digest)"
+        "${compose[@]}" pull --ignore-buildable || {
+            echo "deploy.sh: docker compose pull hỏng; chưa chuyển bản đang chạy" >&2
+            return 3
+        }
+        # Từ đây bản đang chạy bị thay: hỏng nghĩa là cần quay lui (return 10).
+        "${compose[@]}" up -d --wait --wait-timeout 600 || {
+            echo "deploy.sh: docker compose up --wait hỏng (có container không khỏe)" >&2
+            return 10
+        }
+
+        echo "deploy.sh: kiểm sức khỏe"
+        ready=$("${compose[@]}" exec -T trust-core-api python -c \
+            "import urllib.request as u; print(u.urlopen('http://127.0.0.1:8000/readyz', timeout=5).status)") || {
+            echo "deploy.sh: /readyz của trust-core-api không trả 200" >&2
+            return 10
+        }
+        [ "$(printf '%s' "$ready" | tr -d '\r\n ')" = 200 ] || { echo "deploy.sh: /readyz trả '$ready', cần 200" >&2; return 10; }
+        # Chỉ bỏ xác minh TLS (-k) với localhost/*.localhost (Caddy tự ký); tên miền thật phải có chứng chỉ hợp lệ.
+        case $domain in localhost | *.localhost) curl_tls=-fsk ;; esac
+        curl "$curl_tls" --max-time 20 "https://$domain/verify/v1/keys" > /dev/null || {
+            echo "deploy.sh: https://$domain/verify/v1/keys không trả 200" >&2
+            return 10
+        }
+        return 0
+    }
+
     started=1
-
-    echo "deploy.sh: lấy tag $tag"
-    git fetch origin "refs/tags/$tag:refs/tags/$tag" || die "git fetch từ chối tag $tag (tag cục bộ khác remote?); không dùng --force"
-    git -c advice.detachedHead=false checkout --detach "$tag"
-    commit=$(git rev-parse HEAD)
-
-    local body line
-    body=$(curl -fsSL "$repo_url/releases/download/$tag/trust-core-image-$version.txt" --max-time 60) \
-        || die "không tải được trust-core-image-$version.txt từ Release $tag"
-    line=$(printf '%s\n' "$body" | tr -d '\r' | grep -F '@sha256:' | head -n 1 || true)
-    if [ -n "$line" ]; then
-        digest=${line##*@sha256:}
-    else
-        digest=$(printf '%s' "$body" | tr -d '\r\n ')
-    fi
-    if ! [[ $digest =~ ^[0-9a-f]{64}$ ]]; then
-        digest=-
-        die "digest trong trust-core-image-$version.txt không phải 64 chữ số hex; dừng trước khi gọi compose"
-    fi
-    printf 'DXOS_TRUST_CORE_DIGEST=%s\nDXOS_RELEASE_TAG=%s\n' "$digest" "$tag" > "$release_env"
-
-    echo "deploy.sh: dựng SPA từ mã nguồn của $tag"
     local rc=0
-    bash ops/web_build_docker.sh || rc=$?
-    if [ "$rc" -eq 3 ]; then
-        die "ops/web_build_docker.sh thoát 3: image Node chưa ghim digest. Chạy 'make pin-images' (cần Docker có buildx)," \
-            "commit rồi phát hành tag mới; chưa gọi compose"
-    elif [ "$rc" -ne 0 ]; then
-        die "ops/web_build_docker.sh thoát $rc; chưa gọi compose"
+    chain "$tag" || rc=$?
+    case $rc in
+        0)
+            record ok
+            started=0
+            echo "deploy.sh: xong $tag (commit $commit, digest $digest, signed=$signed)"
+            return 0
+            ;;
+        2)
+            started=0   # từ chối trước khi đổi gì: không phải một lần triển khai, không ghi log
+            exit 2
+            ;;
+        3)
+            record failed
+            started=0
+            hint_previous
+            exit 3
+            ;;
+    esac
+
+    # rc = 10: bản mới đã chuyển nhưng health hỏng. Nhớ thông tin của nó để ghi sau khi quay lui xong.
+    local bad_commit=$commit bad_digest=$digest bad_signed=$signed
+    if [ "$previous" = none ]; then
+        record failed "$tag" "$bad_commit" "$bad_digest" "$bad_signed"
+        started=0
+        echo "Triển khai $tag hỏng sức khỏe và chưa có bản nào chạy tốt để quay lui (không có dòng result=ok trong $log_file)."
+        manual_recovery
+        exit 5
     fi
-
-    local compose=(docker compose -p dxos --env-file "$env_file" --env-file "$release_env"
-        -f deploy/compose.yaml -f "deploy/compose.$profile.yaml")
-    [ -z "$anchor_remote" ] || compose+=(-f deploy/compose.anchor.yaml)
-    compose+=(-f deploy/compose.release.yaml)
-
-    echo "deploy.sh: docker compose pull + up (hồ sơ $profile, digest $digest)"
-    "${compose[@]}" pull --ignore-buildable
-    "${compose[@]}" up -d --wait --wait-timeout 600
-
-    echo "deploy.sh: kiểm sức khỏe"
-    local ready
-    ready=$("${compose[@]}" exec -T trust-core-api python -c \
-        "import urllib.request as u; print(u.urlopen('http://127.0.0.1:8000/readyz', timeout=5).status)") \
-        || die "/readyz của trust-core-api không trả 200"
-    [ "$(printf '%s' "$ready" | tr -d '\r\n ')" = 200 ] || die "/readyz trả '$ready', cần 200"
-    # Chỉ bỏ xác minh TLS (-k) với localhost/*.localhost (Caddy tự ký); tên miền thật phải có chứng chỉ hợp lệ.
-    local curl_tls=-fs
-    case $domain in localhost | *.localhost) curl_tls=-fsk ;; esac
-    curl "$curl_tls" --max-time 20 "https://$domain/verify/v1/keys" > /dev/null || die "https://$domain/verify/v1/keys không trả 200"
-
-    record OK
+    local target=$previous
+    echo "deploy.sh: $tag hỏng sức khỏe; tự quay lui về $target (bản tốt gần nhất)"
+    rc=0
+    chain "$target" || rc=$?
+    if [ "$rc" -eq 0 ]; then
+        record ok                                                       # quay lui về $target đã khỏe
+        record rolled-back "$tag" "$bad_commit" "$bad_digest" "$bad_signed"
+        started=0
+        echo "Triển khai $tag hỏng sức khỏe. Đã quay lui về $target và $target khỏe. Điều tra $tag trước khi thử lại."
+        exit 4
+    fi
+    record failed                                                       # quay lui $target cũng hỏng
+    record failed "$tag" "$bad_commit" "$bad_digest" "$bad_signed"
     started=0
-    echo "deploy.sh: xong $tag (commit $commit, digest $digest)"
+    echo "Triển khai $tag hỏng sức khỏe và quay lui về $target cũng hỏng (mã nội bộ $rc)."
+    manual_recovery
+    exit 5
 }
 
 main "$@"

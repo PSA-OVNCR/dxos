@@ -7,10 +7,13 @@
   phân giải về 127.0.0.1, và `--ca-file` trỏ tới CA nội bộ của Caddy (giống `ops/e2e/run_e2e.sh`). Đã chạy trên stack dev 22/10/2026: 10/10 (V28, `docs/progress/2026-10-22-web-live.md`)
 - `netcheck.py`: kiểm ma trận kết nối mạng (AT-01), Plan 01 Task 4
 - `measure.sh`: đo RAM theo container (AT-22), Plan 01 Task 7
-- `deploy.sh`: `ops/deploy.sh <vX.Y.Z> [--profile p16|p8] [--repo-url URL]` triển khai theo tag trên VPS: fetch tag (không
-  `--force`), lấy digest image lõi từ Release (`trust-core-image-<X.Y.Z>.txt`), dựng SPA từ mã nguồn của tag, `compose up`
-  với overlay phát hành, kiểm `/readyz` và `/verify/v1/keys`, ghi `deploy/deployments.log`. Không tự quay lui: hỏng thì in
-  lệnh quay lại. Xem `docs/runbook-deploy.md` (Plan 03 Task 12, S9.2, R-3). Chạy thật là việc V29
+- `deploy.sh`: `ops/deploy.sh <vX.Y.Z> [--profile p16|p8] [--repo-url URL] [--allow-unsigned]` triển khai theo tag trên VPS:
+  fetch tag (không `--force`), **chỉ nhận tag đã ký SSH** (`verify-tag` với `deploy/allowed_signers`, thoát 2 nếu không), lấy
+  digest image lõi từ Release (`trust-core-image-<X.Y.Z>.txt`), dựng SPA từ mã nguồn của tag, `compose up` với overlay phát
+  hành, kiểm `/readyz` và `/verify/v1/keys`, ghi `deploy/deployments.log` (cột `result`, `signed`). Health hỏng thì tự quay
+  lui về bản tốt gần nhất. Mã thoát: 0 đạt; 2 từ chối trước khi đổi gì; 3 thiếu điều kiện (digest, compose, fetch); 4 hỏng
+  đã quay lui; 5 hỏng và không quay lui được. Xem `docs/runbook-deploy.md` (Plan 03 Task 12, Plan 04 Task 11, S4). Chạy
+  thật là việc V29 và V42
 - `seed_manifests.py`: nạp manifest thẳng vào DB, **chỉ dùng cho test lõi** (Plan 01 Task 17); cài app thật dùng
   `e2e/install_apps.sh` (CLI `dxos`, bốn mắt)
 - `e2e/install_apps.sh`: cài App A/B bằng CLI `dxos`, người nộp và người duyệt khác nhau; `e2e/run_e2e.sh`: chạy E2E
